@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db";
 import { newOrderCode } from "@/lib/ids";
 import { getActivePaymentProvider, getProvider } from "@/server/payments/registry";
+import { resolveAppBaseUrl } from "@/server/app-url";
 import { applyPaymentStatus, audit } from "@/server/payments/confirm";
 import type { PaymentProvider } from "@/server/payments/types";
 import { consumeCouponUse } from "./coupons";
@@ -28,9 +29,7 @@ export function maskPhone(phone: string): string {
   return `${phone.slice(0, 2)}•••••${phone.slice(-2)}`;
 }
 
-function appBaseUrl(): string {
-  return ((process.env.APP_BASE_URL ?? process.env.APP_URL) || "http://localhost:3000").replace(/\/$/, "");
-}
+
 
 const token = () => randomBytes(18).toString("base64url");
 
@@ -158,7 +157,7 @@ async function chargeWithProvider(
   created: { orderId: string; orderCode: string; publicToken: string; paymentId: string; reference: string },
   details: { amountCents: number; currency: PublicCheckout["offer"]["currency"]; method: string | null; phone: string | null; customer: { name: string; email: string }; description: string; imageUrl: string | null },
 ): Promise<{ redirectUrl: string | null; notStarted?: string }> {
-  const base = appBaseUrl();
+  const base = await resolveAppBaseUrl();
   let result;
   try {
     result = await provider.createCharge({

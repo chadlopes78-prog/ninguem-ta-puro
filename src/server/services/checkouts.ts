@@ -1,10 +1,11 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db";
+import { staticAppBaseUrl } from "@/server/app-url";
 import { newCheckoutPublicId } from "@/lib/ids";
 import type { CheckoutInput } from "@/server/validation/schemas";
 import { DomainError, NotFoundError } from "./products";
 
-export function checkoutUrl(publicId: string, base = process.env.APP_BASE_URL ?? process.env.APP_URL ?? ""): string {
+export function checkoutUrl(publicId: string, base = staticAppBaseUrl().url ?? ""): string {
   return `${base.replace(/\/$/, "")}/checkout/${publicId}`;
 }
 

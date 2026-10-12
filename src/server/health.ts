@@ -13,7 +13,7 @@ export interface SystemHealth {
 export async function getSystemHealth(): Promise<SystemHealth> {
   const env = {
     DATABASE_URL: Boolean(process.env.DATABASE_URL),
-    APP_BASE_URL: Boolean(process.env.APP_BASE_URL ?? process.env.APP_URL),
+    APP_BASE_URL: Boolean(process.env.APP_BASE_URL ?? process.env.APP_URL ?? process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL),
     EPAY_SECRET_KEY: Boolean(process.env.EPAY_SECRET_KEY),
   };
   let database: DbState = "ok";

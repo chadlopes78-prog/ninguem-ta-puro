@@ -9,6 +9,7 @@
 import "server-only";
 import { centsToDecimalString, decimalStringToCents } from "@/lib/money";
 import { verifyHmacSha256 } from "../webhooks";
+import { runningOnVercel, staticAppBaseUrl } from "@/server/app-url";
 import type { ChargeRequest, ChargeResult, ConfigCheck, NormalizedPaymentEvent, NormalizedState, NormalizedStatus, PaymentMethodOption, PaymentProvider } from "../types";
 
 /** URL base documentado. */
@@ -33,7 +34,7 @@ function secretKey(): string | null {
 }
 
 function appBaseUrl(): string | null {
-  return (process.env.APP_BASE_URL ?? process.env.APP_URL)?.trim() || null;
+  return staticAppBaseUrl().url;
 }
 
 function keyEnvironment(): "test" | "live" | null {
@@ -125,16 +126,19 @@ export const epayProvider: PaymentProvider = {
 
   isConfigured() {
     const env = keyEnvironment();
-    if (!env || !appBaseUrl()) return false;
-    // Em produção (chave live) o aviso de pagamento exige um callback_url https público.
-    if (env === "live" && !isHttps(appBaseUrl())) return false;
+    if (!env) return false;
+    // Em produção (chave live) o aviso de pagamento exige um callback_url https público:
+    // APP_BASE_URL em HTTPS, o domínio da Vercel, ou o endereço do pedido quando alojado na Vercel.
+    if (env === "live") return isHttps(appBaseUrl()) || runningOnVercel();
     return true;
   },
 
   configChecks(): ConfigCheck[] {
     const key = secretKey();
     const env = keyEnvironment();
-    const base = appBaseUrl();
+    const resolved = staticAppBaseUrl();
+    const base = resolved.url;
+    const onVercel = runningOnVercel();
     return [
       {
         label: "EPAY_SECRET_KEY",
@@ -148,13 +152,15 @@ export const epayProvider: PaymentProvider = {
               : "Definida — chave de PRODUÇÃO (dinheiro real). Valor nunca apresentado.",
       },
       {
-        label: "APP_BASE_URL",
-        ok: isHttps(base),
-        detail: !base
-          ? "Não definida"
-          : isHttps(base)
-            ? `Definida (HTTPS). Avisos de pagamento em ${base.replace(/\/$/, "")}/api/webhooks/epay`
-            : "Definida sem HTTPS: os avisos (callback) não são enviados; só funciona a consulta de estado (aceitável apenas com chave de teste)",
+        label: "Endereço do site",
+        ok: isHttps(base) || onVercel,
+        detail: base
+          ? isHttps(base)
+            ? `${base}${resolved.source === "vercel" ? " (detetado automaticamente na Vercel)" : " (APP_BASE_URL)"} — avisos de pagamento em ${base}/api/webhooks/epay`
+            : "APP_BASE_URL sem HTTPS: os avisos (callback) não são enviados; só funciona a consulta de estado (aceitável apenas com chave de teste)"
+          : onVercel
+            ? "Detetado automaticamente a partir do endereço do site (HTTPS na Vercel) — não é preciso configurar"
+            : "Não detetado — defina APP_BASE_URL (ex.: https://loja.exemplo.co.mz)",
       },
       { label: "URL base da API", ok: true, detail: `${EPAY_API_BASE_URL} (documentação oficial)` },
     ];
@@ -167,7 +173,6 @@ export const epayProvider: PaymentProvider = {
 
   async createCharge(req: ChargeRequest): Promise<ChargeResult> {
     if (req.currency !== "MZN") return { kind: "not_created", reason: "Moeda não suportada", userMessage: "Este produto só pode ser pago em MZN." };
-    const base = appBaseUrl();
     const body: Record<string, unknown> = {
       // Documentação: "amount" é um número em meticais (mín. 1, máx. 10 000 000)
       amount: Number(centsToDecimalString(req.amountCents)),
@@ -180,7 +185,7 @@ export const epayProvider: PaymentProvider = {
       cancel_url: req.cancelUrl,
     };
     // callback_url "tem de ser um endereço público https"
-    if (isHttps(base) && isHttps(req.callbackUrl)) body.callback_url = req.callbackUrl;
+    if (isHttps(req.callbackUrl)) body.callback_url = req.callbackUrl;
     if (req.imageUrl && isHttps(req.imageUrl)) body.image_url = req.imageUrl;
 
     let p: EPayPayment;

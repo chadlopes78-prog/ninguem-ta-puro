@@ -152,6 +152,43 @@ describe("configuração", () => {
   });
 });
 
+describe("endereço do site sem APP_BASE_URL (Vercel)", () => {
+  afterEach(() => {
+    delete process.env.VERCEL;
+    delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
+  });
+
+  it("usa o domínio de produção da Vercel e ativa a chave de produção sem configuração extra", async () => {
+    delete process.env.APP_BASE_URL;
+    delete process.env.APP_URL;
+    process.env.EPAY_SECRET_KEY = LIVE_KEY;
+    expect(epayProvider.isConfigured()).toBe(false); // fora da Vercel e sem endereço
+    process.env.VERCEL = "1";
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = "ninguem-ta-puro.vercel.app";
+    expect(epayProvider.isConfigured()).toBe(true);
+    const check = epayProvider.configChecks().find((c) => c.label === "Endereço do site");
+    expect(check).toMatchObject({ ok: true });
+    expect(check?.detail).toContain("https://ninguem-ta-puro.vercel.app");
+    const { resolveAppBaseUrl } = await import("@/server/app-url");
+    expect(await resolveAppBaseUrl()).toBe("https://ninguem-ta-puro.vercel.app");
+
+    const { checkout } = await setup();
+    await buy(checkout.publicId);
+    expect(calls[0].body).toMatchObject({ callback_url: "https://ninguem-ta-puro.vercel.app/api/webhooks/epay" });
+    expect(String(calls[0].body?.return_url)).toMatch(/^https:\/\/ninguem-ta-puro\.vercel\.app\/pagamento\//);
+  });
+
+  it("APP_BASE_URL manual tem prioridade; domínio inválido é ignorado", async () => {
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = "dominio-invalido/../x";
+    delete process.env.APP_BASE_URL;
+    delete process.env.APP_URL;
+    const { staticAppBaseUrl } = await import("@/server/app-url");
+    expect(staticAppBaseUrl().url).toBeNull();
+    process.env.APP_BASE_URL = "https://loja.exemplo.co.mz/";
+    expect(staticAppBaseUrl()).toEqual({ url: "https://loja.exemplo.co.mz", source: "env" });
+  });
+});
+
 describe("criar pagamento (POST /v1/payments)", () => {
   it("pedido conforme a documentação e redirecionamento para o payment_url", async () => {
     const { checkout } = await setup("1.250,50");
