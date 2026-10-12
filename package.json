@@ -13,9 +13,9 @@
     "test:e2e": "playwright test",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
-    "db:seed-demo": "tsx scripts/seed-demo.ts",
-    "db:clear-demo": "tsx scripts/clear-demo.ts",
-    "user:create": "tsx scripts/create-user.ts"
+    "db:seed-demo": "tsx --env-file=.env scripts/seed-demo.ts",
+    "db:clear-demo": "tsx --env-file=.env scripts/clear-demo.ts",
+    "user:create": "tsx --env-file=.env scripts/create-user.ts"
   },
   "engines": {
     "node": ">=20"
