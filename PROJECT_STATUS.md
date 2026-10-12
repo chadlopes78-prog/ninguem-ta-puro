@@ -117,6 +117,31 @@ Os testes EPay cobrem:
 
 `docs/epay-api.md` · `src/server/payments/providers/epay.ts` · `src/server/payments/{types,confirm,webhooks,registry}.ts` · `src/server/services/{payment-flow,orders,metrics,integrations}.ts` · `src/components/checkouts/checkout-view.tsx` · `src/app/checkout/[publicId]/page.tsx` · `src/app/pagamento/[token]/page.tsx` · `src/app/(app)/integracoes/*` · `src/app/(app)/pedidos/*` · `src/lib/money.ts` · `prisma/schema.prisma` + migração `20261012080000_epay_hosted_checkout` · `.env.example` · `tests/integration/epay.test.ts` · `e2e/05-payments.spec.ts`.
 
+## Deploy na Vercel
+
+Causa do erro "Application error: a server-side exception has occurred" no primeiro deploy: a aplicação arrancou **sem base de dados configurada** (`DATABASE_URL`) ou **sem as tabelas criadas**, porque o build não aplicava as migrações. Foi reproduzido localmente: com uma BD vazia, `/login` respondia 500.
+
+Correções (sessão 4):
+- Novo script `vercel-build` (a Vercel usa-o automaticamente). Executa `scripts/check-env.mjs` (falha o build com uma mensagem clara se faltar `DATABASE_URL`), `prisma generate`, `prisma migrate deploy` (usa `DATABASE_URL_UNPOOLED` quando existir, como na integração Neon) e `next build`.
+- `postinstall: prisma generate`.
+- Se a instalação estiver incompleta, `/login` e `/setup` mostram a página **"Configuração incompleta"**, que indica o que falta sem revelar valores, em vez de um erro genérico.
+- `GET /api/health` devolve o estado da BD (`ok`, `missing_url`, `unreachable`, `not_migrated`) e se cada variável existe (nunca o valor).
+- Página de erro global com a referência (digest) para procurar nos logs.
+
+Testado localmente:
+- sem `DATABASE_URL` → página de configuração e health `missing_url`;
+- BD vazia → página de configuração e health `not_migrated`;
+- `npm run vercel-build` numa BD vazia → 4 migrações aplicadas e build OK;
+- `check-env` sem `DATABASE_URL` → build falha com instruções.
+
+Passos na Vercel:
+1. **Project → Storage → Create Database → Neon (Postgres)** e ligar ao projeto. Isto define `DATABASE_URL` (e `DATABASE_URL_UNPOOLED`) em Production e Preview. Em alternativa, usar outro PostgreSQL e definir `DATABASE_URL` manualmente.
+2. **Settings → Environment Variables**: `APP_BASE_URL = https://ninguem-ta-puro.vercel.app` (ou o domínio próprio). Mais tarde, `EPAY_SECRET_KEY = sk_test_…`. Não definir `DEMO_TOOLS_ENABLED` em produção.
+3. **Deployments → Redeploy** (o build cria as tabelas).
+4. Abrir `https://ninguem-ta-puro.vercel.app/api/health` → deve devolver `"ok": true`.
+5. Abrir `/setup` e criar a conta de proprietário. **Faça-o logo após o deploy**: a primeira pessoa a abrir `/setup` cria a conta.
+6. **Settings → Git → Production Branch**: o repositório só tem o ramo `claude/jolly-babbage-eg28n3`. Ou se define esse ramo como Production Branch, ou se faz merge para `main` (por exemplo, através de um pull request).
+
 ## Funcionalidades concluídas e verificadas (sessão 1)
 
 Cada item abaixo tem verificação automática (unitária, integração ou E2E) e/ou verificação manual no browser.
@@ -214,6 +239,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 4 (2026-10-12)**: erro no deploy da Vercel diagnosticado (BD não configurada/migrada; sem acesso aos logs da Vercel a partir do ambiente — 403 no âmbito da equipa); `vercel-build` com migrações e verificação de ambiente, página "Configuração incompleta", `/api/health`, página de erro global; validação local dos três cenários.
 - **Sessão 3 (2026-10-12)**: documentação EPay fornecida pelo proprietário (`docs/epay-api.md`); adaptador EPay implementado (checkout alojado, aviso `X-EducavelPay-Signature`, consulta, cancelamento, chaves de teste/produção, encomendas de teste fora da receita, reconciliação); 139 testes unitários/integração e 38 E2E a passar; build OK; verificação manual com chave fictícia; sem acesso aos servidores reais da EPay.
 - **Sessão 2 (2026-10-12)**: leitura do documento de integração EPay/MZN; documentação oficial da EPay inacessível a partir do ambiente (domínio bloqueado), por isso nada da API foi inventado; MZN em toda a plataforma; fluxo de pagamento real completo e agnóstico ao fornecedor; adaptador EPay isolado e desativado; 116 testes unitários/integração e 38 E2E a passar; build OK; verificação de fuga de segredos OK.
 - **Sessão 1 (2026-10-12)**: análise do ambiente (repositório vazio), arquitetura, implementação das fases 1–7, 99 testes unitários/integração + 29 E2E, auditoria responsiva em 6 larguras, build de produção. Commits no ramo `claude/jolly-babbage-eg28n3`.

@@ -72,3 +72,12 @@ Nenhum segredo é exposto ao frontend.
 4. A encomenda só passa a **paga** em `applyPaymentStatus`: notificação autenticada ou consulta oficial, com validação de montante, moeda e referência. A operação é idempotente.
 5. Só depois disso é criado o acesso `/acesso/<token>` ao produto digital.
 6. Todas as transições ficam no registo de auditoria da encomenda.
+
+## Deploy (Vercel)
+
+O script `vercel-build` verifica a configuração, aplica as migrações (`prisma migrate deploy`) e compila. É preciso:
+- uma base de dados PostgreSQL (`DATABASE_URL`, por exemplo Vercel Storage → Neon);
+- `APP_BASE_URL`;
+- `EPAY_SECRET_KEY`, para cobrar.
+
+Diagnóstico: `GET /api/health`. Passo a passo em [PROJECT_STATUS.md](./PROJECT_STATUS.md#deploy-na-vercel).
