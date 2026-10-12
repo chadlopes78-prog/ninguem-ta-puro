@@ -48,7 +48,7 @@ export default async function FunnelsPage({ searchParams }: { searchParams: Prom
           />
         </Card>
       ) : (
-        <ul className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {funnels.map((f) => {
             const types = [...new Set(f.steps.map((s) => s.type))];
             return (

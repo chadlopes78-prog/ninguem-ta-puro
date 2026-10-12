@@ -20,7 +20,7 @@ export function DataTable<T>({ rows, columns, rowKey, rowHref, empty }: { rows: 
   const meta = columns.filter((c) => c !== title && !end.includes(c) && c.mobile !== "hide" && (c.mobile === "meta" || c.mobile === undefined));
   return (
     <>
-      <div className="hidden overflow-x-auto scrollbar-thin md:block">
+      <div className="relative hidden overflow-x-auto scrollbar-thin md:block">
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="border-b border-line text-[11.5px] uppercase tracking-wider text-subtle">

@@ -44,7 +44,7 @@ export function ProductForm({
   const [image, setImage] = useState(initial.imageUrl);
 
   return (
-    <form onSubmit={onSubmit} noValidate className="grid gap-5 lg:grid-cols-3">
+    <form onSubmit={onSubmit} noValidate className="grid grid-cols-1 gap-5 lg:grid-cols-3">
       <fieldset disabled={readOnly || pending} className="contents">
         <div className="flex flex-col gap-5 lg:col-span-2">
           {error && <Alert tone="danger">{error}</Alert>}
@@ -57,7 +57,7 @@ export function ProductForm({
               <Field label="Descrição" name="description" error={fe.description} required hint="Apresentada na página de checkout.">
                 {(p) => <Textarea {...p} defaultValue={initial.description} rows={5} maxLength={5000} />}
               </Field>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Tipo" name="type" error={fe.type} required>
                   {(p) => (
                     <Select {...p} defaultValue={initial.type}>
@@ -79,7 +79,7 @@ export function ProductForm({
 
           <Card>
             <CardHeader title="Preço principal" description="Valor guardado com precisão monetária (cêntimos) e associado a uma moeda." />
-            <CardBody className="grid gap-4 sm:grid-cols-3">
+            <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <Field label="Preço" name="priceCents" error={fe.priceCents} required>
                 {(p) => <Input {...p} inputMode="decimal" defaultValue={initial.priceCents !== null ? centsToInput(initial.priceCents) : ""} placeholder="197,00" />}
               </Field>
@@ -102,7 +102,7 @@ export function ProductForm({
 
           <Card>
             <CardHeader title="Configurações adicionais" />
-            <CardBody className="grid gap-4 sm:grid-cols-2">
+            <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Página de vendas" name="salesPageUrl" error={fe.salesPageUrl} hint="Opcional.">
                 {(p) => <Input {...p} type="url" defaultValue={initial.salesPageUrl} placeholder="https://" />}
               </Field>

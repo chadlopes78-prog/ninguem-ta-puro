@@ -68,7 +68,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
           Aprovações e reembolsos só podem ocorrer através de eventos confirmados e assinados pelo processador de pagamentos (ainda não integrado).
         </Alert>
       )}
-      <div className="grid gap-5 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader title="Itens" />
           <ul className="divide-y divide-line">

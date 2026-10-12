@@ -27,7 +27,7 @@ export function ManualOrderButton({ action, products, isDemo }: { action: (fd: F
             ? "Pedido fictício, identificado como demonstração e isolado dos dados reais."
             : "Pedidos manuais ficam identificados como teste. Nunca podem ser aprovados sem confirmação do processador de pagamentos, por isso não contam como faturação."}
         </Alert>
-        <form id="manual-order" onSubmit={onSubmit} className="grid gap-4 sm:grid-cols-2" noValidate>
+        <form id="manual-order" onSubmit={onSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2" noValidate>
           <Field label="Produto" name="productId" error={fe.productId} required>
             {(p) => (
               <Select {...p} value={productId} onChange={(e) => setProductId(e.target.value)}>

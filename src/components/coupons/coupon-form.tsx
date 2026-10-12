@@ -35,7 +35,7 @@ export function CouponForm({ action, initial, isNew, products }: { action: (fd: 
       {error && <Alert tone="danger">{error}</Alert>}
       <Card>
         <CardHeader title="Código e desconto" />
-        <CardBody className="grid gap-4 sm:grid-cols-2">
+        <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Código" name="code" error={fe.code} required hint="Letras, números, - e _. Guardado em maiúsculas.">
             {(p) => <Input {...p} defaultValue={initial.code} maxLength={32} className="font-mono uppercase" placeholder="TESTE10" />}
           </Field>
@@ -75,7 +75,7 @@ export function CouponForm({ action, initial, isNew, products }: { action: (fd: 
       </Card>
       <Card>
         <CardHeader title="Regras" description={!isNew ? `Utilizado ${initial.usesCount} vez(es).` : undefined} />
-        <CardBody className="grid gap-4 sm:grid-cols-3">
+        <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <Field label="Válido a partir de" name="startsAt" error={fe.startsAt}>
             {(p) => <Input {...p} type="date" defaultValue={initial.startsAt} />}
           </Field>

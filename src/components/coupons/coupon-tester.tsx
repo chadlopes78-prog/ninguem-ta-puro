@@ -12,7 +12,7 @@ export function CouponTester({ action, products }: { action: (fd: FormData) => P
   const [result, setResult] = useState<string | null>(null);
   const { onSubmit, pending, fieldErrors: fe, error } = useFormAction(action, { onSuccess: (d) => setResult(d?.summary ?? null) });
   return (
-    <form onSubmit={(e) => { setResult(null); onSubmit(e); }} className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end" noValidate>
+    <form onSubmit={(e) => { setResult(null); onSubmit(e); }} className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end" noValidate>
       <Field label="Oferta" name="offerId" error={fe.offerId}>
         {(p) => (
           <Select {...p} defaultValue="">

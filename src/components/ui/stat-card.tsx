@@ -28,15 +28,15 @@ export function StatCard({
         highlight && "border-accent/25 bg-[linear-gradient(180deg,rgb(200_241_53/0.06),transparent_60%)]",
       )}
     >
-      <div className="flex items-center justify-between gap-2">
-        <span className="flex items-center gap-1.5 truncate text-[12.5px] font-medium text-muted">
+      <div className="flex items-start justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-1.5 text-[12px] font-medium leading-snug text-muted sm:text-[12.5px]">
           {label}
           {hint && <Tooltip content={hint} />}
         </span>
         {delta !== undefined && (
           <span
             className={cn(
-              "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular",
+              "inline-flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular",
               positive && "bg-success/10 text-success",
               negative && "bg-danger/10 text-danger",
               !positive && !negative && "bg-surface-3 text-subtle",
@@ -58,8 +58,8 @@ export function StatCard({
           </span>
         )}
       </div>
-      <div className="truncate font-display text-[22px] font-semibold tracking-tight text-fg tabular sm:text-2xl">{value}</div>
-      {sub && <div className="truncate text-[12px] text-subtle">{sub}</div>}
+      <div className="break-words font-display text-[18px] font-semibold leading-tight tracking-tight text-fg tabular min-[400px]:text-[20px] sm:text-2xl">{value}</div>
+      {sub && <div className="text-[11.5px] leading-snug text-subtle sm:text-[12px]">{sub}</div>}
     </div>
   );
 }

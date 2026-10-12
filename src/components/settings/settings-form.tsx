@@ -15,7 +15,7 @@ export function SettingsForm({ action, initial }: { action: (fd: FormData) => Pr
     <Card>
       <CardHeader title="Negócio" description="Nome, identidade e preferências regionais." />
       <CardBody>
-        <form onSubmit={onSubmit} noValidate className="grid gap-4 sm:grid-cols-2">
+        <form onSubmit={onSubmit} noValidate className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Nome do negócio" name="businessName" error={fe.businessName} required>
             {(p) => <Input {...p} defaultValue={initial.businessName} maxLength={80} />}
           </Field>
@@ -66,7 +66,7 @@ export function SettingsForm({ action, initial }: { action: (fd: FormData) => Pr
 export function PasswordForm({ action }: { action: (fd: FormData) => Promise<ActionResult<unknown>> }) {
   const { onSubmit, pending, fieldErrors: fe } = useFormAction(action, { redirectTo: () => "/login" });
   return (
-    <form onSubmit={onSubmit} noValidate className="grid gap-4 sm:grid-cols-3">
+    <form onSubmit={onSubmit} noValidate className="grid grid-cols-1 gap-4 sm:grid-cols-3">
       <Field label="Password atual" name="current" error={fe.current} required>
         {(p) => <Input {...p} type="password" autoComplete="current-password" />}
       </Field>

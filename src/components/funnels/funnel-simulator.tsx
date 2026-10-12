@@ -26,7 +26,11 @@ export function FunnelSimulator({ graph, products }: { graph: FunnelGraph; produ
     setHistory([]);
   };
 
-  const offerOf = (n: GraphNode) => products.find((p) => p.id === n.config.productId)?.offers.find((o) => o.id === n.config.offerId);
+  const offerOf = (n: GraphNode) => {
+    const p = products.find((x) => x.id === n.config.productId);
+    const o = p?.offers.find((x) => x.id === n.config.offerId);
+    return p && o ? { ...o, name: `${p.name} — ${o.name}` } : undefined;
+  };
   const choose = (d: Decision) => {
     if (!current) return;
     setHistory((h) => [...h, { node: current, decision: d }]);

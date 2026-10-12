@@ -98,7 +98,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: SP
         <StatCard label="Total de pedidos" value={k.totalOrders} delta={percentChange(k.totalOrders, p.totalOrders)} sub="Todos os estados" />
       </section>
 
-      <div className="mt-6 grid gap-4 xl:grid-cols-3">
+      <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Card className="xl:col-span-2">
           <CardHeader
             title="Evolução da faturação"

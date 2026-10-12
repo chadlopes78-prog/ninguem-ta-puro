@@ -92,7 +92,7 @@ export function CheckoutForm({
   const check = (k: keyof CheckoutFormValues) => ({ name: k, checked: Boolean(v[k]), onChange: (e: React.ChangeEvent<HTMLInputElement>) => set(k, e.target.checked as never) });
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
       <form onSubmit={onSubmit} noValidate className="flex min-w-0 flex-col gap-5">
         {error && <Alert tone="danger">{error}</Alert>}
         {products.length === 0 && (
@@ -102,7 +102,7 @@ export function CheckoutForm({
         )}
         <Card>
           <CardHeader title="Produto e oferta" />
-          <CardBody className="grid gap-4 sm:grid-cols-2">
+          <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Nome interno" name="name" error={fe.name} required className="sm:col-span-2" hint="Só visível no painel.">
               {(p) => <Input {...p} {...text("name")} maxLength={120} placeholder="Ex.: Checkout principal — Guia" />}
             </Field>
@@ -148,7 +148,7 @@ export function CheckoutForm({
 
         <Card>
           <CardHeader title="Aparência" />
-          <CardBody className="grid gap-4 sm:grid-cols-2">
+          <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Título" name="title" error={fe.title} required className="sm:col-span-2">
               {(p) => <Input {...p} {...text("title")} maxLength={140} />}
             </Field>
@@ -178,7 +178,7 @@ export function CheckoutForm({
 
         <Card>
           <CardHeader title="Campos do formulário" description="Nome e email são sempre obrigatórios. Dados de cartão nunca são pedidos." />
-          <CardBody className="grid gap-1 sm:grid-cols-2">
+          <CardBody className="grid grid-cols-1 gap-1 sm:grid-cols-2">
             <Checkbox label="Pedir telefone" {...check("collectPhone")} />
             <Checkbox label="Telefone obrigatório" {...check("requirePhone")} />
             <Checkbox label="Pedir documento (CPF/NIF)" {...check("collectDocument")} />
@@ -189,7 +189,7 @@ export function CheckoutForm({
 
         <Card>
           <CardHeader title="Após a compra" />
-          <CardBody className="grid gap-4 sm:grid-cols-2">
+          <CardBody className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Título de sucesso" name="successTitle" error={fe.successTitle} required>
               {(p) => <Input {...p} {...text("successTitle")} maxLength={140} />}
             </Field>
@@ -220,7 +220,7 @@ export function CheckoutForm({
         <Card>
           <CardBody className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <Checkbox label="Checkout ativo" description="Quando inativo, o link mostra uma página de indisponibilidade." {...check("isActive")} />
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button variant="secondary" className="xl:hidden" onClick={() => setShowPreview((s) => !s)}>
                 <Eye className="h-4 w-4" /> {showPreview ? "Ocultar" : "Pré-visualizar"}
               </Button>

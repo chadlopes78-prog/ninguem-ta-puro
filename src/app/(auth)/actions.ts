@@ -5,7 +5,7 @@ import { createUser, hasAnyUser, login, revokeSession } from "@/server/auth/serv
 import { clearSessionCookie, requestMeta, setSessionCookie } from "@/server/auth/session";
 import { loginSchema, setupSchema } from "@/server/validation/schemas";
 import { flattenErrors, type ActionResult } from "@/server/validation/common";
-import { rateLimit } from "@/server/rate-limit";
+import { hit, isLimited } from "@/server/rate-limit";
 
 function safeNext(next: unknown): string {
   return typeof next === "string" && /^\/(?!\/)[\w\-/?=&%.]*$/.test(next) ? next : "/dashboard";
@@ -15,11 +15,12 @@ export async function loginAction(fd: FormData): Promise<ActionResult<{ next: st
   const parsed = loginSchema.safeParse({ email: fd.get("email"), password: fd.get("password") });
   if (!parsed.success) return { ok: false, error: "Corrija os campos assinalados.", fieldErrors: flattenErrors(parsed.error) };
   const meta = await requestMeta();
-  if (!rateLimit(`login:${meta.ip ?? "?"}`, 20, 15 * 60_000)) {
-    return { ok: false, error: "Demasiadas tentativas. Aguarde alguns minutos." };
-  }
+  // Limite por IP de tentativas falhadas (qualquer email); o limite por email+IP é persistido na BD.
+  const ipKey = `login-fail:${meta.ip ?? "?"}`;
+  if (isLimited(ipKey, 20)) return { ok: false, error: "Demasiadas tentativas. Aguarde alguns minutos." };
   const r = await login(parsed.data.email, parsed.data.password, meta);
   if (!r.ok) {
+    hit(ipKey, 15 * 60_000);
     return {
       ok: false,
       error: r.reason === "rate_limited" ? "Demasiadas tentativas falhadas. Aguarde 15 minutos." : "Email ou password incorretos.",

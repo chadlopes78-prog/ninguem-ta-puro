@@ -15,3 +15,16 @@ export function rateLimit(key: string, limit: number, windowMs: number, now = Da
   b.count++;
   return true;
 }
+
+/** Verifica sem consumir: verdadeiro se a chave já atingiu o limite na janela atual. */
+export function isLimited(key: string, limit: number, now = Date.now()): boolean {
+  const b = buckets.get(key);
+  return Boolean(b && b.resetAt > now && b.count >= limit);
+}
+
+/** Regista uma ocorrência (ex.: tentativa falhada) sem bloquear. */
+export function hit(key: string, windowMs: number, now = Date.now()): void {
+  const b = buckets.get(key);
+  if (!b || b.resetAt <= now) buckets.set(key, { count: 1, resetAt: now + windowMs });
+  else b.count++;
+}

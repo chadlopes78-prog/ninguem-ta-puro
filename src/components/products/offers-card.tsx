@@ -85,7 +85,7 @@ export function OffersCard({
           <Field label="Nome da oferta" name="name" error={fe.name} required>
             {(p) => <Input {...p} placeholder="Ex.: Oferta de lançamento" />}
           </Field>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Preço" name="priceCents" error={fe.priceCents} required>
               {(p) => <Input {...p} inputMode="decimal" placeholder="97,00" />}
             </Field>

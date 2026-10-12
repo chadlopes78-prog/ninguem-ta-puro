@@ -52,10 +52,16 @@ export function Field({
   const describedBy = [error ? `${id}-err` : null, hint ? `${id}-hint` : null].filter(Boolean).join(" ") || undefined;
   return (
     <div className={cn("flex min-w-0 flex-col gap-1.5", className)}>
-      <label htmlFor={id} className="text-[13px] font-medium text-fg/90">
-        {label}
-        {required && <span className="ml-0.5 text-accent" aria-hidden="true">*</span>}
-      </label>
+      <div className="flex items-baseline gap-0.5">
+        <label htmlFor={id} className="text-[13px] font-medium text-fg/90">
+          {label}
+        </label>
+        {required && (
+          <span className="text-[13px] text-accent" aria-hidden="true">
+            *
+          </span>
+        )}
+      </div>
       {children({ id, name, "aria-invalid": error ? true : undefined, "aria-describedby": describedBy, required })}
       {hint && !error && (
         <p id={`${id}-hint`} className="text-[12px] text-subtle">

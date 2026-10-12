@@ -109,7 +109,12 @@ function BuilderInner(props: Props) {
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(initial.edges);
   const [name, setName] = useState(funnel.name);
   const [description, setDescription] = useState(funnel.description);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedIdState] = useState<string | null>(null);
+  const selectedRef = useRef<string | null>(null);
+  const setSelectedId = (id: string | null) => {
+    selectedRef.current = id;
+    setSelectedIdState(id);
+  };
   const [simOpen, setSimOpen] = useState(false);
   const [panel, setPanel] = useState<"inspector" | "issues">("inspector");
   const [pending, start] = useTransition();
@@ -381,8 +386,13 @@ function BuilderInner(props: Props) {
             onConnect={onConnect}
             isValidConnection={isValidConnection}
             onSelectionChange={({ nodes: sel }) => {
-              setSelectedId(sel[0]?.id ?? null);
-              if (sel[0]) setPanel("inspector");
+              const id = sel[0]?.id ?? null;
+              // só muda de separador quando a seleção muda de facto (não em cada re-render)
+              if (id !== selectedRef.current) {
+                selectedRef.current = id;
+                setSelectedId(id);
+                if (id) setPanel("inspector");
+              }
             }}
             fitView
             fitViewOptions={{ padding: 0.15, maxZoom: 1, minZoom: 0.6 }}

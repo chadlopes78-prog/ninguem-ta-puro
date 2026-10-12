@@ -24,7 +24,7 @@ export default async function IntegrationsPage() {
       <Alert tone={paymentsEnabled() ? "success" : "warning"} className="mb-6" title={paymentsEnabled() ? "Pagamentos ativos" : "Pagamentos reais desativados"}>
         Nenhum processador de pagamento está integrado nesta fase. Os checkouts informam o comprador de que o pagamento não está disponível e não recolhem dados de cartão. A arquitetura (abstração de fornecedores, eventos assinados, idempotência e registo) está preparada para a integração posterior.
       </Alert>
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {items.map((i) => (
           <Card key={i.id} className="flex flex-col">
             <CardHeader
@@ -43,7 +43,7 @@ export default async function IntegrationsPage() {
               </dl>
               {i.lastError && <p className="rounded-[var(--radius-md)] bg-surface-2 p-2.5 text-[12.5px] text-muted">{i.lastError}</p>}
               <p className="text-[12.5px] text-subtle">
-                Para ativar: implementar o fornecedor em <code className="text-muted">src/server/payments/providers/{i.id}.ts</code>, definir as credenciais em variáveis de ambiente e configurar o webhook <code className="text-muted">/api/webhooks/{i.id}</code>.
+                Para ativar: implementar o fornecedor em <code className="break-all text-muted">src/server/payments/providers/{i.id}.ts</code>, definir as credenciais em variáveis de ambiente e configurar o webhook <code className="break-all text-muted">/api/webhooks/{i.id}</code>.
               </p>
               <div className="mt-auto">
                 <ActionButton size="sm" variant="secondary" action={checkIntegrationAction.bind(null, i.id)}>Verificar estado</ActionButton>
