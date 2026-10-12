@@ -1,5 +1,6 @@
 import { Prisma, type ProductStatus, type ProductType } from "@prisma/client";
 import { prisma } from "@/server/db";
+import { createPrimaryCheckoutTx, ensurePrimaryCheckout } from "./primary-checkout";
 import type { OfferInput, ProductInput } from "@/server/validation/schemas";
 
 export class NotFoundError extends Error {
@@ -74,23 +75,40 @@ function productData(input: ProductInput) {
   };
 }
 
+/**
+ * Cria o produto, o preço principal e o checkout principal (com link público) numa única transação:
+ * ou fica tudo criado, ou nada fica criado. Se algo falhar depois (ex.: produto antigo sem checkout),
+ * ensurePrimaryCheckout() recupera a associação de forma idempotente.
+ */
 export async function createProduct(input: ProductInput, isDemo: boolean) {
-  return prisma.product.create({
-    data: {
-      ...productData(input),
-      isDemo,
-      offers: {
-        create: {
-          name: "Preço principal",
-          priceCents: input.priceCents,
-          compareAtCents: input.compareAtCents ?? null,
-          currency: input.currency,
-          isDefault: true,
-        },
-      },
-    },
-    include: { offers: true },
-  });
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const product = await tx.product.create({
+          data: {
+            ...productData(input),
+            isDemo,
+            offers: {
+              create: {
+                name: "Preço principal",
+                priceCents: input.priceCents,
+                compareAtCents: input.compareAtCents ?? null,
+                currency: input.currency,
+                isDefault: true,
+              },
+            },
+          },
+          include: { offers: true },
+        });
+        const checkout = await createPrimaryCheckoutTx(tx, product, product.offers[0].id);
+        return { ...product, primaryCheckout: checkout };
+      });
+    } catch (e) {
+      // slug criado em paralelo por outro pedido: tenta de novo com outro endereço
+      if (attempt < 2 && e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") continue;
+      throw e;
+    }
+  }
 }
 
 export async function updateProduct(id: string, input: ProductInput, isDemo: boolean) {
@@ -99,6 +117,19 @@ export async function updateProduct(id: string, input: ProductInput, isDemo: boo
   const defaultOffer = existing.offers.find((o) => o.isDefault);
   return prisma.$transaction(async (tx) => {
     const product = await tx.product.update({ where: { id }, data: productData(input) });
+    // O checkout principal acompanha o nome/descrição do produto enquanto não tiverem sido personalizados.
+    // O endereço (slug) nunca muda, para não invalidar links já partilhados.
+    const primary = await tx.checkout.findUnique({ where: { primaryProductId: id } });
+    if (primary) {
+      await tx.checkout.update({
+        where: { id: primary.id },
+        data: {
+          ...(primary.title === existing.name ? { title: input.name } : {}),
+          ...(primary.description === existing.description ? { description: input.description } : {}),
+          ...(primary.name === `Checkout — ${existing.name}`.slice(0, 120) ? { name: `Checkout — ${input.name}`.slice(0, 120) } : {}),
+        },
+      });
+    }
     const offerData = { priceCents: input.priceCents, compareAtCents: input.compareAtCents ?? null, currency: input.currency };
     if (defaultOffer) await tx.offer.update({ where: { id: defaultOffer.id }, data: offerData });
     else await tx.offer.create({ data: { ...offerData, productId: id, name: "Preço principal", isDefault: true } });
@@ -119,7 +150,7 @@ export async function setProductStatus(id: string, status: ProductStatus, isDemo
 
 export async function duplicateProduct(id: string, isDemo: boolean) {
   const p = await getProduct(id, isDemo);
-  return prisma.product.create({
+  const copy = await prisma.product.create({
     data: {
       name: `${p.name} (cópia)`.slice(0, 120),
       description: p.description,
@@ -145,6 +176,9 @@ export async function duplicateProduct(id: string, isDemo: boolean) {
       },
     },
   });
+  // a cópia recebe o seu próprio checkout e link (nunca partilha o do original)
+  await ensurePrimaryCheckout(copy.id);
+  return copy;
 }
 
 export async function addOffer(productId: string, input: OfferInput, isDemo: boolean) {

@@ -7,6 +7,8 @@ import { formatMoney, type CurrencyCode } from "@/lib/money";
 import { isDark, readableOn } from "@/lib/color";
 import { cn } from "@/lib/utils";
 import type { PurchaseOutcome } from "@/server/services/purchase";
+import type { CheckoutDesign, DesignBlock } from "@/lib/checkout-design";
+import { CheckoutBlock } from "./checkout-blocks";
 
 export interface CheckoutPaymentMethod {
   id: string;
@@ -44,16 +46,28 @@ export interface CheckoutViewData {
 type CouponState = { code: string; discountCents: number; totalCents: number } | null;
 
 export function CheckoutView({
-  data,
+  data: rawData,
+  design,
+  selectedBlockId,
   mode = "live",
   submitAction,
   couponAction,
 }: {
   data: CheckoutViewData;
+  /** Personalização visual (blocos e tema). Nunca altera preço, moeda, formulário ou pagamento. */
+  design?: CheckoutDesign | null;
+  /** Bloco destacado no editor visual */
+  selectedBlockId?: string | null;
   mode?: "live" | "preview";
   submitAction?: (input: Record<string, string>, sessionId?: string) => Promise<PurchaseOutcome>;
   couponAction?: (code: string) => Promise<{ ok: true; discountCents: number; totalCents: number; code: string } | { ok: false; message: string }>;
 }) {
+  const data: CheckoutViewData = design
+    ? { ...rawData, primaryColor: design.theme.primaryColor, backgroundColor: design.theme.backgroundColor, buttonText: design.theme.buttonText }
+    : rawData;
+  const blocks: DesignBlock[] = design?.blocks ?? [{ id: "product", type: "product", showImage: true, headline: "", subheadline: "" }];
+  const stacked = design?.theme.layout === "stacked";
+  const productBlock = (blocks.find((b) => b.type === "product") as Extract<DesignBlock, { type: "product" }> | undefined) ?? { id: "product", type: "product" as const, showImage: true, headline: "", subheadline: "" };
   const dark = isDark(data.backgroundColor);
   const onPrimary = readableOn(data.primaryColor);
   const router = useRouter();
@@ -210,6 +224,11 @@ export function CheckoutView({
       {mode === "preview" && (
         <div className="bg-[#60a5fa] px-4 py-2 text-center text-[12.5px] font-semibold text-black">Pré-visualização — submissões desativadas</div>
       )}
+      {design?.theme.announcement && (
+        <div className="px-4 py-2.5 text-center text-[13px] font-semibold" style={{ background: data.primaryColor, color: onPrimary }} data-block="announcement">
+          {design.theme.announcement}
+        </div>
+      )}
       <header className={cn("border-b", dark ? "border-white/10" : "border-black/10")}>
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4 sm:px-6">
           <span className="truncate font-display text-[15px] font-semibold">{data.businessName}</span>
@@ -219,9 +238,17 @@ export function CheckoutView({
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-5xl gap-6 px-4 py-6 sm:px-6 sm:py-10 @3xl:grid-cols-[1.1fr_1fr] @3xl:gap-10">
-        <section aria-label="Produto" className="min-w-0">
-          {data.imageUrl ? (
+      <div className={cn("mx-auto grid gap-6 px-4 py-6 sm:px-6 sm:py-10", stacked ? "max-w-2xl" : "max-w-5xl @3xl:grid-cols-[1.1fr_1fr] @3xl:gap-10")}>
+        <section aria-label="Produto" className="flex min-w-0 flex-col gap-6">
+          {blocks.map((b) => (
+            <CheckoutBlock
+              key={b.id}
+              block={b}
+              p={{ dark, muted, panel, primary: data.primaryColor }}
+              storageKey={data.publicId ?? "preview"}
+              selected={selectedBlockId === undefined ? undefined : selectedBlockId === b.id}
+              productHeader={<div data-block="product">
+          {!productBlock.showImage ? null : data.imageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={data.imageUrl} alt={data.productName} className="aspect-[16/10] w-full rounded-2xl object-cover" />
           ) : (
@@ -231,12 +258,15 @@ export function CheckoutView({
               </span>
             </div>
           )}
-          <h1 className="mt-6 font-display text-2xl font-semibold leading-tight tracking-tight sm:text-3xl">{data.title}</h1>
-          {data.description && <p className={cn("mt-3 whitespace-pre-line text-[15px] leading-relaxed", muted)}>{data.description}</p>}
+          <h1 className={cn("font-display text-2xl font-semibold leading-tight tracking-tight sm:text-3xl", productBlock.showImage && "mt-6")}>{productBlock.headline || data.title}</h1>
+          {(productBlock.subheadline || data.description) && <p className={cn("mt-3 whitespace-pre-line text-[15px] leading-relaxed", muted)}>{productBlock.subheadline || data.description}</p>}
           <div className="mt-5 flex items-baseline gap-3">
             <span className="font-display text-3xl font-semibold tabular">{formatMoney(data.priceCents, data.currency)}</span>
             {data.compareAtCents && <span className={cn("text-lg line-through tabular", muted)}>{formatMoney(data.compareAtCents, data.currency)}</span>}
           </div>
+        </div>}
+            />
+          ))}
         </section>
 
         <section aria-label="Finalizar compra" className="min-w-0">

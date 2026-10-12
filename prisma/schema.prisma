@@ -128,6 +128,10 @@ model Checkout {
   id                 String            @id @default(cuid())
   /// Identificador público aleatório (não sequencial) usado em /checkout/<publicId>
   publicId           String            @unique
+  /// Endereço legível e estável (ex.: /checkout/handwriting-heroes). Nunca muda ao renomear o produto.
+  slug               String?           @unique
+  /// Preenchido (= productId) apenas no checkout principal do produto: garante um único checkout principal por produto
+  primaryProductId   String?           @unique
   name               String
   productId          String
   product            Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
@@ -156,9 +160,27 @@ model Checkout {
   updatedAt          DateTime          @updatedAt
   orders             Order[]
   sessions           CheckoutSession[]
+  design             CheckoutDesign?
 
   @@index([isDemo])
   @@index([productId])
+}
+
+/// Personalização visual do checkout (separada dos dados comerciais: preço, moeda, oferta e pagamento).
+model CheckoutDesign {
+  id            String    @id @default(cuid())
+  checkoutId    String    @unique
+  checkout      Checkout  @relation(fields: [checkoutId], references: [id], onDelete: Cascade)
+  /// Versão em edição (não visível para os compradores)
+  draft         Json
+  /// Versão visível no checkout público (null = modelo padrão)
+  published     Json?
+  draftUpdatedAt DateTime @default(now())
+  publishedAt   DateTime?
+  /// Incrementa a cada publicação
+  version       Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
 
 model CheckoutSession {

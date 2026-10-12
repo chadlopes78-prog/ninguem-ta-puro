@@ -113,16 +113,19 @@ export async function deleteCheckout(id: string, isDemo: boolean) {
 }
 
 export type PublicCheckoutState =
-  | { state: "ok"; checkout: Awaited<ReturnType<typeof getCheckout>> }
+  | { state: "ok"; checkout: Awaited<ReturnType<typeof getCheckout>> & { design: { published: Prisma.JsonValue | null } | null } }
   | { state: "unavailable" };
 
 /** Checkout para a página pública. Não revela o motivo da indisponibilidade. */
-export async function getPublicCheckout(publicId: string): Promise<PublicCheckoutState> {
-  if (!/^[A-Za-z0-9]{8,32}$/.test(publicId)) return { state: "unavailable" };
-  const c = await prisma.checkout.findUnique({
-    where: { publicId },
-    include: { product: true, offer: true, funnel: { select: { id: true, name: true, status: true } } },
-  });
+export async function getPublicCheckout(publicIdOrSlug: string): Promise<PublicCheckoutState> {
+  // Aceita o endereço legível (slug, ex.: handwriting-heroes) e o identificador aleatório antigo.
+  const isPublicId = /^[A-Za-z0-9]{8,32}$/.test(publicIdOrSlug);
+  const isSlug = /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/.test(publicIdOrSlug);
+  if (!isPublicId && !isSlug) return { state: "unavailable" };
+  const include = { product: true, offer: true, funnel: { select: { id: true, name: true, status: true } }, design: { select: { published: true } } } as const;
+  const c =
+    (isPublicId ? await prisma.checkout.findUnique({ where: { publicId: publicIdOrSlug }, include }) : null) ??
+    (isSlug ? await prisma.checkout.findUnique({ where: { slug: publicIdOrSlug }, include }) : null);
   if (!c || !c.isActive || c.product.status !== "PUBLISHED" || !c.offer.isActive) return { state: "unavailable" };
   return { state: "ok", checkout: c };
 }
