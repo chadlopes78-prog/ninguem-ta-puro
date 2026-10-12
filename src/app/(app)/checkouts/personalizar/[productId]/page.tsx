@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { requireUser } from "@/server/auth/session";
 import { getScope } from "@/server/services/settings";
 import { getEditorState } from "@/server/services/checkout-design";
-import { checkoutPath } from "@/server/services/primary-checkout";
 import { checkoutViewData } from "@/server/services/checkout-view-data";
 import { NotFoundError } from "@/server/services/products";
 import { prisma } from "@/server/db";
@@ -26,7 +25,6 @@ export default async function PersonalizeCheckoutPage({ params }: { params: Prom
       key={`${state.checkout.id}:${state.version}:${state.draftUpdatedAt?.toISOString() ?? ""}`}
       productId={state.product.id}
       productName={state.product.name}
-      checkoutPath={checkoutPath(state.checkout)}
       initial={state.draft}
       status={state.status}
       hasPublished={state.hasPublished}

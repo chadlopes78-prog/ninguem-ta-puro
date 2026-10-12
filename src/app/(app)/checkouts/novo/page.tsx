@@ -21,7 +21,7 @@ export default async function NewCheckoutPage({ searchParams }: { searchParams: 
   const pre = products.find((p) => p.id === productId);
   return (
     <>
-      <PageHeader breadcrumbs={[{ label: "Checkouts", href: "/checkouts" }, { label: "Novo" }]} title={<span className="flex flex-wrap items-center gap-3">Novo checkout {isDemo && <DemoBadge />}</span>} />
+      <PageHeader breadcrumbs={[{ label: "Todos os checkouts", href: "/checkouts/avancado" }, { label: "Novo" }]} title={<span className="flex flex-wrap items-center gap-3">Novo checkout {isDemo && <DemoBadge />}</span>} />
       <CheckoutForm
         isNew
         isDemo={isDemo}

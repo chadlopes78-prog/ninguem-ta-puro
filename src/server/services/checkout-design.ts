@@ -94,7 +94,7 @@ export async function discardDraft(productId: string, isDemo: boolean) {
   else await prisma.checkoutDesign.delete({ where: { id: record.id } });
 }
 
-/** Lista para a área "Personalização do Checkout": todos os produtos do âmbito, com o seu checkout principal. */
+/** Lista para a área "Personalizar Checkout": todos os produtos do âmbito, com o seu checkout principal. */
 export async function listCheckoutPersonalization(isDemo: boolean, q?: string) {
   const products = await prisma.product.findMany({
     where: { isDemo, status: { not: "ARCHIVED" }, ...(q ? { name: { contains: q, mode: "insensitive" as const } } : {}) },

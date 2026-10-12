@@ -40,11 +40,19 @@ export async function listProducts(query: ProductListQuery) {
     orderBy,
     include: {
       offers: { where: { isDefault: true }, take: 1 },
+      checkouts: { where: { primaryProductId: { not: null } }, select: { slug: true, publicId: true, isActive: true }, take: 1 },
       _count: { select: { orderItems: true, checkouts: true } },
     },
     take: 500,
   });
-  const rows = products.map((p) => ({ ...p, defaultOffer: p.offers[0] ?? null }));
+  // recuperação: produtos sem checkout principal (antigos ou falha) recebem-no agora
+  for (const p of products) {
+    if (!p.checkouts[0]?.slug) {
+      const c = await ensurePrimaryCheckout(p.id);
+      p.checkouts = [{ slug: c.slug, publicId: c.publicId, isActive: c.isActive }];
+    }
+  }
+  const rows = products.map((p) => ({ ...p, defaultOffer: p.offers[0] ?? null, primaryCheckout: p.checkouts[0] ?? null }));
   if (query.sort === "price_desc" || query.sort === "price_asc") {
     const dir = query.sort === "price_desc" ? -1 : 1;
     rows.sort((a, b) => dir * ((a.defaultOffer?.priceCents ?? 0) - (b.defaultOffer?.priceCents ?? 0)));

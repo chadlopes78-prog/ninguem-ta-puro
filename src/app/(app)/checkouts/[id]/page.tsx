@@ -37,7 +37,7 @@ export default async function CheckoutPage({ params }: { params: Promise<{ id: s
   return (
     <>
       <PageHeader
-        breadcrumbs={[{ label: "Checkouts", href: "/checkouts" }, { label: c.name }]}
+        breadcrumbs={[{ label: "Todos os checkouts", href: "/checkouts/avancado" }, { label: c.name }]}
         title={
           <span className="flex flex-wrap items-center gap-3">
             {c.name}

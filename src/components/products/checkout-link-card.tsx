@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { CheckCircle2, ExternalLink, Paintbrush } from "lucide-react";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -55,6 +56,9 @@ export function CheckoutLinkCard({
             <Paintbrush className="h-4 w-4" /> Personalizar checkout
           </LinkButton>
         </div>
+        <Link href="/checkouts/avancado" className="self-start text-[12.5px] text-muted underline-offset-2 hover:text-fg hover:underline">
+          Checkouts adicionais e definições avançadas
+        </Link>
       </CardBody>
     </Card>
   );

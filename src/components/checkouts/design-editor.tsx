@@ -12,7 +12,6 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
-import { CopyButton } from "@/components/ui/copy-button";
 import { CheckoutView, type CheckoutViewData } from "./checkout-view";
 
 type Status = "default" | "published" | "unpublished_changes";
@@ -20,7 +19,6 @@ type Status = "default" | "published" | "unpublished_changes";
 interface Props {
   productId: string;
   productName: string;
-  checkoutPath: string;
   initial: CheckoutDesign;
   status: Status;
   hasPublished: boolean;
@@ -110,7 +108,7 @@ export function DesignEditor(props: Props) {
     <div className="-mx-4 -my-6 flex min-h-[calc(100dvh-3.5rem)] flex-col sm:-mx-6 lg:-mx-8 lg:-my-8 lg:h-dvh lg:min-h-0">
       {/* Barra superior */}
       <div className="flex flex-wrap items-center gap-2 border-b border-line bg-surface px-3 py-2.5 sm:px-4">
-        <Link href="/checkouts" className="grid h-9 w-9 place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-fg" aria-label="Voltar à Personalização do Checkout">
+        <Link href="/checkouts" className="grid h-9 w-9 place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-fg" aria-label="Voltar a Personalizar Checkout">
           <ArrowLeft className="h-4 w-4" />
         </Link>
         <div className="min-w-0 flex-1">
@@ -121,7 +119,6 @@ export function DesignEditor(props: Props) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <CopyButton value={props.checkoutPath} size="sm" />
           <a href={`/checkouts/personalizar/${props.productId}/preview`} target="_blank" rel="noopener" className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-md)] border border-line bg-surface-3 px-3 text-[13px] font-medium hover:bg-[#252a31]" title="Abre o rascunho guardado">
             <Eye className="h-4 w-4" /> Pré-visualizar
           </a>

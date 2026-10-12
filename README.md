@@ -2,7 +2,7 @@
 
 Plataforma privada de vendas digitais em **metical moçambicano (MZN)**: produtos, checkouts, funis com upsells/downsells, encomendas, clientes, cupões e analytics. Pagamentos reais pela **EPay** (M-Pesa, e-Mola, IZI) — ativos assim que `EPAY_SECRET_KEY` estiver definida no servidor. Referência da API: [docs/epay-api.md](./docs/epay-api.md).
 
-Cada produto recebe automaticamente o seu checkout e um link público estável (ex.: `/checkout/handwriting-heroes`). O aspeto de cada checkout é editado em **Checkout → Personalização do Checkout** (editor visual com rascunho e publicação); o preço, a moeda e o pagamento vêm sempre do servidor.
+Cada produto recebe automaticamente o seu checkout e um link público estável (ex.: `/checkout/handwriting-heroes`). O link está na aba **Produtos** (botão Copiar link). O aspeto de cada checkout é editado na aba **Personalizar Checkout** (editor visual com rascunho e publicação); o preço, a moeda e o pagamento vêm sempre do servidor.
 
 Estado detalhado, decisões e próximos passos: [PROJECT_STATUS.md](./PROJECT_STATUS.md).
 

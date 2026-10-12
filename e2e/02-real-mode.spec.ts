@@ -80,10 +80,19 @@ test.describe.serial("modo real: produto → checkout → link público (sem pag
     await expect(popup.getByRole("heading", { name: "Guia Digital Editado" })).toBeVisible();
     await popup.close();
 
-    await page.goto("/checkouts");
-    await expect(page.getByRole("heading", { name: "Personalização do Checkout" })).toBeVisible();
+    // o link também está na lista de produtos, com opção de copiar
+    await page.goto("/produtos");
+    const row = page.getByTestId("product-row-link").first();
+    await expect(row).toContainText("/checkout/guia-digital-de-exemplo");
+    await row.getByRole("button", { name: "Copiar link" }).click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(url);
+
+    // a aba Personalizar Checkout só serve para escolher o produto e personalizar (sem links)
+    await page.getByRole("link", { name: "Personalizar Checkout", exact: true }).first().click();
+    await expect(page.getByRole("heading", { name: "Personalizar Checkout" })).toBeVisible();
     await expect(page.getByTestId("personalization-card")).toHaveCount(1);
-    await expect(page.getByTestId("card-checkout-url")).toHaveText(url);
+    await expect(page.locator("main a[href^='/checkout/']")).toHaveCount(0);
+    await expect(page.getByText("/checkout/guia-digital-de-exemplo")).toHaveCount(0);
   });
 
   test("checkout público: dados corretos em MZN, validação, métodos de pagamento, sem campos de cartão", async ({ page }) => {

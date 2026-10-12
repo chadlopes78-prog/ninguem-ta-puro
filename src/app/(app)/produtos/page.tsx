@@ -15,6 +15,8 @@ import { DataTable } from "@/components/ui/data-table";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ListFilters } from "@/components/filters/list-filters";
 import { RowMenu } from "@/components/ui/row-menu";
+import { CopyButton } from "@/components/ui/copy-button";
+import { checkoutPath } from "@/server/services/primary-checkout";
 import { ProductCover } from "@/components/products/cover";
 import { PRODUCT_STATUS_LABELS, PRODUCT_STATUS_TONE, PRODUCT_TYPE_LABELS } from "@/components/products/labels";
 import { duplicateProductAction, setProductStatusAction } from "./actions";
@@ -93,6 +95,22 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
             { key: "type", header: "Tipo", cell: (p) => <span className="text-muted">{PRODUCT_TYPE_LABELS[p.type]}</span> },
             { key: "price", header: "Preço", mobile: "end", align: "right", cell: (p) => <span className="font-medium tabular">{p.defaultOffer ? formatMoney(p.defaultOffer.priceCents, p.defaultOffer.currency) : "—"}</span> },
             { key: "status", header: "Estado", mobile: "end", cell: (p) => <Badge tone={PRODUCT_STATUS_TONE[p.status]} dot>{PRODUCT_STATUS_LABELS[p.status]}</Badge> },
+            {
+              key: "link",
+              header: "Link do checkout",
+              mobile: "meta",
+              cell: (p) =>
+                p.primaryCheckout ? (
+                  <span className="flex min-w-0 items-center gap-2" data-testid="product-row-link">
+                    <span className="max-w-[200px] truncate font-mono text-[12px] text-muted" title={checkoutPath(p.primaryCheckout)}>
+                      {checkoutPath(p.primaryCheckout)}
+                    </span>
+                    <CopyButton value={checkoutPath(p.primaryCheckout)} size="sm" label="Copiar link" />
+                  </span>
+                ) : (
+                  <span className="text-subtle">—</span>
+                ),
+            },
             { key: "orders", header: "Pedidos", align: "right", cell: (p) => <span className="text-muted tabular">{p._count.orderItems}</span> },
             { key: "created", header: "Criado em", cell: (p) => <span className="text-muted tabular">{formatDate(p.createdAt, settings.timezone)}</span> },
             {
@@ -106,6 +124,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                   items={[
                     { kind: "link", label: "Editar", href: `/produtos/${p.id}` },
                     { kind: "link", label: "Personalizar checkout", href: `/checkouts/personalizar/${p.id}` },
+                    ...(p.primaryCheckout ? [{ kind: "link" as const, label: "Abrir checkout", href: checkoutPath(p.primaryCheckout) }] : []),
                     { kind: "action", label: "Duplicar", run: duplicateProductAction.bind(null, p.id) },
                     ...(p.status === "PUBLISHED"
                       ? [{ kind: "action" as const, label: "Despublicar", run: setProductStatusAction.bind(null, p.id, "UNPUBLISHED") }]

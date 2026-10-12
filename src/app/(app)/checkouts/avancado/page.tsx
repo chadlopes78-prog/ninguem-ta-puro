@@ -28,7 +28,7 @@ export default async function CheckoutsPage({ searchParams }: { searchParams: Pr
   return (
     <>
       <PageHeader
-        breadcrumbs={[{ label: "Personalização do Checkout", href: "/checkouts" }, { label: "Todos os checkouts" }]}
+        breadcrumbs={[{ label: "Produtos", href: "/produtos" }, { label: "Todos os checkouts" }]}
         title={<span className="flex flex-wrap items-center gap-3">Todos os checkouts {isDemo && <DemoBadge />}</span>}
         description="Área avançada: inclui o checkout principal de cada produto e checkouts adicionais (por exemplo, com outra oferta ou preço). Não é preciso criar checkouts aqui — cada produto já tem o seu."
         actions={<LinkButton href="/checkouts/novo" variant="secondary"><Plus className="h-4 w-4" /> Checkout adicional</LinkButton>}

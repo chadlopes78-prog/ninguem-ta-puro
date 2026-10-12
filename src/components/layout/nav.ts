@@ -3,7 +3,7 @@ import { BarChart3, CreditCard, LayoutDashboard, Package, Plug, Receipt, Setting
 export const NAV: { href: string; label: string; icon: LucideIcon; group: "main" | "ops" | "system" }[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, group: "main" },
   { href: "/produtos", label: "Produtos", icon: Package, group: "main" },
-  { href: "/checkouts", label: "Checkout", icon: CreditCard, group: "main" },
+  { href: "/checkouts", label: "Personalizar Checkout", icon: CreditCard, group: "main" },
   { href: "/funis", label: "Funis de vendas", icon: Workflow, group: "main" },
   { href: "/pedidos", label: "Pedidos", icon: Receipt, group: "ops" },
   { href: "/clientes", label: "Clientes", icon: Users, group: "ops" },

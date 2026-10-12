@@ -7,18 +7,18 @@ const GUIA = "/checkout/guia-digital-de-exemplo";
 const EBOOK = "/checkout/ebook-mocambique";
 
 test.describe.serial("personalização do checkout", () => {
-  test("lista os produtos reais com link, estado e ações", async ({ page }) => {
+  test("lista os produtos reais com estado e ação de personalizar, sem links", async ({ page }) => {
     await login(page);
     await page.goto("/checkouts");
-    await expect(page.getByRole("heading", { name: "Personalização do Checkout" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Personalizar Checkout" })).toBeVisible();
     const cards = page.getByTestId("personalization-card");
     await expect(cards).toHaveCount(2);
     const ebook = cards.filter({ hasText: "Ebook Moçambique" });
-    await expect(ebook.getByTestId("card-checkout-url")).toHaveText(`http://localhost:3100${EBOOK}`);
     await expect(ebook.getByText(mzn("1 250,00"))).toBeVisible();
     await expect(ebook.getByText("Publicado").first()).toBeVisible();
-    await expect(ebook.getByRole("button", { name: "Copiar link de Ebook Moçambique" })).toBeVisible();
-    await expect(ebook.getByRole("link", { name: "Abrir checkout de Ebook Moçambique" })).toHaveAttribute("href", EBOOK);
+    await expect(ebook.getByRole("link", { name: "Personalizar Checkout de Ebook Moçambique" })).toBeVisible();
+    await expect(page.locator("main a[href^='/checkout/']")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Copiar link/ })).toHaveCount(0);
   });
 
   test("rascunho não altera o checkout público; publicar aplica só ao produto certo", async ({ page }) => {
@@ -64,7 +64,9 @@ test.describe.serial("personalização do checkout", () => {
     await page.goto("/checkouts");
     const guia = page.getByTestId("personalization-card").filter({ hasText: "Guia Digital Editado" });
     await expect(guia.getByText("Personalização publicada")).toBeVisible();
-    await expect(guia.getByTestId("card-checkout-url")).toHaveText(`http://localhost:3100${GUIA}`);
+    // o link (inalterado) continua na aba Produtos
+    await page.goto("/produtos");
+    await expect(page.getByTestId("product-row-link").filter({ hasText: GUIA, visible: true })).toHaveCount(1);
   });
 
   test("renomear o produto mantém o link publicado", async ({ page }) => {
