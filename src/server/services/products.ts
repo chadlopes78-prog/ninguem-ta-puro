@@ -1,0 +1,185 @@
+import { Prisma, type ProductStatus, type ProductType } from "@prisma/client";
+import { prisma } from "@/server/db";
+import type { OfferInput, ProductInput } from "@/server/validation/schemas";
+
+export class NotFoundError extends Error {
+  constructor(what = "Registo") {
+    super(`${what} não encontrado`);
+  }
+}
+
+export class DomainError extends Error {}
+
+export interface ProductListQuery {
+  isDemo: boolean;
+  q?: string;
+  status?: ProductStatus | "ALL" | "ACTIVE";
+  type?: ProductType;
+  sort?: "newest" | "oldest" | "name" | "price_desc" | "price_asc" | "orders";
+}
+
+export async function listProducts(query: ProductListQuery) {
+  const where: Prisma.ProductWhereInput = { isDemo: query.isDemo };
+  if (query.q) where.OR = [{ name: { contains: query.q, mode: "insensitive" } }, { category: { contains: query.q, mode: "insensitive" } }];
+  if (!query.status || query.status === "ACTIVE") where.status = { not: "ARCHIVED" };
+  else if (query.status !== "ALL") where.status = query.status;
+  if (query.type) where.type = query.type;
+
+  const orderBy: Prisma.ProductOrderByWithRelationInput =
+    query.sort === "oldest"
+      ? { createdAt: "asc" }
+      : query.sort === "name"
+        ? { name: "asc" }
+        : query.sort === "orders"
+          ? { orderItems: { _count: "desc" } }
+          : { createdAt: "desc" };
+
+  const products = await prisma.product.findMany({
+    where,
+    orderBy,
+    include: {
+      offers: { where: { isDefault: true }, take: 1 },
+      _count: { select: { orderItems: true, checkouts: true } },
+    },
+    take: 500,
+  });
+  const rows = products.map((p) => ({ ...p, defaultOffer: p.offers[0] ?? null }));
+  if (query.sort === "price_desc" || query.sort === "price_asc") {
+    const dir = query.sort === "price_desc" ? -1 : 1;
+    rows.sort((a, b) => dir * ((a.defaultOffer?.priceCents ?? 0) - (b.defaultOffer?.priceCents ?? 0)));
+  }
+  return rows;
+}
+
+export async function getProduct(id: string, isDemo: boolean) {
+  const product = await prisma.product.findFirst({
+    where: { id, isDemo },
+    include: { offers: { orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }] }, _count: { select: { orderItems: true, checkouts: true } } },
+  });
+  if (!product) throw new NotFoundError("Produto");
+  return product;
+}
+
+function productData(input: ProductInput) {
+  return {
+    name: input.name,
+    description: input.description,
+    imageUrl: input.imageUrl ?? null,
+    type: input.type,
+    category: input.category ?? null,
+    status: input.status,
+    salesPageUrl: input.salesPageUrl ?? null,
+    supportEmail: input.supportEmail ?? null,
+    deliveryUrl: input.deliveryUrl ?? null,
+  };
+}
+
+export async function createProduct(input: ProductInput, isDemo: boolean) {
+  return prisma.product.create({
+    data: {
+      ...productData(input),
+      isDemo,
+      offers: {
+        create: {
+          name: "Preço principal",
+          priceCents: input.priceCents,
+          compareAtCents: input.compareAtCents ?? null,
+          currency: input.currency,
+          isDefault: true,
+        },
+      },
+    },
+    include: { offers: true },
+  });
+}
+
+export async function updateProduct(id: string, input: ProductInput, isDemo: boolean) {
+  const existing = await getProduct(id, isDemo);
+  if (existing.status === "ARCHIVED") throw new DomainError("Produtos arquivados não podem ser editados. Restaure-o primeiro.");
+  const defaultOffer = existing.offers.find((o) => o.isDefault);
+  return prisma.$transaction(async (tx) => {
+    const product = await tx.product.update({ where: { id }, data: productData(input) });
+    const offerData = { priceCents: input.priceCents, compareAtCents: input.compareAtCents ?? null, currency: input.currency };
+    if (defaultOffer) await tx.offer.update({ where: { id: defaultOffer.id }, data: offerData });
+    else await tx.offer.create({ data: { ...offerData, productId: id, name: "Preço principal", isDefault: true } });
+    return product;
+  });
+}
+
+export async function setProductStatus(id: string, status: ProductStatus, isDemo: boolean) {
+  const existing = await getProduct(id, isDemo);
+  if (status === "PUBLISHED" && !existing.offers.some((o) => o.isActive)) {
+    throw new DomainError("Não é possível publicar um produto sem ofertas ativas.");
+  }
+  return prisma.product.update({
+    where: { id },
+    data: { status, archivedAt: status === "ARCHIVED" ? new Date() : null },
+  });
+}
+
+export async function duplicateProduct(id: string, isDemo: boolean) {
+  const p = await getProduct(id, isDemo);
+  return prisma.product.create({
+    data: {
+      name: `${p.name} (cópia)`.slice(0, 120),
+      description: p.description,
+      imageUrl: p.imageUrl,
+      type: p.type,
+      category: p.category,
+      status: "DRAFT",
+      salesPageUrl: p.salesPageUrl,
+      supportEmail: p.supportEmail,
+      deliveryUrl: p.deliveryUrl,
+      isDemo,
+      offers: {
+        create: p.offers.map((o) => ({
+          name: o.name,
+          priceCents: o.priceCents,
+          compareAtCents: o.compareAtCents,
+          currency: o.currency,
+          billingType: o.billingType,
+          maxInstallments: o.maxInstallments,
+          isDefault: o.isDefault,
+          isActive: o.isActive,
+        })),
+      },
+    },
+  });
+}
+
+export async function addOffer(productId: string, input: OfferInput, isDemo: boolean) {
+  await getProduct(productId, isDemo);
+  return prisma.offer.create({
+    data: {
+      productId,
+      name: input.name,
+      priceCents: input.priceCents,
+      currency: input.currency,
+      billingType: input.billingType,
+      maxInstallments: input.billingType === "INSTALLMENTS" ? input.maxInstallments : 1,
+      isActive: input.isActive,
+    },
+  });
+}
+
+export async function setOfferActive(offerId: string, active: boolean, isDemo: boolean) {
+  const offer = await prisma.offer.findFirst({ where: { id: offerId, product: { isDemo } } });
+  if (!offer) throw new NotFoundError("Oferta");
+  if (offer.isDefault && !active) throw new DomainError("O preço principal não pode ser desativado.");
+  return prisma.offer.update({ where: { id: offerId }, data: { isActive: active } });
+}
+
+/** Produtos e ofertas para seletores (checkouts, funis, cupões). */
+export async function listProductOptions(isDemo: boolean) {
+  return prisma.product.findMany({
+    where: { isDemo, status: { not: "ARCHIVED" } },
+    orderBy: { name: "asc" },
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      offers: { where: { isActive: true }, select: { id: true, name: true, priceCents: true, currency: true, isDefault: true }, orderBy: { isDefault: "desc" } },
+    },
+  });
+}
+export type ProductOption = Awaited<ReturnType<typeof listProductOptions>>[number];

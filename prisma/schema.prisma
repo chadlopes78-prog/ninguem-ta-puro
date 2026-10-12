@@ -1,0 +1,502 @@
+// Ninguém Tá Puro — modelo de dados
+// Estratégia monetária: todos os valores em unidades menores inteiras (cêntimos) + moeda explícita.
+// Dados de demonstração: coluna `isDemo` em todas as entidades de negócio; nunca misturados com dados reais.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Currency {
+  BRL
+  EUR
+  USD
+}
+
+// ───────────────────────── Autenticação ─────────────────────────
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  sessions     Session[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  key       String
+  success   Boolean
+  createdAt DateTime @default(now())
+
+  @@index([key, createdAt])
+}
+
+// ───────────────────────── Catálogo ─────────────────────────
+
+enum ProductType {
+  DIGITAL
+  COURSE
+  EBOOK
+  PDF
+  SERVICE
+  OTHER
+}
+
+enum ProductStatus {
+  DRAFT
+  PUBLISHED
+  UNPUBLISHED
+  ARCHIVED
+}
+
+model Product {
+  id           String          @id @default(cuid())
+  name         String
+  description  String          @db.Text
+  imageUrl     String?
+  type         ProductType
+  category     String?
+  status       ProductStatus   @default(DRAFT)
+  salesPageUrl String?
+  supportEmail String?
+  deliveryUrl  String?
+  isDemo       Boolean         @default(false)
+  archivedAt   DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  offers       Offer[]
+  checkouts    Checkout[]
+  orderItems   OrderItem[]
+  coupons      CouponProduct[]
+
+  @@index([isDemo, status])
+  @@index([createdAt])
+}
+
+enum BillingType {
+  ONE_TIME
+  INSTALLMENTS
+  SUBSCRIPTION
+}
+
+/// Ofertas e preços de um produto. O produto tem sempre uma oferta `isDefault` (preço principal).
+model Offer {
+  id                String      @id @default(cuid())
+  productId         String
+  product           Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name              String
+  priceCents        Int
+  /// Preço "de" (riscado) para promoções. Apenas apresentação.
+  compareAtCents    Int?
+  currency          Currency
+  billingType       BillingType @default(ONE_TIME)
+  maxInstallments   Int         @default(1)
+  isDefault         Boolean     @default(false)
+  isActive          Boolean     @default(true)
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  checkouts         Checkout[]
+  orderItems        OrderItem[]
+
+  @@index([productId])
+}
+
+// ───────────────────────── Checkouts ─────────────────────────
+
+model Checkout {
+  id                 String            @id @default(cuid())
+  /// Identificador público aleatório (não sequencial) usado em /checkout/<publicId>
+  publicId           String            @unique
+  name               String
+  productId          String
+  product            Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
+  offerId            String
+  offer              Offer             @relation(fields: [offerId], references: [id], onDelete: Restrict)
+  title              String
+  description        String?           @db.Text
+  imageUrl           String?
+  buttonText         String            @default("Finalizar compra")
+  primaryColor       String            @default("#C8F135")
+  backgroundColor    String            @default("#0B0C0E")
+  collectPhone       Boolean           @default(false)
+  requirePhone       Boolean           @default(false)
+  collectDocument    Boolean           @default(false)
+  requireDocument    Boolean           @default(false)
+  allowCoupons       Boolean           @default(true)
+  successTitle       String            @default("Obrigado pela sua compra!")
+  successMessage     String            @default("Receberá os detalhes de acesso por email.") @db.Text
+  successRedirectUrl String?
+  supportEmail       String?
+  isActive           Boolean           @default(true)
+  funnelId           String?
+  funnel             Funnel?           @relation(fields: [funnelId], references: [id], onDelete: SetNull)
+  isDemo             Boolean           @default(false)
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  orders             Order[]
+  sessions           CheckoutSession[]
+
+  @@index([isDemo])
+  @@index([productId])
+}
+
+model CheckoutSession {
+  id            String         @id @default(cuid())
+  checkoutId    String
+  checkout      Checkout       @relation(fields: [checkoutId], references: [id], onDelete: Cascade)
+  isDemo        Boolean        @default(false)
+  status        SessionStatus  @default(OPEN)
+  utmSource     String?
+  utmMedium     String?
+  utmCampaign   String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([checkoutId, createdAt])
+  @@index([isDemo, createdAt])
+}
+
+enum SessionStatus {
+  OPEN
+  SUBMITTED
+  CONVERTED
+}
+
+// ───────────────────────── Funis ─────────────────────────
+
+enum FunnelStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+}
+
+enum FunnelStepType {
+  START
+  SALES_PAGE
+  CHECKOUT
+  PURCHASE_APPROVED
+  UPSELL
+  DOWNSELL
+  ORDER_BUMP
+  THANK_YOU
+  END
+}
+
+model Funnel {
+  id          String       @id @default(cuid())
+  name        String
+  description String?
+  status      FunnelStatus @default(DRAFT)
+  isDemo      Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  steps       FunnelStep[]
+  edges       FunnelEdge[]
+  checkouts   Checkout[]
+  orders      Order[]
+  runs        FunnelRun[]
+
+  @@index([isDemo])
+}
+
+model FunnelStep {
+  id        String         @id @default(cuid())
+  funnelId  String
+  funnel    Funnel         @relation(fields: [funnelId], references: [id], onDelete: Cascade)
+  /// Identificador estável do nó dentro do funil (usado pelo editor e pelas ligações)
+  key       String
+  type      FunnelStepType
+  label     String
+  positionX Float
+  positionY Float
+  /// Configuração estruturada e validada (ver src/server/funnels/schema.ts)
+  config    Json           @default("{}")
+
+  @@unique([funnelId, key])
+}
+
+model FunnelEdge {
+  id           String @id @default(cuid())
+  funnelId     String
+  funnel       Funnel @relation(fields: [funnelId], references: [id], onDelete: Cascade)
+  key          String
+  sourceKey    String
+  targetKey    String
+  /// "next" | "accept" | "decline"
+  sourceHandle String @default("next")
+
+  @@unique([funnelId, key])
+  @@index([funnelId])
+}
+
+/// Percurso de um comprador num funil (apenas simulado em modo de demonstração nesta fase).
+model FunnelRun {
+  id             String   @id
+  funnelId       String
+  funnel         Funnel   @relation(fields: [funnelId], references: [id], onDelete: Cascade)
+  orderId        String?
+  order          Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  currentStepKey String
+  isDemo         Boolean  @default(true)
+  history        Json     @default("[]")
+  completedAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([funnelId])
+}
+
+// ───────────────────────── Clientes e pedidos ─────────────────────────
+
+model Customer {
+  id        String   @id @default(cuid())
+  email     String
+  name      String
+  phone     String?
+  document  String?
+  isDemo    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  orders    Order[]
+
+  @@unique([email, isDemo])
+  @@index([isDemo, createdAt])
+}
+
+enum OrderStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  REFUNDED
+  CANCELED
+}
+
+enum OrderSource {
+  CHECKOUT
+  MANUAL_TEST
+  DEMO
+}
+
+model Order {
+  id            String       @id @default(cuid())
+  /// Código legível e não sequencial, ex.: NTP-7K2M9QX4
+  code          String       @unique
+  customerId    String
+  customer      Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  checkoutId    String?
+  checkout      Checkout?    @relation(fields: [checkoutId], references: [id], onDelete: SetNull)
+  funnelId      String?
+  funnel        Funnel?      @relation(fields: [funnelId], references: [id], onDelete: SetNull)
+  couponId      String?
+  coupon        Coupon?      @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  status        OrderStatus  @default(PENDING)
+  source        OrderSource
+  currency      Currency
+  subtotalCents Int
+  discountCents Int          @default(0)
+  /// Valor bruto pago/a pagar = subtotal - desconto
+  totalCents    Int
+  /// Taxas efetivamente registadas (do processador). Nunca inventadas.
+  feeCents      Int          @default(0)
+  /// total - taxas
+  netCents      Int
+  provider      String?
+  externalRef   String?
+  notes         String?
+  isDemo        Boolean      @default(false)
+  approvedAt    DateTime?
+  refundedAt    DateTime?
+  canceledAt    DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  items         OrderItem[]
+  funnelRuns    FunnelRun[]
+  paymentEvents PaymentEvent[]
+
+  @@index([isDemo, status, createdAt])
+  @@index([customerId])
+  @@index([checkoutId])
+}
+
+enum OrderItemKind {
+  MAIN
+  ORDER_BUMP
+  UPSELL
+  DOWNSELL
+}
+
+model OrderItem {
+  id             String        @id @default(cuid())
+  orderId        String
+  order          Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId      String
+  product        Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  offerId        String?
+  offer          Offer?        @relation(fields: [offerId], references: [id], onDelete: SetNull)
+  kind           OrderItemKind @default(MAIN)
+  description    String
+  unitPriceCents Int
+  quantity       Int           @default(1)
+  totalCents     Int
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+// ───────────────────────── Cupons ─────────────────────────
+
+enum DiscountType {
+  PERCENT
+  FIXED
+}
+
+model Coupon {
+  id            String          @id @default(cuid())
+  code          String
+  description   String?
+  type          DiscountType
+  /// Percentagem inteira 1..100 quando type = PERCENT
+  percentOff    Int?
+  /// Valor fixo em cêntimos quando type = FIXED
+  amountOffCents Int?
+  /// Moeda obrigatória para descontos fixos
+  currency      Currency?
+  appliesToAll  Boolean         @default(true)
+  startsAt      DateTime?
+  endsAt        DateTime?
+  maxUses       Int?
+  usesCount     Int             @default(0)
+  isActive      Boolean         @default(true)
+  isDemo        Boolean         @default(false)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  products      CouponProduct[]
+  orders        Order[]
+
+  @@unique([code, isDemo])
+}
+
+model CouponProduct {
+  couponId  String
+  productId String
+  coupon    Coupon  @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([couponId, productId])
+}
+
+// ───────────────────────── Analytics ─────────────────────────
+
+model AnalyticsEvent {
+  id         String   @id @default(cuid())
+  type       String
+  isDemo     Boolean  @default(false)
+  checkoutId String?
+  funnelId   String?
+  orderId    String?
+  sessionId  String?
+  stepKey    String?
+  meta       Json     @default("{}")
+  createdAt  DateTime @default(now())
+
+  @@index([isDemo, type, createdAt])
+  @@index([funnelId])
+}
+
+// ───────────────────────── Configurações e integrações ─────────────────────────
+
+model Settings {
+  id              String   @id @default("default")
+  businessName    String   @default("Ninguém Tá Puro")
+  logoUrl         String?
+  ownerName       String?
+  ownerEmail      String?
+  supportEmail    String?
+  defaultCurrency Currency @default(BRL)
+  locale          String   @default("pt-BR")
+  timezone        String   @default("America/Sao_Paulo")
+  /// Quando ativo, toda a aplicação mostra e cria apenas dados de demonstração
+  demoMode        Boolean  @default(false)
+  updatedAt       DateTime @updatedAt
+}
+
+enum IntegrationStatus {
+  NOT_CONFIGURED
+  CONFIGURED
+  ERROR
+  DISABLED
+}
+
+enum IntegrationEnvironment {
+  SANDBOX
+  PRODUCTION
+}
+
+model IntegrationConfig {
+  id            String                 @id @default(cuid())
+  provider      String                 @unique
+  status        IntegrationStatus      @default(NOT_CONFIGURED)
+  environment   IntegrationEnvironment @default(SANDBOX)
+  /// Apenas configuração pública/não secreta. Segredos vivem em variáveis de ambiente.
+  publicConfig  Json                   @default("{}")
+  lastCheckedAt DateTime?
+  lastError     String?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+}
+
+model IntegrationLog {
+  id        String   @id @default(cuid())
+  provider  String
+  level     String
+  message   String
+  createdAt DateTime @default(now())
+
+  @@index([provider, createdAt])
+}
+
+enum PaymentEventStatus {
+  RECEIVED
+  PROCESSED
+  IGNORED
+  REJECTED
+  FAILED
+}
+
+/// Eventos de pagamento recebidos por webhook (futuro). Idempotência por (provider, externalEventId).
+model PaymentEvent {
+  id              String             @id @default(cuid())
+  provider        String
+  externalEventId String
+  type            String
+  signatureValid  Boolean
+  status          PaymentEventStatus @default(RECEIVED)
+  payload         Json
+  orderId         String?
+  order           Order?             @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  error           String?
+  receivedAt      DateTime           @default(now())
+  processedAt     DateTime?
+
+  @@unique([provider, externalEventId])
+}
