@@ -139,7 +139,7 @@ export function AppShell({ user, businessName, demoMode, logoutAction, children 
 
       <div className="flex min-w-0 flex-1 flex-col">
         {demoMode && (
-          <div className="flex items-center justify-center gap-2 border-b border-demo/30 bg-demo/10 px-4 py-2 text-center text-[12.5px] font-medium text-demo">
+          <div className="flex h-9 items-center justify-center gap-2 overflow-hidden border-b border-demo/30 bg-demo/10 px-4 text-center text-[12.5px] font-medium text-demo">
             <span className="font-semibold uppercase tracking-wide">Modo de demonstração</span>
             <span className="hidden text-demo/80 sm:inline">— a mostrar apenas dados fictícios, separados dos dados reais.</span>
             <Link href="/configuracoes#demo" className="underline underline-offset-2 hover:text-fg">
@@ -154,7 +154,7 @@ export function AppShell({ user, businessName, demoMode, logoutAction, children 
           <LogoMark className="h-7 w-7" />
           <span className="truncate font-display text-[15px] font-semibold">{current?.label ?? businessName}</span>
         </header>
-        <main className="mx-auto w-full max-w-[1400px] flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</main>
+        <main className="mx-auto w-full max-w-[1400px] flex-1 has-[[data-testid=funnel-canvas]]:max-w-none px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</main>
       </div>
     </div>
   );
