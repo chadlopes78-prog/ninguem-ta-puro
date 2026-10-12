@@ -38,7 +38,7 @@ export function ProductForm({
   readOnly?: boolean;
 }) {
   const { onSubmit, pending, error, fieldErrors: fe } = useFormAction(action, {
-    redirectTo: (d) => (isNew && d ? `/produtos/${d.id}` : undefined),
+    redirectTo: (d) => (isNew && d ? `/produtos/${d.id}?criado=1` : undefined),
   });
   const [name, setName] = useState(initial.name);
   const [image, setImage] = useState(initial.imageUrl);

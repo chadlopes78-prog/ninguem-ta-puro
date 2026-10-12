@@ -4,6 +4,7 @@ import { ExternalLink, Eye } from "lucide-react";
 import { requireUser } from "@/server/auth/session";
 import { getScope } from "@/server/services/settings";
 import { getCheckout } from "@/server/services/checkouts";
+import { checkoutPath } from "@/server/services/primary-checkout";
 import { listProductOptions, NotFoundError } from "@/server/services/products";
 import { prisma } from "@/server/db";
 import { PageHeader } from "@/components/ui/page-header";
@@ -30,7 +31,7 @@ export default async function CheckoutPage({ params }: { params: Promise<{ id: s
     listProductOptions(isDemo),
     prisma.funnel.findMany({ where: { isDemo }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
-  const path = `/checkout/${c.publicId}`;
+  const path = checkoutPath(c);
   const publicOk = c.isActive && c.product.status === "PUBLISHED" && c.offer.isActive;
 
   return (

@@ -101,13 +101,15 @@ export async function setCheckoutActive(id: string, active: boolean, isDemo: boo
 
 export async function duplicateCheckout(id: string, isDemo: boolean) {
   const c = await getCheckout(id, isDemo);
-  const { id: _id, publicId: _p, createdAt: _c, updatedAt: _u, product: _pr, offer: _o, funnel: _f, ...rest } = c;
+  // a cópia é um checkout adicional: nunca herda o endereço (slug) nem a marca de checkout principal
+  const { id: _id, publicId: _p, slug: _s, primaryProductId: _pp, createdAt: _c, updatedAt: _u, product: _pr, offer: _o, funnel: _f, ...rest } = c;
   return prisma.checkout.create({ data: { ...rest, name: `${c.name} (cópia)`.slice(0, 120), isActive: false, publicId: newCheckoutPublicId() } });
 }
 
 export async function deleteCheckout(id: string, isDemo: boolean) {
   const c = await prisma.checkout.findFirst({ where: { id, isDemo }, include: { _count: { select: { orders: true } } } });
   if (!c) throw new NotFoundError("Checkout");
+  if (c.primaryProductId) throw new DomainError("Este é o checkout principal do produto e o seu link pode já ter sido partilhado. Desative-o em vez de o eliminar.");
   if (c._count.orders > 0) throw new DomainError("Este checkout tem pedidos associados. Desative-o em vez de o eliminar.");
   await prisma.checkout.delete({ where: { id } });
 }

@@ -12,7 +12,7 @@ export async function saveProductAction(id: string | null, fd: FormData) {
     if (!p.ok) return p.result;
     const product = id ? await updateProduct(assertId(id), p.data, isDemo) : await createProduct(p.data, isDemo);
     revalidatePath("/produtos");
-    return { ok: true, data: { id: product.id }, message: id ? "Produto atualizado." : "Produto criado." };
+    return { ok: true, data: { id: product.id }, message: id ? "Produto atualizado." : "Produto criado com sucesso! O link do checkout foi gerado." };
   });
 }
 

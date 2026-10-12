@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { getPublicCheckout } from "@/server/services/checkouts";
 import { getSettings } from "@/server/services/settings";
 import { getActivePaymentProvider } from "@/server/payments/registry";
+import { publicDesign } from "@/server/services/checkout-design";
 import { CheckoutView } from "@/components/checkouts/checkout-view";
 import { Unavailable } from "@/components/public/unavailable";
 import { applyCouponAction, submitCheckoutAction } from "./actions";
@@ -28,6 +29,7 @@ export default async function PublicCheckoutPage({ params }: { params: Promise<{
       : null;
   return (
     <CheckoutView
+      design={publicDesign(c)}
       data={{
         publicId: c.publicId,
         title: c.title,

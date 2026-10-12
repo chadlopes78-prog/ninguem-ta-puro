@@ -21,7 +21,7 @@ export default async function NewProductPage() {
       <ProductForm
         isNew
         action={saveProductAction.bind(null, null)}
-        initial={{ name: "", description: "", imageUrl: "", type: "", category: "", priceCents: null, compareAtCents: null, currency: settings.defaultCurrency, status: "DRAFT", salesPageUrl: "", supportEmail: "", deliveryUrl: "" }}
+        initial={{ name: "", description: "", imageUrl: "", type: "", category: "", priceCents: null, compareAtCents: null, currency: settings.defaultCurrency, status: "PUBLISHED", salesPageUrl: "", supportEmail: "", deliveryUrl: "" }}
       />
     </>
   );

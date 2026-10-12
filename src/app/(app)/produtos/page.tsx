@@ -105,7 +105,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                   label={`Ações para ${p.name}`}
                   items={[
                     { kind: "link", label: "Editar", href: `/produtos/${p.id}` },
-                    { kind: "link", label: "Criar checkout", href: `/checkouts/novo?productId=${p.id}` },
+                    { kind: "link", label: "Personalizar checkout", href: `/checkouts/personalizar/${p.id}` },
                     { kind: "action", label: "Duplicar", run: duplicateProductAction.bind(null, p.id) },
                     ...(p.status === "PUBLISHED"
                       ? [{ kind: "action" as const, label: "Despublicar", run: setProductStatusAction.bind(null, p.id, "UNPUBLISHED") }]

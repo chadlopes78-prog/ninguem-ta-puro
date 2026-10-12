@@ -5,6 +5,7 @@ import { prisma } from "@/server/db";
 import { newCheckoutPublicId, newOrderCode } from "@/lib/ids";
 import type { FunnelGraph } from "@/lib/funnels/types";
 import { createFunnel } from "./funnels";
+import { ensurePrimaryCheckout } from "./primary-checkout";
 
 export async function clearDemoData() {
   await prisma.$transaction([
@@ -248,6 +249,9 @@ export async function seedDemoData(now = new Date(), currency: Currency = "MZN")
     }
   }
   await prisma.checkoutSession.createMany({ data: sessions });
+
+  // cada produto de demonstração fica com o seu checkout principal (os dois checkouts criados acima passam a principais)
+  for (const p of await prisma.product.findMany({ where: { isDemo: true }, select: { id: true } })) await ensurePrimaryCheckout(p.id);
 
   return { products: 5, checkouts: 2, funnelId: funnel.id, couponId: coupon.id, orders: specs.length };
 }
