@@ -38,7 +38,7 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
         <StatCard label="Cliente desde" value={formatDate(c.createdAt, settings.timezone)} />
       </div>
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+        <Card className="lg:col-span-2 lg:self-start">
           <CardHeader title="Histórico de pedidos" />
           <DataTable
             rows={c.orders}

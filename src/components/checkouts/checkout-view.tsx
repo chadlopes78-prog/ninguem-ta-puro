@@ -166,7 +166,7 @@ export function CheckoutView({
   );
 
   return (
-    <div className={cn("min-h-full", fg)} style={{ background: data.backgroundColor }}>
+    <div className={cn("@container min-h-full", fg)} style={{ background: data.backgroundColor }}>
       {data.isDemo && (
         <div className="bg-[#f5a524] px-4 py-2 text-center text-[12.5px] font-semibold text-black">
           CHECKOUT DE DEMONSTRAÇÃO — nenhuma cobrança é efetuada
@@ -184,7 +184,7 @@ export function CheckoutView({
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-5xl gap-6 px-4 py-6 sm:px-6 sm:py-10 lg:grid-cols-[1.1fr_1fr] lg:gap-10">
+      <div className="mx-auto grid max-w-5xl gap-6 px-4 py-6 sm:px-6 sm:py-10 @3xl:grid-cols-[1.1fr_1fr] @3xl:gap-10">
         <section aria-label="Produto" className="min-w-0">
           {data.imageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
