@@ -24,9 +24,14 @@ test.describe.serial("modo real: produto → checkout → link público (sem pag
     await page.getByLabel("Tipo").selectOption("EBOOK");
     await page.getByLabel("Preço", { exact: true }).fill("197,00");
     await page.getByLabel("Moeda").selectOption("MZN");
+    await page.getByLabel("Estado").selectOption("DRAFT");
     await page.getByRole("button", { name: "Criar produto" }).click();
     await toast(page, "Produto criado");
-    await expect(page).toHaveURL(/\/produtos\/[a-z0-9]+$/);
+    await expect(page).toHaveURL(/\/produtos\/[a-z0-9]+\?criado=1$/);
+    // link de checkout gerado automaticamente, com confirmação
+    await expect(page.getByText("Produto criado com sucesso! O link do checkout já está pronto a partilhar.")).toBeVisible();
+    await expect(page.getByTestId("product-checkout-url")).toHaveText("http://localhost:3100/checkout/guia-digital-de-exemplo");
+    await expect(page.getByTestId("checkout-link-card").getByText("Indisponível")).toBeVisible(); // rascunho
 
     await page.getByLabel("Nome").fill("Guia Digital Editado");
     await page.getByLabel("Preço", { exact: true }).fill("247,90");
@@ -54,22 +59,31 @@ test.describe.serial("modo real: produto → checkout → link público (sem pag
     await expect(page.getByText("Nenhum produto encontrado")).toBeVisible();
   });
 
-  test("criar checkout gera link que abre a página pública correta", async ({ page, context }) => {
+  test("o link do checkout é automático, único e não muda com a edição do nome", async ({ page, context }) => {
     await login(page);
-    await page.goto("/checkouts");
-    await page.getByRole("link", { name: "Criar checkout" }).click();
-    await page.getByRole("combobox", { name: "Produto", exact: true }).selectOption({ label: "Guia Digital Editado" });
-    await page.getByLabel("Nome interno").fill("Checkout principal E2E");
-    await page.getByRole("button", { name: "Criar checkout" }).click();
-    await toast(page, "Checkout criado");
-    await expect(page).toHaveURL(/\/checkouts\/[a-z0-9]+$/);
-    checkoutPath = (await page.getByTestId("checkout-path").textContent())!.trim();
-    expect(checkoutPath).toMatch(/^\/checkout\/[A-Za-z0-9]{14}$/);
+    await page.goto("/produtos");
+    await page.getByRole("link", { name: /Guia Digital Editado/ }).first().click();
+    const card = page.getByTestId("checkout-link-card");
+    await expect(card.getByText("Pronto a vender")).toBeVisible();
+    const url = (await page.getByTestId("product-checkout-url").textContent())!.trim();
+    expect(url).toBe("http://localhost:3100/checkout/guia-digital-de-exemplo");
+    checkoutPath = new URL(url).pathname;
+    // atualizar a página não gera outro link nem duplica o checkout
+    await page.reload();
+    await expect(page.getByTestId("product-checkout-url")).toHaveText(url);
 
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-    await page.getByRole("button", { name: "Copiar link" }).click();
-    const copied = await page.evaluate(() => navigator.clipboard.readText());
-    expect(copied).toBe(`http://localhost:3100${checkoutPath}`);
+    await card.getByRole("button", { name: "Copiar link" }).click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(url);
+
+    const [popup] = await Promise.all([page.waitForEvent("popup"), card.getByRole("link", { name: "Abrir checkout" }).click()]);
+    await expect(popup.getByRole("heading", { name: "Guia Digital Editado" })).toBeVisible();
+    await popup.close();
+
+    await page.goto("/checkouts");
+    await expect(page.getByRole("heading", { name: "Personalização do Checkout" })).toBeVisible();
+    await expect(page.getByTestId("personalization-card")).toHaveCount(1);
+    await expect(page.getByTestId("card-checkout-url")).toHaveText(url);
   });
 
   test("checkout público: dados corretos em MZN, validação, métodos de pagamento, sem campos de cartão", async ({ page }) => {
@@ -95,20 +109,27 @@ test.describe.serial("modo real: produto → checkout → link público (sem pag
     await login(page);
     await page.goto("/pedidos");
     await expect(page.getByText("Ainda não existem pedidos")).toBeVisible();
-    await page.goto("/checkouts");
-    await expect(page.getByText("1 / 0").first()).toBeVisible();
+    await page.goto("/checkouts/avancado");
+    await expect(page.getByText(/\d+ \/ 0/).first()).toBeVisible();
   });
 
   test("checkout desativado mostra indisponibilidade sem detalhes internos", async ({ page }) => {
     await login(page);
-    await page.goto("/checkouts");
-    await page.getByRole("link", { name: /Checkout principal E2E/ }).first().click();
+    await page.goto("/checkouts/avancado");
+    await page.getByRole("link", { name: /Checkout — Guia Digital/ }).first().click();
     await page.getByRole("button", { name: "Desativar" }).click();
     await toast(page, "Checkout desativado");
     await page.goto(checkoutPath);
     await expect(page.getByRole("heading", { name: "Link indisponível" })).toBeVisible();
     await page.goto("/checkout/naoexiste1234567");
     await expect(page.getByRole("heading", { name: "Link indisponível" })).toBeVisible();
+    // reativar: o mesmo link volta a funcionar
+    await page.goto("/checkouts/avancado");
+    await page.getByRole("link", { name: /Checkout — Guia Digital/ }).first().click();
+    await page.getByRole("button", { name: "Ativar" }).click();
+    await toast(page, "Checkout ativado");
+    await page.goto(checkoutPath);
+    await expect(page.getByRole("heading", { name: "Guia Digital Editado" })).toBeVisible();
   });
 
   test("cupões: criação, código duplicado e teste", async ({ page }) => {

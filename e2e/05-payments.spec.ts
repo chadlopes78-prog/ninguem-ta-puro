@@ -37,13 +37,15 @@ test.describe.serial("pagamentos (fornecedor de teste local)", () => {
     await page.getByLabel("URL de entrega/acesso").fill("https://conteudo.exemplo.co.mz/ebook");
     await page.getByRole("button", { name: "Criar produto" }).click();
     await toast(page, "Produto criado");
-    await expect(page).toHaveURL(/\/produtos\/[a-z0-9]{20,}$/);
-    const productUrl = page.url();
-    await page.goto(`/checkouts/novo?productId=${productUrl.split("/").pop()}`);
-    await page.getByLabel("Texto do botão").fill("Pagar agora");
-    await page.getByRole("button", { name: "Criar checkout" }).click();
-    await toast(page, "Checkout criado");
-    checkoutPath = (await page.getByTestId("checkout-path").textContent())!.trim();
+    await expect(page).toHaveURL(/\/produtos\/[a-z0-9]{20,}\?criado=1$/);
+    checkoutPath = new URL((await page.getByTestId("product-checkout-url").textContent())!.trim()).pathname;
+    expect(checkoutPath).toBe("/checkout/ebook-mocambique");
+    // o texto do botão é personalizável no editor (Tema e cores) e só muda o checkout após publicar
+    await page.getByTestId("checkout-link-card").getByRole("link", { name: "Personalizar checkout" }).click();
+    await page.getByRole("tab", { name: "Tema e cores" }).click();
+    await page.getByLabel("Texto do botão de compra").fill("Pagar agora");
+    await page.getByTestId("publish").click();
+    await toast(page, /publicad/i);
   });
 
   test("checkout mostra MZN e métodos; pagamento fica pendente; visitar a página não marca como pago", async ({ page }) => {

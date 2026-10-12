@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { login, noHorizontalScroll } from "./helpers";
 
 const WIDTHS = [320, 375, 390, 768, 1024, 1440];
-const ROUTES = ["/dashboard", "/produtos", "/produtos/novo", "/checkouts", "/checkouts/novo", "/funis", "/pedidos", "/clientes", "/cupons", "/cupons/novo", "/relatorios", "/integracoes", "/configuracoes"];
+const ROUTES = ["/dashboard", "/produtos", "/produtos/novo", "/checkouts", "/checkouts/avancado", "/checkouts/novo", "/funis", "/pedidos", "/clientes", "/cupons", "/cupons/novo", "/relatorios", "/integracoes", "/configuracoes"];
 
 test("sem scroll horizontal nas larguras de referência", async ({ page }) => {
   test.setTimeout(300_000);

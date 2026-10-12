@@ -51,7 +51,7 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
             {isDemo && <DemoBadge />}
           </span>
         }
-        description={`Criado em ${formatDate(product.createdAt, settings.timezone)} · ${product._count.orderItems} itens vendidos · ${product._count.checkouts} checkouts`}
+        description={`Criado em ${formatDate(product.createdAt, settings.timezone)} · ${product._count.orderItems} ${product._count.orderItems === 1 ? "item vendido" : "itens vendidos"} · ${product._count.checkouts} ${product._count.checkouts === 1 ? "checkout" : "checkouts"}`}
         actions={
           <>
 

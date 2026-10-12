@@ -1,6 +1,6 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-12 · Sessão 3 (integração EPay implementada conforme a documentação)
+Última atualização: 2026-10-12 · Sessão 6 (checkout gerado automaticamente por produto + Personalização do Checkout)
 
 ## Estado geral
 
@@ -10,8 +10,8 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 |---|---|---|
 | Lint | `npm run lint` | ✅ 0 erros, 0 avisos |
 | Tipos TypeScript | `npm run typecheck` | ✅ sem erros |
-| Testes unitários + integração | `npm test` | ✅ 139/139 (10 ficheiros; 24 EPay + 17 fluxo de pagamento) |
-| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 38/38 (9 de pagamentos) |
+| Testes unitários + integração | `npm test` | ✅ 156/156 (11 ficheiros; 15 de checkout por produto/personalização) |
+| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 42/42 (9 de pagamentos, 4 de personalização) |
 | Build de produção | `npm run build` | ✅ sem erros |
 | Fuga de segredos | build com `EPAY_SECRET_KEY` fictícia + `grep` em `.next/` e log | ✅ valor ausente do bundle do browser, do output do servidor e do log; nenhuma variável `NEXT_PUBLIC_`; `.env` com segredos fora do Git |
 
@@ -21,11 +21,43 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 |---|---|---|
 | 1 — Fundação | ✅ Concluída | Next.js 15 + TS + Tailwind 4 + Prisma/PostgreSQL, design system, auth, navegação |
 | 2 — Dashboard | ✅ Concluída | 8 KPIs, 4 visualizações, comparação de períodos, filtros, atividade recente, estados vazios |
-| 3 — Produtos e checkouts | ✅ Concluída | CRUD, ofertas/preços, checkouts com link público aleatório, personalização, pré-visualização ao vivo |
+| 3 — Produtos e checkouts | ✅ Concluída | CRUD, ofertas/preços, checkout principal criado automaticamente com link legível, editor visual com rascunho/publicação |
 | 4 — Funis | ✅ Concluída | Editor React Flow, 9 tipos de etapa, upsell/downsell com saídas aceita/recusa, validação, persistência, simulador |
 | 5 — Operação | ✅ Concluída | Pedidos (filtros, detalhe, transições), clientes, cupões (com testador), relatórios |
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
+
+## Checkout automático por produto e Personalização do Checkout (sessão 6)
+
+### O que mudou
+- **Criar um produto cria automaticamente o seu checkout principal e o link público** (na mesma transação). O link usa um endereço legível derivado do nome: `/checkout/handwriting-heroes` (sem acentos; em caso de colisão `-2`, `-3`, …). A secção **Link de Checkout** aparece no topo do produto com o link completo, Copiar link, Abrir checkout, Personalizar checkout e o estado (Pronto a vender / Indisponível + estado da personalização). Ao criar o produto aparece "Produto criado com sucesso! O link do checkout já está pronto a partilhar."
+- **Sem duplicados**: `Checkout.primaryProductId` é único na BD (um checkout principal por produto) e `Checkout.slug` é único. Atualizar a página, voltar a guardar ou pedidos em paralelo não criam outro checkout (testado).
+- **Link estável**: mudar o nome do produto não altera o endereço; o título do checkout acompanha o nome apenas se ainda não foi personalizado. Links antigos com `publicId` continuam a funcionar.
+- **Recuperação**: se um produto não tiver checkout principal (produtos anteriores a esta alteração ou falha), `ensurePrimaryCheckout` cria-o ao abrir o produto ou a lista de personalização; o checkout mais antigo existente passa a principal e mantém o link antigo. A migração marca automaticamente o checkout mais antigo de cada produto como principal (dados preservados).
+- O separador do menu passou a **Checkout** → página **Personalização do Checkout** ("Personalize a experiência de compra dos seus produtos."): um cartão por produto real com miniatura, nome, preço, estado do produto, estado da personalização (Modelo padrão / Personalização publicada / Alterações por publicar), link, **Personalizar Checkout**, copiar, abrir e pré-visualizar. Estado vazio: "Ainda não tem produtos. Crie o seu primeiro produto para gerar automaticamente o respetivo link de checkout." com botão para criar produto. A lista técnica antiga continua em **Todos os checkouts** (`/checkouts/avancado`), incluindo checkouts adicionais.
+- **Editor visual** (`/checkouts/personalizar/<produto>`): elementos Cabeçalho do produto (obrigatório), Banner, Texto, Vídeo (YouTube/Vimeo), Depoimentos, Contagem decrescente (data fixa ou por visitante), Benefícios, Garantia, Perguntas frequentes, Imagem e Separador; reordenar/remover; tema (cores, texto do botão, disposição, faixa de anúncio); pré-visualização ao vivo; separadores Editar/Pré-visualizar no telemóvel. **Guardar rascunho** não altera o checkout público; **Publicar** aplica ao checkout do produto (o link mantém-se); **Descartar** volta à versão publicada. Produtos novos usam um modelo padrão profissional (cabeçalho + "Compra segura").
+- **O que a personalização não pode alterar**: id do produto, preço, moeda, formulário de compra, integração EPay, regras de confirmação e entrega digital. O design é validado no servidor (Zod, campos desconhecidos removidos, só `https://` em imagens, vídeo apenas YouTube/Vimeo, exatamente um cabeçalho de produto) e o preço continua a vir sempre da BD.
+- Produtos em rascunho, despublicados ou arquivados, ou checkouts desativados, mostram "Link indisponível" e não aceitam compras. O checkout principal não pode ser eliminado (só desativado).
+- Todas as ações passam por `guarded()` (sessão obrigatória) e validam que o produto pertence ao âmbito atual (real/demo).
+
+### Testes (cenários pedidos)
+| # | Cenário | Onde |
+|---|---|---|
+| 1 | Criar produto gera link automaticamente | integração + E2E 02/05 |
+| 2 | Atualizar a página não altera nem duplica | integração (incl. pedidos em paralelo) + E2E 02 |
+| 3 | Vários produtos têm links próprios | integração + E2E 06 |
+| 4 | Copiar e abrir o link público | E2E 02 (área de transferência + nova janela) |
+| 5 | Personalizar um produto não afeta outros | integração + E2E 06 |
+| 6 | Rascunho não substitui a versão publicada | integração + E2E 06 |
+| 7 | Publicar aparece no checkout correto | integração + E2E 06 |
+| 8 | Renomear mantém o link | integração + E2E 06 |
+| 9 | Preço e moeda validados no servidor | integração (design não injeta preço; compra usa o preço da BD) |
+| 10 | Fluxo EPay continua a funcionar | integração (compra via slug) + E2E 05 completo |
+| 11 | Permissões e proteção dos dados | integração (âmbito real/demo, checkout principal não eliminável, slugs inválidos) + E2E 01 |
+| 12 | Computador e telemóvel | E2E 04 (sem deslocamento horizontal em 6 larguras, incl. novas rotas) + E2E 06 (375 px) + verificação visual |
+
+### Ficheiros principais
+`prisma/migrations/20261013090000_checkout_per_product_design`, `src/server/services/primary-checkout.ts`, `src/server/services/checkout-design.ts`, `src/lib/checkout-design.ts`, `src/components/checkouts/{design-editor,checkout-blocks,checkout-view}.tsx`, `src/components/products/checkout-link-card.tsx`, `src/app/(app)/checkouts/{page.tsx,avancado,personalizar}`, `tests/integration/checkout-personalization.test.ts`, `e2e/06-personalization.spec.ts`.
 
 ## Integração EPay / MZN (sessões 2 e 3)
 
@@ -239,6 +271,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 6 (2026-10-12)**: checkout principal gerado automaticamente com cada produto (link legível estável, sem duplicados, recuperação/backfill, migração que preserva links); página "Personalização do Checkout" com cartões por produto; editor visual por blocos com rascunho, pré-visualização e publicação; secção "Link de Checkout" no produto; 156 testes unitários/integração e 42 E2E a passar; build OK; verificação visual em computador e telemóvel.
 - **Sessão 5 (2026-10-12)**: deteção automática do endereço do site na Vercel (`src/server/app-url.ts`): APP_BASE_URL → VERCEL_PROJECT_PRODUCTION_URL → domínio do pedido; 141 testes unitários/integração e 38 E2E a passar.
 - **Sessão 4 (2026-10-12)**: erro no deploy da Vercel diagnosticado (BD não configurada/migrada; sem acesso aos logs da Vercel a partir do ambiente — 403 no âmbito da equipa); `vercel-build` com migrações e verificação de ambiente, página "Configuração incompleta", `/api/health`, página de erro global; validação local dos três cenários.
 - **Sessão 3 (2026-10-12)**: documentação EPay fornecida pelo proprietário (`docs/epay-api.md`); adaptador EPay implementado (checkout alojado, aviso `X-EducavelPay-Signature`, consulta, cancelamento, chaves de teste/produção, encomendas de teste fora da receita, reconciliação); 139 testes unitários/integração e 38 E2E a passar; build OK; verificação manual com chave fictícia; sem acesso aos servidores reais da EPay.

@@ -50,7 +50,7 @@ test.describe.serial("modo de demonstração (secção 28)", () => {
 
   test("percurso de funil: cupão → upsell recusado → downsell aceite → obrigado", async ({ page }) => {
     await login(page);
-    await page.goto("/checkouts");
+    await page.goto("/checkouts/avancado");
     const path = await page.locator("a[href^='/checkout/']").first().getAttribute("href");
     // o primeiro checkout listado pode ser o do curso; procurar o do guia (associado ao funil)
     const guideRow = page.getByRole("link", { name: /Checkout — Guia Digital/ }).first();
@@ -84,7 +84,7 @@ test.describe.serial("modo de demonstração (secção 28)", () => {
 
   test("percurso de funil: aceitar upsell vai para obrigado", async ({ page }) => {
     await login(page);
-    await page.goto("/checkouts");
+    await page.goto("/checkouts/avancado");
     await page.getByRole("link", { name: /Checkout — Guia Digital/ }).first().click();
     const p = (await page.getByTestId("checkout-path").textContent())!.trim();
     await page.goto(p);
