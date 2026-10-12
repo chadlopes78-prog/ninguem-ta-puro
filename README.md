@@ -1,6 +1,6 @@
 # Ninguém Tá Puro
 
-Plataforma privada de vendas digitais em **metical moçambicano (MZN)**: produtos, checkouts, funis com upsells/downsells, encomendas, clientes, cupões e analytics. O fluxo de pagamento real (EPay) está implementado mas **inativo** até o contrato da API ser confirmado na documentação oficial — ver PROJECT_STATUS.md.
+Plataforma privada de vendas digitais em **metical moçambicano (MZN)**: produtos, checkouts, funis com upsells/downsells, encomendas, clientes, cupões e analytics. Pagamentos reais pela **EPay** (M-Pesa, e-Mola, IZI) — ativos assim que `EPAY_SECRET_KEY` estiver definida no servidor. Referência da API: [docs/epay-api.md](./docs/epay-api.md).
 
 Estado detalhado, decisões e próximos passos: [PROJECT_STATUS.md](./PROJECT_STATUS.md).
 
@@ -47,8 +47,7 @@ npm run dev
 | `APP_BASE_URL` | sim (produção) | URL público HTTPS — retorno do comprador e notificações de pagamento |
 | `DEMO_TOOLS_ENABLED` | não | `true` permite gerar dados de demonstração. Manter `false` em produção |
 | `INSECURE_COOKIES` | não | `true` apenas para testes locais em HTTP com `NODE_ENV=production` |
-| `EPAY_SECRET_KEY` | para pagamentos | Chave secreta da EPay (só no servidor) |
-| `EPAY_API_BASE_URL` | para pagamentos | URL base da API, copiado da documentação oficial |
+| `EPAY_SECRET_KEY` | para pagamentos | Chave secreta da EPay `sk_test_…` (sandbox) ou `sk_live_…` (produção). Só no servidor |
 | `NTP_ENABLE_TEST_PROVIDER`, `TEST_PROVIDER_SECRET` | só testes | Fornecedor de pagamentos fictício; só funciona com a BD `ntp_test` |
 
 Nenhum segredo é exposto ao frontend.

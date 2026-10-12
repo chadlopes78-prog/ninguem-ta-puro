@@ -30,6 +30,8 @@ export const testLocalProvider: PaymentProvider = {
   id: "teste-local",
   displayName: "Fornecedor de teste (local)",
   supportedCurrencies: ["MZN"],
+  checkoutMode: "direct",
+  environment: () => "test",
   isConfigured: () => testProviderAllowed() && Boolean(process.env.TEST_PROVIDER_SECRET),
   configChecks: () => [{ label: "Fornecedor de teste", ok: testProviderAllowed(), detail: "Apenas na base de dados de testes" }],
   methods: () => [

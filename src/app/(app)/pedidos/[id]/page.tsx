@@ -56,6 +56,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
             <OrderStatusBadge status={o.status} />
             {isDemo && <DemoBadge />}
             {o.source === "MANUAL_TEST" && <Badge tone="info">Teste manual</Badge>}
+            {o.isTestPayment && <Badge tone="warning">Pagamento de teste — não conta como receita</Badge>}
           </span>
         }
         description={`Criado em ${formatDate(o.createdAt, tz, true)} · atualizado em ${formatDate(o.updatedAt, tz, true)}`}
@@ -136,6 +137,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
                       </div>
                       <p className="mt-1 text-muted tabular">{m(p.amountCents)}{p.phoneMasked ? ` · ${p.phoneMasked}` : ""}</p>
                       <p className="mt-0.5 break-all font-mono text-[11.5px] text-subtle">{p.externalId ?? "sem referência externa"}</p>
+                      {p.environment && <p className="text-[11.5px] text-subtle">Ambiente: {p.environment === "test" ? "teste (sandbox)" : "produção"}</p>}
                       {p.failureReason && <p className="mt-1 text-[12px] text-warning">{p.failureReason}</p>}
                       <p className="mt-1 text-[11.5px] text-subtle">Criado {formatDate(p.createdAt, tz, true)}{p.confirmedAt ? ` · confirmado ${formatDate(p.confirmedAt, tz, true)}` : ""}</p>
                     </li>

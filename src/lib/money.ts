@@ -84,3 +84,23 @@ export function percentOf(cents: number, percent: number): number {
 export function sumCents(values: number[]): number {
   return values.reduce((acc, v) => acc + v, 0);
 }
+
+/** Cêntimos → texto decimal com duas casas e ponto ("350.00"), formato usado pela API EPay. */
+export function centsToDecimalString(cents: number): string {
+  const sign = cents < 0 ? "-" : "";
+  const abs = Math.abs(cents);
+  return `${sign}${Math.floor(abs / 100)}.${String(abs % 100).padStart(2, "0")}`;
+}
+
+/** Texto decimal da API ("350.00", "350.5", "350") → cêntimos inteiros, sem vírgula flutuante. null se inválido. */
+export function decimalStringToCents(value: unknown): number | null {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || value < 0) return null;
+    const cents = Math.round(value * 100);
+    return Math.abs(cents - value * 100) < 1e-6 ? cents : null;
+  }
+  if (typeof value !== "string") return null;
+  const m = /^(\d{1,12})(?:\.(\d{1,2}))?$/.exec(value.trim());
+  if (!m) return null;
+  return Number(m[1]) * 100 + Number((m[2] ?? "0").padEnd(2, "0"));
+}

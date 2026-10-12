@@ -1,18 +1,16 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-12 · Sessão 2 (integração EPay / MZN)
+Última atualização: 2026-10-12 · Sessão 3 (integração EPay implementada conforme a documentação)
 
 ## Estado geral
 
-As 7 fases do Documento Mestre estão implementadas e verificadas. Na sessão 2 a plataforma passou a operar em **metical moçambicano (MZN)** e foi construído todo o **fluxo de pagamento real** (encomenda pendente, cobrança, confirmação idempotente, entrega após confirmação e auditoria). Esse fluxo está testado de ponta a ponta com um fornecedor de teste local.
-
-**A EPay ainda NÃO cobra.** A documentação oficial (https://painel.epay.co.mz/docs/api) não foi acessível a partir do ambiente de desenvolvimento: o domínio está bloqueado pela política de rede e não resolve nas ferramentas web. Por regra do documento, nenhum endpoint, campo, estado ou mecanismo de assinatura foi inventado. O adaptador EPay está isolado e desativado até esses pontos serem confirmados (ver "Integração EPay — o que falta").
+As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN** e tem a **integração de pagamentos EPay implementada conforme a documentação oficial** (checkout alojado, aviso assinado, consulta de estado, cancelamento, idempotência, entrega após confirmação, auditoria). Para ficar ativa só falta definir `EPAY_SECRET_KEY` no servidor e fazer o teste no sandbox da EPay, porque os servidores da EPay não são acessíveis a partir do ambiente de desenvolvimento.
 
 | Verificação | Comando | Resultado (última execução) |
 |---|---|---|
 | Lint | `npm run lint` | ✅ 0 erros, 0 avisos |
 | Tipos TypeScript | `npm run typecheck` | ✅ sem erros |
-| Testes unitários + integração | `npm test` | ✅ 116/116 (9 ficheiros; 18 de pagamentos) |
+| Testes unitários + integração | `npm test` | ✅ 139/139 (10 ficheiros; 24 EPay + 17 fluxo de pagamento) |
 | Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 38/38 (9 de pagamentos) |
 | Build de produção | `npm run build` | ✅ sem erros |
 | Fuga de segredos | build com `EPAY_SECRET_KEY` fictícia + `grep` em `.next/` e log | ✅ valor ausente do bundle do browser, do output do servidor e do log; nenhuma variável `NEXT_PUBLIC_`; `.env` com segredos fora do Git |
@@ -29,110 +27,95 @@ As 7 fases do Documento Mestre estão implementadas e verificadas. Na sessão 2 
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
 
-## Integração EPay / MZN (sessão 2)
+## Integração EPay / MZN (sessões 2 e 3)
 
-### Concluído e verificado (testes automáticos)
+### Estado
 
-- **MZN em toda a plataforma**: novo valor `MZN` no enum `Currency` (migração `20261012052344_add_mzn_currency`); moeda padrão MZN, região `pt-MZ` e fuso `Africa/Maputo` (migração `20261012060000_epay_payments_delivery_audit`, que também atualiza o registo de Configurações existente). Formulários de produtos, ofertas e cupões só aceitam MZN. Formatação `12 450,00 MZN` (o CLDR `pt-MZ` não agrupa números de 4 dígitos: `1250,00 MZN`). O parser aceita "MZN", "MT" e "MTn". Os registos antigos noutras moedas continuam legíveis mas não podem ser pagos online. Dados de demonstração em MZN.
-- **Encomenda e pagamento** (`src/server/services/payment-flow.ts`):
-  - O preço vem sempre da BD; campos de valor enviados pelo browser são ignorados (há teste para isto).
-  - É criada uma encomenda `PENDING` com código único, um `publicToken` aleatório para a página de estado e uma `idempotencyKey` gerada por carregamento do checkout, para que o duplo clique ou um reenvio não dupliquem a encomenda.
-  - Cada tentativa fica num registo `Payment` com fornecedor, método, telefone mascarado, montante, moeda, estado, referência externa, estado bruto e datas.
-  - O telemóvel é validado no formato moçambicano (`8[2-7]XXXXXXX`, com ou sem +258).
-  - O cupão é reservado de forma atómica e libertado se o pagamento falhar ou for cancelado.
-- **Confirmação centralizada** (`src/server/payments/confirm.ts`): é a única via pela qual uma encomenda real passa a paga. Valida a referência, o montante e a moeda contra a BD e faz transições condicionais. É idempotente: repetições não duplicam vendas, entregas nem utilizações de cupões. Um "pago" sem montante é ignorado (exige consulta oficial). Um "pago" depois de uma expiração é aceite, porque o dinheiro foi recebido. Um pagamento em duplicado numa encomenda já paga é registado para reembolso manual.
-- **Webhooks** (`/api/webhooks/<fornecedor>`, `src/server/payments/webhooks.ts`):
-  - A assinatura é verificada sobre o corpo bruto, com comparação em tempo constante.
-  - Cada evento é registado com idempotência por `(fornecedor, id do evento)`.
-  - Um evento que falhe a meio é reprocessado na nova tentativa do fornecedor (que recebe 500).
-  - Assinatura inválida → 401 sem alterações; corpo inválido → 400.
-- **Consulta oficial de estado**: feita pela página de estado e pelo endpoint `/api/public/pagamento/<token>`, no máximo uma vez a cada 8 s por pagamento. Um erro de rede na criação deixa o pagamento "incerto": continua pendente, com aviso ao comprador, e nunca se assume sucesso.
-- **Páginas do comprador**:
-  - `/pagamento/<token>`: estados "a iniciar", "a aguardar confirmação", "pago", "falhado", "cancelado/expirado" e "reembolsado"; atualiza sozinha.
-  - O antigo `/checkout/<id>/sucesso` redireciona as encomendas reais para a página de estado, por isso o retorno do browser nunca mostra "obrigado" nem marca nada como pago.
-  - O checkout mostra os métodos do fornecedor ativo e o campo do número; nunca pede cartão.
-- **Entrega digital** (`Delivery`, `/acesso/<token>`): o token é criado uma única vez, só quando o pagamento é confirmado; o acesso é revogado se a encomenda deixar de estar paga (reembolso); o número de acessos fica registado.
-- **Auditoria** (`OrderAuditLog`): todas as transições de estado ficam registadas com o autor (`checkout`, `webhook:<fornecedor>`, `status-check:<fornecedor>`, `charge-response:<fornecedor>`, `admin:<email>`). O detalhe da encomenda mostra tentativas de pagamento, notificações, entrega e auditoria.
-- **Estados apresentados**: Pendente / Pago / Falhado / Reembolsado / Cancelado. Só as encomendas pagas contam como receita; o valor líquido usa as taxas devolvidas pelo fornecedor (nunca estimadas).
-- **Segredos**:
-  - Lidos só no servidor (`EPAY_SECRET_KEY`, `EPAY_API_BASE_URL`, `APP_BASE_URL`); nunca usam `NEXT_PUBLIC_`, nunca são guardados na BD e nunca são registados em logs.
-  - A página **Integrações → Verificar configuração** indica apenas se cada variável existe.
-  - O `.gitignore` cobre `.env`, `.env.local`, `.env.*.local`, `.env.production`, `.env.development`, `*.pem` e `*.key`. O `.env.example` não tem valores reais.
+A **integração EPay está implementada conforme a documentação oficial**. O proprietário colou a documentação na sessão 3; a cópia de referência está em [`docs/epay-api.md`](./docs/epay-api.md). A integração fica ativa assim que `EPAY_SECRET_KEY` estiver definida no servidor.
 
-### Cenários testados (com o fornecedor de TESTE local, não com a EPay)
+**Ainda não foi testada contra os servidores reais da EPay**: `painel.epay.co.mz` e `checkout.epay.co.mz` estão bloqueados pela política de rede do ambiente de desenvolvimento. Todos os testes usam respostas simuladas no formato exato da documentação. Antes de vender a sério, fazer o teste no sandbox descrito abaixo. **Não declarar produção pronta antes disso.**
 
-Integração (`tests/integration/payments.test.ts`):
-- criação pendente com preço vindo da BD;
-- submissão duplicada;
-- validação de método, telefone e chave;
-- webhook pago com taxa, evento repetido e evento distinto com o mesmo resultado;
-- assinatura inválida, segredo errado, corpo alterado e cabeçalho em falta;
-- montante, moeda ou referência errados, e montante em falta;
-- falhado (com libertação do cupão) e cancelado;
-- pago depois de expirado;
-- recusa imediata e erro de rede (estado incerto);
-- consulta oficial a devolver "pago" e "expirado";
-- visitas repetidas à página de estado sem marcar como pago;
-- entrega só após confirmação e revogada por reembolso;
-- auditoria de alterações administrativas;
-- moeda não-MZN recusada;
-- EPay nunca ativa sem contrato, sem expor a chave;
-- o fornecedor de teste só existe na BD de testes.
+### Como funciona (conforme a documentação)
 
-E2E (`e2e/05-payments.spec.ts`):
-- checkout em MZN com métodos de pagamento;
-- estado pendente persistente após várias visitas;
-- webhook assinado: 401 com assinatura inválida, 200 normal e duplicado; passa a pago, link de acesso funciona, auditoria com uma única transição, líquido com a taxa devolvida;
-- atualização automática da página por consulta oficial;
-- recusa com opção de "Tentar novamente", expiração e erro de comunicação;
-- tokens inválidos;
-- dashboard a contar só os pagamentos confirmados.
+1. O checkout envia nome, email e uma chave de idempotência (nunca o preço). O servidor cria a encomenda `PENDING` e chama `POST https://checkout.epay.co.mz/api/v1/payments` com `Authorization: Bearer <EPAY_SECRET_KEY>` e os campos:
+   - `amount` — número em meticais, calculado a partir dos cêntimos guardados na BD;
+   - `currency: "MZN"`;
+   - `description`;
+   - `external_reference` — referência única da tentativa, `NTP-XXXXXXXX-xxxxxxxx`;
+   - `customer_name`, `customer_email`;
+   - `return_url` → `/pagamento/<token>`;
+   - `cancel_url` → `/pagamento/<token>?desistiu=1`;
+   - `callback_url` → `<APP_BASE_URL>/api/webhooks/epay` (só enviado quando é HTTPS);
+   - `image_url` (opcional).
+2. O comprador é redirecionado para o `payment_url`; só se aceitam URLs `https://checkout.epay.co.mz/…`. Escolhe M-Pesa, e-Mola ou IZI e confirma no telemóvel. Se a EPay devolver um valor ou moeda diferentes, o pagamento é cancelado e o comprador não é redirecionado.
+3. Aviso por pagamento (`POST /api/webhooks/epay`):
+   - a assinatura `X-EducavelPay-Signature` é verificada como HMAC-SHA256 hexadecimal do corpo bruto, com a chave `sk_…` e comparação em tempo constante;
+   - inválida → 401;
+   - aceite (incluindo duplicados ou rejeitados por valor/moeda) → 200, para não haver reenvios inúteis;
+   - idempotência por `id:status`, porque a EPay reenvia de 10 em 10 minutos até 12 vezes.
+4. Só depois de validar referência, montante (`"1500.00"` → 150000 cêntimos) e moeda é que a encomenda passa a **Paga**. Nesse momento regista-se a `fee` da EPay (líquido = valor − fee), cria-se o acesso ao produto e regista-se a auditoria.
+5. Consulta `GET /v1/payments/{id}`:
+   - quando o comprador regressa ou a página de estado atualiza (no máximo de 8 em 8 s por pagamento, para respeitar o limite de 60 pedidos/min);
+   - no botão **Integrações → Verificar pagamentos pendentes** (reconciliação).
 
-O fornecedor de teste (`src/server/payments/providers/test-local.ts`) só é registado com `NTP_ENABLE_TEST_PROVIDER=true` **e** uma `DATABASE_URL` que aponte para `ntp_test`.
+   Mapeamento de estados: `pending` → pendente · `paid` → paga · `failed` → falhada · `cancelled` → cancelada.
+6. Cancelar no painel uma encomenda pendente chama primeiro `POST /v1/payments/{id}/cancel`. Se a EPay responder 422 (já paga), o cancelamento é recusado e o estado é atualizado para pago. O reembolso faz-se no painel da EPay.
+7. Erros da API (401/403/422/429/503) ou falha de rede ao criar o pagamento: nada é criado nem cobrado; a encomenda é cancelada, o cupão é libertado e o comprador vê "Não foi possível iniciar o pagamento. Nada foi cobrado…" e pode tentar de novo. O código HTTP e o `X-Request-Id` ficam no registo de integrações; a chave nunca fica.
+8. **Chave de teste (`sk_test_…`)**: as encomendas ficam marcadas como "Pagamento de teste" e **não contam como receita** no dashboard, nos relatórios nem nos clientes. O checkout mostra "Ambiente de teste da EPay".
+9. **Chave de produção (`sk_live_…`)**: só fica ativa com `APP_BASE_URL` em HTTPS, para os avisos chegarem.
 
-### Integração EPay — o que falta (depende da documentação oficial e de ti)
+Não usado (documentado como opcional): `POST /v1/payments/{id}/settle` (marca como pago sem dinheiro) e os "Webhooks da loja" (`X-Epay-Signature` com `whsec_…`). O aviso por pagamento cobre as vendas feitas por esta plataforma.
 
-O adaptador está em `src/server/payments/providers/epay.ts`. Enquanto `EPAY_CONTRACT.confirmed` for `false`:
-- `isConfigured()` devolve `false`, por isso o checkout informa que o pagamento não está disponível e não cobra nada;
-- o webhook `/api/webhooks/epay` responde 404;
-- nenhuma assinatura é aceite.
+### Testes executados (resultado real)
 
-Pontos a confirmar na documentação (também listados na página Integrações):
-1. URL base da API e se existe ambiente de testes (sandbox) com credenciais próprias.
-2. Formato da autenticação (cabeçalho e esquema) com a chave secreta.
-3. Endpoint, método e campos para criar o pagamento: montante em unidades ou em cêntimos, código de moeda `MZN`, referência do comerciante, telefone e método.
-4. Códigos dos métodos ativos para a tua conta (ex.: M-Pesa, e-Mola) e formato do telefone.
-5. Resposta à criação: identificador da transação, URL de checkout alojado (se houver) e estados.
-6. Endpoint de consulta do estado.
-7. Lista de estados e o seu significado.
-8. Notificações: configuração do URL, campos e identificador único do evento.
-9. Assinatura: cabeçalho, algoritmo, segredo usado e se é calculada sobre o corpo bruto.
-10. Código HTTP e corpo que a EPay espera receber como resposta; política de reenvio.
-11. Taxas devolvidas e códigos de erro.
+| Suite | Resultado |
+|---|---|
+| `npm test` (unitários + integração) | ✅ 139/139 — inclui 24 testes EPay (`tests/integration/epay.test.ts`) e 17 do fluxo genérico (`payments.test.ts`) |
+| `npm run test:e2e` (build de produção) | ✅ 38/38 — inclui 9 do fluxo de pagamento no navegador (fornecedor de teste local) |
+| `npm run lint` / `typecheck` / `build` | ✅ sem erros |
+| Verificação manual: servidor de produção com chave `sk_test_` fictícia | ✅ checkout mostra o modo EPay (M-Pesa, e-Mola ou IZI · ambiente de teste); ao pagar, a rede bloqueada fez falhar o pedido à EPay → encomenda cancelada, nada cobrado, mensagem segura ao comprador, chave ausente dos logs |
+| Fuga de segredos | ✅ chave ausente do bundle do browser, do output do servidor e dos logs; nenhuma variável `NEXT_PUBLIC_`; `.env` com segredos fora do Git |
 
-Informação não verificada, obtida apenas por um motor de pesquisa a partir da página inicial da EPay (não usada no código):
-- aceita M-Pesa, e-Mola e IZI via Millennium bim, sem cartões;
-- API REST com chave Bearer e webhooks;
-- o exemplo de pedido usa montante em cêntimos, um código de tipo de pagamento e o telefone.
+Os testes EPay cobrem:
+- formato exato do pedido (URL, método, cabeçalho Bearer, campos e valores);
+- preço vindo da BD (o valor enviado pelo browser é ignorado);
+- `callback_url` só com HTTPS;
+- erros 401/403/422/429/503 e falha de rede;
+- `payment_url` fora do domínio da EPay e valor divergente;
+- idempotência da submissão;
+- aviso pago com taxa, reenvios duplicados, assinatura de outra chave, corpo alterado, cabeçalho em falta, assinatura em maiúsculas;
+- valor/moeda divergentes, aviso falhado, pagamento desconhecido;
+- consulta `paid`/`failed`/`cancelled`, 429 na consulta, reconciliação;
+- cancelamento (200 e 422);
+- receita: teste vs produção;
+- configuração: teste/produção, HTTPS e formato da chave, sem expor o segredo.
 
-Tudo isto tem de ser confirmado na documentação oficial.
+### O que falta fazer (do teu lado)
 
-**Quando a documentação estiver disponível**: preencher `createCharge`, `getStatus`, `methods`, `verifySignature`, `parseEvent` e `webhookAck` exatamente como documentado (a mapear para os tipos normalizados em `src/server/payments/types.ts`), mudar `EPAY_CONTRACT.confirmed` para `true` e acrescentar testes com exemplos reais da documentação. O resto do fluxo não precisa de alterações.
+1. **Chave de teste**: no painel da EPay → Integrações → API → Chaves de API, criar uma chave `sk_test_…`. A chave completa só aparece uma vez.
+2. **Definir no servidor** (nunca no código nem na conversa):
+   - **Local**: `cp .env.example .env` e preencher `EPAY_SECRET_KEY` e `APP_BASE_URL`. O `.env` está no `.gitignore`.
+   - **Alojamento**: definir `EPAY_SECRET_KEY` e `APP_BASE_URL` (HTTPS, ex.: `https://loja.exemplo.co.mz`) nas variáveis secretas do projeto.
+3. **Verificar**: Integrações → "Verificar configuração" deve mostrar ✓ e "Ativo · Teste".
+4. **Teste no sandbox** (resultado decidido pelo valor em MZN): criar produtos de teste com estes preços e comprar pelo checkout:
+   - **100 MZN** (qualquer outro valor) → deve ficar **Pago**, com acesso ao produto;
+   - **300 MZN** ou **400 MZN** → pagamento recusado → **Falhado**;
+   - **250 MZN** ou **500 MZN** → o pedido falha logo (erro do banco) → **Falhado** na página da EPay ou "não iniciado".
 
-### Como inserir as credenciais (sem as colocar no código nem na conversa)
+   Confirmar em cada caso a página de estado, o detalhe da encomenda (pagamentos, avisos, auditoria) e o registo em Integrações. Para receber os avisos, `APP_BASE_URL` tem de ser um endereço HTTPS público; em `localhost` funciona apenas a consulta de estado.
+5. **Produção**: com a empresa verificada na EPay, trocar para `sk_live_…` no alojamento, fazer uma compra real de valor baixo e confirmar que fica "Paga" e conta como receita.
+6. **Se uma chave for exposta**: revogá-la no painel da EPay, criar outra e atualizar a variável no alojamento.
 
-- **Local**: criar `.env` (já ignorado pelo Git) a partir de `.env.example` e preencher:
-  - `EPAY_SECRET_KEY` — a chave do painel da EPay;
-  - `EPAY_API_BASE_URL` — copiada da documentação;
-  - `APP_BASE_URL` — o URL público.
-- **Alojamento** (ex.: Vercel ou outro): definir as mesmas três variáveis no painel de variáveis de ambiente/segredos do projeto. Usar valores distintos em produção e em pré-visualização/testes, se a EPay der credenciais de teste.
-- **No painel da EPay**: configurar o URL de notificações como `https://<o-teu-domínio>/api/webhooks/epay`. Tem de ser HTTPS.
-- **Verificar** em Integrações → "Verificar configuração": mostra ✓/✗ sem revelar valores.
-- **Se uma chave for exposta** (commit, captura de ecrã, conversa): revogá-la no painel da EPay e gerar uma nova; depois atualizar a variável no alojamento.
+### Outras pendências
 
-### Ficheiros principais desta sessão
+- Reembolsos: feitos no painel da EPay; o estado `cancelled` chega pela consulta. Podem ser sincronizados automaticamente através dos "Webhooks da loja" (`refund.approved`), que exigiriam um novo segredo `EPAY_WEBHOOK_SECRET` (`whsec_…`) — opcional, não implementado.
+- Upsell/downsell com pagamento real: exige um novo pagamento EPay por oferta; hoje só existe como simulação em modo demo.
+- Envio do link de acesso por email: a EPay envia o recibo ao `customer_email`, mas o link de acesso ao produto só aparece na página de estado.
+- Agendamento automático da reconciliação (ex.: cron a cada 15 min); hoje é manual, pelo botão em Integrações.
 
-`prisma/schema.prisma` e as 2 novas migrações · `src/lib/money.ts` · `src/server/payments/{types,confirm,webhooks,registry}.ts` · `src/server/payments/providers/{epay,test-local}.ts` · `src/server/services/{payment-flow,purchase,orders,integrations}.ts` · `src/app/pagamento/[token]/*` · `src/app/acesso/[token]/page.tsx` · `src/app/api/public/pagamento/[token]/route.ts` · `src/app/api/webhooks/[provider]/route.ts` · `src/components/checkouts/checkout-view.tsx` · `src/app/(app)/pedidos/[id]/page.tsx` · `src/app/(app)/integracoes/page.tsx` · `.env.example` · `.gitignore` · `tests/integration/payments.test.ts` · `e2e/05-payments.spec.ts`.
+### Ficheiros principais
+
+`docs/epay-api.md` · `src/server/payments/providers/epay.ts` · `src/server/payments/{types,confirm,webhooks,registry}.ts` · `src/server/services/{payment-flow,orders,metrics,integrations}.ts` · `src/components/checkouts/checkout-view.tsx` · `src/app/checkout/[publicId]/page.tsx` · `src/app/pagamento/[token]/page.tsx` · `src/app/(app)/integracoes/*` · `src/app/(app)/pedidos/*` · `src/lib/money.ts` · `prisma/schema.prisma` + migração `20261012080000_epay_hosted_checkout` · `.env.example` · `tests/integration/epay.test.ts` · `e2e/05-payments.spec.ts`.
 
 ## Funcionalidades concluídas e verificadas (sessão 1)
 
@@ -212,7 +195,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Pendências e próximos passos
 
-1. **EPay**: obter a documentação oficial (colar o conteúdo/PDF no repositório, por exemplo em `docs/epay-api.md`, ou permitir o domínio `painel.epay.co.mz` na configuração de rede do ambiente); implementar os 11 pontos acima; testar no ambiente de testes da EPay, se existir, e depois com uma transação real de valor baixo. **Não declarar produção pronta antes disso.**
+1. **EPay**: definir `EPAY_SECRET_KEY` (`sk_test_…`) e `APP_BASE_URL`, fazer o teste no sandbox e depois uma transação real de valor baixo com `sk_live_…` (ver "O que falta fazer"). **Não declarar produção pronta antes disso.**
 2. Reembolsos reais através da API EPay (se a API os suportar); hoje só existem como simulação em modo demo.
 3. Upsell/downsell com pagamento real: exige uma nova cobrança por oferta e só funciona em modo demo (simulação).
 4. Envio do link de acesso por email (não há fornecedor de email); hoje o acesso é mostrado na página de estado após confirmação.
@@ -231,5 +214,6 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 3 (2026-10-12)**: documentação EPay fornecida pelo proprietário (`docs/epay-api.md`); adaptador EPay implementado (checkout alojado, aviso `X-EducavelPay-Signature`, consulta, cancelamento, chaves de teste/produção, encomendas de teste fora da receita, reconciliação); 139 testes unitários/integração e 38 E2E a passar; build OK; verificação manual com chave fictícia; sem acesso aos servidores reais da EPay.
 - **Sessão 2 (2026-10-12)**: leitura do documento de integração EPay/MZN; documentação oficial da EPay inacessível a partir do ambiente (domínio bloqueado), por isso nada da API foi inventado; MZN em toda a plataforma; fluxo de pagamento real completo e agnóstico ao fornecedor; adaptador EPay isolado e desativado; 116 testes unitários/integração e 38 E2E a passar; build OK; verificação de fuga de segredos OK.
 - **Sessão 1 (2026-10-12)**: análise do ambiente (repositório vazio), arquitetura, implementação das fases 1–7, 99 testes unitários/integração + 29 E2E, auditoria responsiva em 6 larguras, build de produção. Commits no ramo `claude/jolly-babbage-eg28n3`.

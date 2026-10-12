@@ -35,8 +35,10 @@ export interface CheckoutViewData {
   currency: CurrencyCode;
   isDemo: boolean;
   businessName: string;
-  /** Métodos do fornecedor ativo (vazio quando nenhum processador está configurado) */
+  /** Métodos do fornecedor ativo quando são escolhidos neste checkout (modo direto) */
   paymentMethods?: CheckoutPaymentMethod[];
+  /** Pagamento numa página alojada pelo fornecedor (ex.: EPay) */
+  hostedPayment?: { provider: string; methodsLabel: string; isTest: boolean } | null;
 }
 
 type CouponState = { code: string; discountCents: number; totalCents: number } | null;
@@ -68,13 +70,15 @@ export function CheckoutView({
   const methods = data.paymentMethods ?? [];
   const [method, setMethod] = useState(methods[0]?.id ?? "");
   const selectedMethod = methods.find((m) => m.id === method);
-  const payable = methods.length > 0 && !data.isDemo;
+  const hosted = !data.isDemo ? (data.hostedPayment ?? null) : null;
+  const payable = !data.isDemo && (methods.length > 0 || Boolean(hosted));
 
-  useEffect(() => {
+  const newIdempotencyKey = () => {
     const bytes = new Uint8Array(18);
     crypto.getRandomValues(bytes);
     idempotencyKey.current = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-  }, []);
+  };
+  useEffect(newIdempotencyKey, []);
 
   useEffect(() => {
     if (mode !== "live" || !data.publicId) return;
@@ -142,7 +146,7 @@ export function CheckoutView({
     }
     if (coupon) input.coupon = coupon.code;
     if (payable) {
-      input.method = method;
+      if (!hosted) input.method = method;
       input.idempotencyKey = idempotencyKey.current;
     }
     setNotice(null);
@@ -157,7 +161,11 @@ export function CheckoutView({
           setNotice({ tone: "error", text: r.message });
         } else if (r.kind === "payments_unavailable") setNotice({ tone: "warn", text: r.message });
         else if (r.kind === "unavailable") setNotice({ tone: "error", text: "Este checkout já não está disponível." });
-        else if (r.kind === "payment_started") {
+        else if (r.kind === "payment_not_started") {
+          // nada foi cobrado; nova tentativa usa uma nova chave
+          newIdempotencyKey();
+          setNotice({ tone: "error", text: r.message });
+        } else if (r.kind === "payment_started") {
           if (r.redirectUrl && /^https:\/\//.test(r.redirectUrl)) window.location.assign(r.redirectUrl);
           else router.push(`/pagamento/${r.token}`);
         } else if (r.kind === "demo_approved") {
@@ -239,7 +247,7 @@ export function CheckoutView({
             </div>
             {field("name", "Nome completo", { autoComplete: "name", placeholder: "O seu nome" }, true)}
             {field("email", "Email", { type: "email", autoComplete: "email", placeholder: "voce@exemplo.com", inputMode: "email" }, true)}
-            {data.collectPhone && !payable && field("phone", "Telefone", { type: "tel", autoComplete: "tel", placeholder: "84 123 4567" }, data.requirePhone)}
+            {data.collectPhone && (!payable || hosted) && field("phone", "Telefone", { type: "tel", autoComplete: "tel", placeholder: "84 123 4567" }, data.requirePhone)}
             {data.collectDocument && field("document", "Documento (CPF/NIF)", { autoComplete: "off" }, data.requireDocument)}
 
             {data.allowCoupons && (
@@ -291,7 +299,17 @@ export function CheckoutView({
               </div>
             )}
 
-            {payable ? (
+            {hosted ? (
+              <div className={cn("rounded-xl border p-4", dark ? "border-white/12 bg-white/[0.03]" : "border-black/10 bg-black/[0.02]")} data-testid="hosted-payment">
+                <p className="flex items-center gap-2 text-sm font-medium">
+                  <ShieldCheck className="h-4 w-4" aria-hidden="true" /> Pagamento seguro com {hosted.methodsLabel}
+                </p>
+                <p className={cn("mt-1 text-[12.5px]", muted)}>
+                  Ao continuar, será encaminhado para a página de pagamento da {hosted.provider}, onde escolhe o método e confirma no telemóvel. A compra só fica concluída depois de o pagamento ser confirmado. Esta página nunca pede dados de cartão.
+                </p>
+                {hosted.isTest && <p className="mt-2 text-[12px] font-semibold text-amber-500">Ambiente de teste da {hosted.provider}: nenhum dinheiro real é cobrado.</p>}
+              </div>
+            ) : payable ? (
               <fieldset className="flex flex-col gap-3">
                 <legend className="mb-1 text-[13px] font-medium">Método de pagamento</legend>
                 <div className="grid grid-cols-2 gap-2">
@@ -358,7 +376,7 @@ export function CheckoutView({
               className="flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[15px] font-semibold transition-[filter,transform] hover:brightness-105 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
               style={{ background: data.primaryColor, color: onPrimary }}
             >
-              {pending ? "A processar…" : data.buttonText}
+              {pending ? (hosted ? "A preparar o pagamento…" : "A processar…") : data.buttonText}
             </button>
             {data.isDemo && <p className={cn("text-center text-[12px]", muted)}>Compra simulada: será criado apenas um pedido de demonstração.</p>}
           </form>

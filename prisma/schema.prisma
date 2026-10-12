@@ -329,6 +329,8 @@ model Order {
   publicToken   String?      @unique
   /// Chave de idempotência da submissão do checkout (impede encomendas duplicadas)
   idempotencyKey String?     @unique
+  /// Pago com credenciais de teste do fornecedor (sandbox): nunca conta como receita
+  isTestPayment Boolean      @default(false)
   notes         String?
   isDemo        Boolean      @default(false)
   approvedAt    DateTime?
@@ -538,6 +540,10 @@ model Payment {
   externalId     String?
   /// Estado bruto devolvido pelo fornecedor (auditoria)
   rawStatus      String?
+  /// Página de pagamento alojada pelo fornecedor (ex.: payment_url da EPay)
+  redirectUrl    String?
+  /// "test" ou "live", conforme a chave usada
+  environment    String?
   failureReason  String?
   idempotencyKey String        @unique
   lastCheckedAt  DateTime?

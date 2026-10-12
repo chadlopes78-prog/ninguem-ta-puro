@@ -13,15 +13,16 @@ export const metadata: Metadata = { title: "Estado do pagamento", robots: { inde
 
 const COPY: Record<PaymentView["state"], { title: string; text: string }> = {
   processing: { title: "A iniciar o pagamento…", text: "Estamos a comunicar com o processador de pagamentos." },
-  pending: { title: "A aguardar confirmação", text: "Confirme o pagamento no seu telemóvel. Esta página atualiza automaticamente — não é necessário recarregar." },
+  pending: { title: "A aguardar confirmação", text: "Se já confirmou o pagamento no telemóvel, aguarde: esta página atualiza automaticamente. A encomenda só fica paga quando o processador confirmar." },
   paid: { title: "Pagamento confirmado", text: "Obrigado! O pagamento foi confirmado pelo processador e o acesso ao produto está disponível." },
   failed: { title: "Pagamento não concluído", text: "O pagamento foi recusado ou falhou. Nenhum valor foi cobrado por esta encomenda." },
   canceled: { title: "Pagamento cancelado ou expirado", text: "O pagamento não foi confirmado a tempo. Pode tentar novamente." },
   refunded: { title: "Encomenda reembolsada", text: "Esta encomenda foi reembolsada." },
 };
 
-export default async function PaymentStatusPage({ params }: { params: Promise<{ token: string }> }) {
+export default async function PaymentStatusPage({ params, searchParams }: { params: Promise<{ token: string }>; searchParams: Promise<{ desistiu?: string }> }) {
   const { token } = await params;
+  const { desistiu } = await searchParams;
   // Visitar esta página nunca marca a encomenda como paga: apenas lê o estado (e pode pedir uma consulta oficial).
   const view = await getPaymentView(token, { refresh: true });
   if (!view) return <Unavailable title="Encomenda não encontrada" message="Não foi possível encontrar esta encomenda." />;
@@ -44,7 +45,23 @@ export default async function PaymentStatusPage({ params }: { params: Promise<{ 
           {copy.title}
         </h1>
         <p className="mt-2 opacity-70">{copy.text}</p>
+        {view.isTestPayment && <p className="mt-3 inline-block rounded-md bg-[#f5a524] px-2.5 py-1 text-[12px] font-semibold text-black">PAGAMENTO DE TESTE — sem dinheiro real</p>}
         {view.state === "pending" && view.phoneMasked && <p className="mt-2 text-sm opacity-60">Pedido enviado para {view.phoneMasked}.</p>}
+        {view.state === "pending" && desistiu && (
+          <p className="mt-3 rounded-lg border border-current/15 px-3 py-2 text-sm opacity-80" data-testid="gave-up">
+            Saiu da página de pagamento sem concluir. Pode continuar o pagamento abaixo; se não o fizer, a encomenda não é cobrada.
+          </p>
+        )}
+        {view.continueUrl && (
+          <a
+            href={view.continueUrl}
+            className="mt-5 inline-flex h-12 items-center justify-center rounded-xl px-6 font-semibold"
+            style={{ background: primary, color: readableOn(primary) }}
+            data-testid="continue-payment"
+          >
+            Continuar para o pagamento
+          </a>
+        )}
         {view.uncertain && view.state === "pending" && (
           <p className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
             Não foi possível confirmar o estado junto do processador. Se já aprovou o pagamento, aguarde a confirmação; caso contrário, contacte o suporte com o código da encomenda.

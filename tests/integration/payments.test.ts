@@ -13,7 +13,6 @@ import { getDeliveryView, getPaymentView, normalizeMzPhone, refreshPaymentStatus
 import { changeOrderStatus } from "@/server/services/orders";
 import { handleWebhook } from "@/server/payments/webhooks";
 import { testLocalProvider } from "@/server/payments/providers/test-local";
-import { epayProvider, EPAY_CONTRACT } from "@/server/payments/providers/epay";
 import { getActivePaymentProvider, getProvider } from "@/server/payments/registry";
 
 const SECRET = "segredo-apenas-para-testes";
@@ -284,25 +283,6 @@ describe("restrições de configuração", () => {
     const r = await buy(checkout.publicId, "841234567");
     expect(r).toMatchObject({ kind: "payments_unavailable" });
     expect(await prisma.order.count()).toBe(0);
-  });
-
-  it("EPay nunca fica ativa sem contrato da API confirmado, mesmo com chave definida; segredos nunca expostos", async () => {
-    process.env.EPAY_SECRET_KEY = "chave-ficticia-de-teste-123";
-    process.env.EPAY_API_BASE_URL = "https://exemplo.invalid";
-    try {
-      expect(EPAY_CONTRACT.confirmed).toBe(false);
-      expect(epayProvider.isConfigured()).toBe(false);
-      expect(epayProvider.verifySignature("{}", new Headers())).toBe(false);
-      expect(epayProvider.methods()).toEqual([]);
-      const checks = JSON.stringify(epayProvider.configChecks());
-      expect(checks).not.toContain("chave-ficticia-de-teste-123");
-      expect(checks).toContain("EPAY_SECRET_KEY");
-      await expect(epayProvider.createCharge({} as never)).rejects.toThrow(/não confirmado/);
-      expect(getProvider("epay")?.isConfigured()).toBe(false);
-    } finally {
-      delete process.env.EPAY_SECRET_KEY;
-      delete process.env.EPAY_API_BASE_URL;
-    }
   });
 
   it("fornecedor de teste só existe na base de dados de testes e com a variável explícita", () => {

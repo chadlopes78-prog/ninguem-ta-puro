@@ -16,12 +16,16 @@ export interface ChargeRequest {
   orderCode: string;
   amountCents: number;
   currency: CurrencyCode;
-  method: string;
+  /** Método escolhido no nosso checkout (null quando é escolhido na página alojada do fornecedor) */
+  method: string | null;
   /** Telefone normalizado (ex.: 841234567) quando o método o exige */
   phone: string | null;
   customer: { name: string; email: string };
   /** Página de estado para onde o comprador regressa (nunca é prova de pagamento) */
   returnUrl: string;
+  /** Para onde o comprador volta se desistir na página do fornecedor */
+  cancelUrl: string;
+  imageUrl: string | null;
   /** Endpoint de notificações do servidor */
   callbackUrl: string;
   description: string;
@@ -37,7 +41,9 @@ export type ChargeResult =
   /** Rejeição definitiva (ex.: saldo insuficiente, número inválido) */
   | { kind: "failed"; externalId: string | null; reason: string; rawStatus?: string }
   /** Erro de rede/servidor: o estado é incerto e deve ser consultado mais tarde */
-  | { kind: "error"; reason: string; retryable: boolean };
+  | { kind: "error"; reason: string; retryable: boolean }
+  /** O fornecedor não criou o pagamento (credenciais, validação, limite, indisponibilidade). Nada foi cobrado. */
+  | { kind: "not_created"; reason: string; userMessage: string };
 
 export type NormalizedState = "paid" | "pending" | "failed" | "canceled" | "expired";
 
@@ -68,12 +74,20 @@ export interface PaymentProvider {
   id: string;
   displayName: string;
   supportedCurrencies: readonly CurrencyCode[];
+  /** "hosted": o comprador escolhe o método na página do fornecedor; "direct": escolhe no nosso checkout */
+  checkoutMode: "hosted" | "direct";
+  /** Texto informativo dos métodos aceites na página alojada */
+  hostedMethodsLabel?: string;
+  /** Ambiente das credenciais atuais (teste/sandbox ou produção) */
+  environment(): "test" | "live" | null;
   /** Verdadeiro apenas quando credenciais existem E a integração está completa e validada. */
   isConfigured(): boolean;
   /** Verificação administrativa: indica o que está configurado sem nunca revelar segredos. */
   configChecks(): ConfigCheck[];
   methods(): PaymentMethodOption[];
   createCharge(req: ChargeRequest): Promise<ChargeResult>;
+  /** Cancela no fornecedor um pagamento ainda pendente (opcional). */
+  cancel?(externalId: string, reason: string): Promise<{ ok: true } | { ok: false; alreadyPaid: boolean; reason: string }>;
   /** Consulta oficial do estado da transação. */
   getStatus(externalId: string | null, reference: string): Promise<NormalizedStatus>;
   /** Verifica a autenticidade da notificação exatamente como documentado pelo fornecedor. */
@@ -85,5 +99,5 @@ export interface PaymentProvider {
 
 /** Catálogo informativo de fornecedores (sem APIs nem credenciais inventadas). */
 export const PROVIDER_CATALOG = [
-  { id: "epay", name: "EPay (Moçambique)", regions: "Moçambique · MZN", methods: "Carteiras móveis (a confirmar na documentação e no painel)" },
+  { id: "epay", name: "EPay (Moçambique)", regions: "Moçambique · MZN", methods: "M-Pesa, e-Mola e IZI (página de pagamento da EPay)" },
 ] as const;

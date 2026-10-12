@@ -20,7 +20,12 @@ export default async function PublicCheckoutPage({ params }: { params: Promise<{
   const c = r.checkout;
   const settings = await getSettings();
   const provider = c.isDemo ? null : getActivePaymentProvider();
-  const paymentMethods = provider && provider.supportedCurrencies.includes(c.offer.currency) ? provider.methods() : [];
+  const providerOk = Boolean(provider && provider.supportedCurrencies.includes(c.offer.currency));
+  const paymentMethods = providerOk && provider!.checkoutMode === "direct" ? provider!.methods() : [];
+  const hostedPayment =
+    providerOk && provider!.checkoutMode === "hosted"
+      ? { provider: provider!.displayName, methodsLabel: provider!.hostedMethodsLabel ?? "carteira móvel", isTest: provider!.environment() === "test" }
+      : null;
   return (
     <CheckoutView
       data={{
@@ -45,6 +50,7 @@ export default async function PublicCheckoutPage({ params }: { params: Promise<{
         isDemo: c.isDemo,
         businessName: settings.businessName,
         paymentMethods,
+        hostedPayment,
       }}
       submitAction={submitCheckoutAction.bind(null, c.publicId)}
       couponAction={applyCouponAction.bind(null, c.publicId)}

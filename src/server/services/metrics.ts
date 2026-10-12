@@ -14,7 +14,8 @@ import {
 
 async function loadOrders(isDemo: boolean, from: Date, to: Date): Promise<MetricOrder[]> {
   const rows = await prisma.order.findMany({
-    where: { isDemo, createdAt: { gte: from, lt: to } },
+    // pagamentos feitos com credenciais de teste do processador nunca contam como receita
+    where: { isDemo, isTestPayment: false, createdAt: { gte: from, lt: to } },
     select: {
       status: true,
       currency: true,
@@ -95,7 +96,7 @@ export async function getReportsData(params: { isDemo: boolean; range: DateRange
   });
   const approvedByCheckout = await prisma.order.groupBy({
     by: ["checkoutId"],
-    where: { isDemo, status: "APPROVED", currency: base.currency, createdAt: { gte: range.from, lt: range.to }, checkoutId: { not: null } },
+    where: { isDemo, isTestPayment: false, status: "APPROVED", currency: base.currency, createdAt: { gte: range.from, lt: range.to }, checkoutId: { not: null } },
     _count: { _all: true },
     _sum: { totalCents: true },
   });

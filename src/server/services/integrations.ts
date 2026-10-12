@@ -1,7 +1,6 @@
 import { prisma } from "@/server/db";
 import { PROVIDER_CATALOG } from "@/server/payments/types";
 import { getProvider } from "@/server/payments/registry";
-import { EPAY_CONTRACT } from "@/server/payments/providers/epay";
 
 export async function listIntegrations() {
   const configs = await prisma.integrationConfig.findMany();
@@ -12,7 +11,7 @@ export async function listIntegrations() {
       ...p,
       configured: provider?.isConfigured() ?? false,
       checks: provider?.configChecks() ?? [],
-      pendingContract: p.id === "epay" && !EPAY_CONTRACT.confirmed ? [...EPAY_CONTRACT.pending] : [],
+      environment: provider?.environment() ?? null,
       lastCheckedAt: cfg?.lastCheckedAt ?? null,
       lastError: cfg?.lastError ?? null,
     };

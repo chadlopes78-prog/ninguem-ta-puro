@@ -119,10 +119,14 @@ test.describe.serial("pagamentos (fornecedor de teste local)", () => {
     await expect(page.getByRole("heading", { name: "Encomenda não encontrada" })).toBeVisible();
   });
 
-  test("dashboard conta só pagamentos confirmados, em MZN", async ({ page }) => {
+  test("pagamentos feitos com credenciais de teste não contam como receita", async ({ page }) => {
     await login(page);
+    await page.goto("/pedidos?status=APPROVED");
+    await expect(page.getByText("Pagamento de teste").first()).toBeVisible();
     await page.goto("/dashboard?range=today");
-    // duas encomendas pagas de 1 250,00 (webhook + consulta) = 2 500,00
-    await expect(page.getByText(mzn("2 500,00")).first()).toBeVisible();
+    // há encomendas pagas no ambiente de teste, mas a faturação real continua a zero
+    const grossCard = page.getByText("Faturação bruta").first().locator("xpath=ancestor::div[contains(@class,'rounded-')][1]");
+    await expect(grossCard).toContainText(mzn("0,00"));
+    await expect(page.getByText(mzn("2 500,00"))).toHaveCount(0);
   });
 });

@@ -10,7 +10,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert } from "@/components/ui/alert";
 import { ActionButton } from "@/components/ui/action-button";
-import { checkIntegrationAction } from "./actions";
+import { checkIntegrationAction, reconcileAction } from "./actions";
 
 export const metadata: Metadata = { title: "Integrações" };
 
@@ -33,7 +33,7 @@ export default async function IntegrationsPage() {
             <CardHeader
               title={i.name}
               description={`${i.regions} · ${i.methods}`}
-              action={i.configured ? <Badge tone="success" dot>Ativo</Badge> : <Badge>Não ativo</Badge>}
+              action={i.configured ? <Badge tone={i.environment === "test" ? "warning" : "success"} dot>{i.environment === "test" ? "Ativo · Teste" : "Ativo · Produção"}</Badge> : <Badge>Não ativo</Badge>}
             />
             <CardBody className="grid grid-cols-1 gap-5 text-sm lg:grid-cols-2">
               <div>
@@ -50,22 +50,27 @@ export default async function IntegrationsPage() {
                   ))}
                 </ul>
                 <p className="mt-3 text-[12px] text-subtle">Última verificação: {i.lastCheckedAt ? formatDate(i.lastCheckedAt, tz, true) : "nunca"}</p>
-                <div className="mt-3">
+                <div className="mt-3 flex flex-wrap gap-2">
                   <ActionButton size="sm" variant="secondary" action={checkIntegrationAction.bind(null, i.id)}>
                     Verificar configuração
                   </ActionButton>
+                  {i.configured && (
+                    <ActionButton size="sm" variant="secondary" action={reconcileAction}>
+                      Verificar pagamentos pendentes
+                    </ActionButton>
+                  )}
                 </div>
               </div>
-              {i.pendingContract.length > 0 && (
-                <div>
-                  <p className="mb-2 text-[12px] font-medium uppercase tracking-wider text-subtle">A confirmar na documentação oficial</p>
-                  <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-[12.5px] text-muted">
-                    {i.pendingContract.map((p) => (
-                      <li key={p}>{p}</li>
-                    ))}
-                  </ol>
-                </div>
-              )}
+              <div className="text-[12.5px] leading-relaxed text-muted">
+                <p className="mb-2 text-[12px] font-medium uppercase tracking-wider text-subtle">Como funciona</p>
+                <ol className="flex list-decimal flex-col gap-1.5 pl-5">
+                  <li>O checkout cria o pagamento na EPay (valor sempre calculado no servidor, em MZN).</li>
+                  <li>O comprador é enviado para a página segura da EPay e paga com M-Pesa, e-Mola ou IZI.</li>
+                  <li>A EPay envia um aviso assinado (X-EducavelPay-Signature) para <code className="break-all text-fg">/api/webhooks/epay</code>.</li>
+                  <li>A encomenda só passa a paga após a assinatura e o valor serem validados — nunca pelo regresso do comprador.</li>
+                </ol>
+                {i.environment === "test" && <p className="mt-3 rounded-[var(--radius-md)] border border-warning/30 bg-warning/[0.06] p-2.5 text-warning">Chave de teste ativa: os pagamentos são simulados pela EPay e as encomendas ficam marcadas como teste (não contam como receita).</p>}
+              </div>
             </CardBody>
           </Card>
         ))}

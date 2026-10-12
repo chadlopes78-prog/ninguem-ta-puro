@@ -38,7 +38,8 @@ export type StartPaymentOutcome =
   | { kind: "payments_unavailable"; message: string }
   | { kind: "invalid"; fieldErrors: Record<string, string> }
   | { kind: "coupon_error"; message: string }
-  | { kind: "payment_started"; token: string; redirectUrl: string | null };
+  | { kind: "payment_started"; token: string; redirectUrl: string | null }
+  | { kind: "payment_not_started"; message: string };
 
 export async function startRealPayment(
   c: PublicCheckout,
@@ -52,18 +53,22 @@ export async function startRealPayment(
     return { kind: "payments_unavailable", message: "Este produto não pode ser pago online: a moeda não é suportada (apenas MZN)." };
   }
 
-  const methods = provider.methods();
-  const method = methods.find((m) => m.id === input.method);
-  if (!method) return { kind: "invalid", fieldErrors: { method: "Escolha um método de pagamento" } };
-  const phone = method.requiresPhone ? normalizeMzPhone(input.phone) : null;
-  if (method.requiresPhone && !phone) return { kind: "invalid", fieldErrors: { phone: "Introduza um número móvel moçambicano válido (ex.: 84 123 4567)" } };
+  // Checkout alojado (EPay): o método é escolhido na página do fornecedor. Checkout direto: escolhido aqui.
+  let method: { id: string; requiresPhone: boolean } | null = null;
+  if (provider.checkoutMode === "direct") {
+    method = provider.methods().find((m) => m.id === input.method) ?? null;
+    if (!method) return { kind: "invalid", fieldErrors: { method: "Escolha um método de pagamento" } };
+  }
+  const phone = method?.requiresPhone ? normalizeMzPhone(input.phone) : null;
+  if (method?.requiresPhone && !phone) return { kind: "invalid", fieldErrors: { phone: "Introduza um número móvel moçambicano válido (ex.: 84 123 4567)" } };
 
   const idem = input.idempotencyKey && /^[A-Za-z0-9_-]{16,64}$/.test(input.idempotencyKey) ? input.idempotencyKey : null;
   if (!idem) return { kind: "invalid", fieldErrors: { _form: "Pedido inválido. Atualize a página e tente novamente." } };
 
   // Submissão repetida (duplo clique, reenvio): devolve a mesma encomenda, sem nova cobrança
-  const existing = await prisma.order.findUnique({ where: { idempotencyKey: idem } });
-  if (existing) return { kind: "payment_started", token: existing.publicToken!, redirectUrl: null };
+  const existing = await prisma.order.findUnique({ where: { idempotencyKey: idem }, include: { payments: { orderBy: { createdAt: "desc" }, take: 1 } } });
+  if (existing) return { kind: "payment_started", token: existing.publicToken!, redirectUrl: existing.status === "PENDING" ? (existing.payments[0]?.redirectUrl ?? null) : null };
+  const environment = provider.environment();
 
   const totals = computeOrderTotals([{ unitPriceCents: c.offer.priceCents, quantity: 1 }], coupon.discountCents);
   if (totals.totalCents <= 0) return { kind: "invalid", fieldErrors: { _form: "O total da encomenda tem de ser superior a zero." } };
@@ -86,10 +91,12 @@ export async function startRealPayment(
           currency: c.offer.currency,
           ...totals,
           provider: provider.id,
-          paymentMethod: method.id,
+          paymentMethod: method?.id ?? null,
           publicToken,
           idempotencyKey: idem,
           isDemo: false,
+          // pagamentos com credenciais de teste nunca contam como receita
+          isTestPayment: environment === "test",
           items: {
             create: {
               productId: c.productId,
@@ -108,7 +115,8 @@ export async function startRealPayment(
         data: {
           orderId: order.id,
           provider: provider.id,
-          method: method.id,
+          method: method?.id ?? null,
+          environment,
           phoneMasked: phone ? maskPhone(phone) : null,
           amountCents: totals.totalCents,
           currency: c.offer.currency,
@@ -129,16 +137,18 @@ export async function startRealPayment(
     throw e;
   }
 
-  const redirectUrl = await chargeWithProvider(provider, created, {
+  const charge = await chargeWithProvider(provider, created, {
     amountCents: totals.totalCents,
     currency: c.offer.currency,
-    method: method.id,
+    method: method?.id ?? null,
     phone,
     customer: { name: input.name, email: input.email },
-    description: `${c.product.name} — ${c.offer.name}`.slice(0, 120),
+    description: `${c.product.name} — ${c.offer.name}`.slice(0, 255),
+    imageUrl: c.imageUrl ?? c.product.imageUrl ?? null,
   });
-  await trackEvent({ type: EVENT_TYPES.CHECKOUT_SUBMIT, isDemo: false, checkoutId: c.id, orderId: created.orderId, meta: { provider: provider.id, method: method.id } });
-  return { kind: "payment_started", token: created.publicToken, redirectUrl };
+  await trackEvent({ type: EVENT_TYPES.CHECKOUT_SUBMIT, isDemo: false, checkoutId: c.id, orderId: created.orderId, meta: { provider: provider.id, method: method?.id ?? null } });
+  if (charge.notStarted) return { kind: "payment_not_started", message: charge.notStarted };
+  return { kind: "payment_started", token: created.publicToken, redirectUrl: charge.redirectUrl };
 }
 
 class CouponExhausted extends Error {}
@@ -146,8 +156,8 @@ class CouponExhausted extends Error {}
 async function chargeWithProvider(
   provider: PaymentProvider,
   created: { orderId: string; orderCode: string; publicToken: string; paymentId: string; reference: string },
-  details: { amountCents: number; currency: PublicCheckout["offer"]["currency"]; method: string; phone: string | null; customer: { name: string; email: string }; description: string },
-): Promise<string | null> {
+  details: { amountCents: number; currency: PublicCheckout["offer"]["currency"]; method: string | null; phone: string | null; customer: { name: string; email: string }; description: string; imageUrl: string | null },
+): Promise<{ redirectUrl: string | null; notStarted?: string }> {
   const base = appBaseUrl();
   let result;
   try {
@@ -155,6 +165,7 @@ async function chargeWithProvider(
       reference: created.reference,
       orderCode: created.orderCode,
       returnUrl: `${base}/pagamento/${created.publicToken}`,
+      cancelUrl: `${base}/pagamento/${created.publicToken}?desistiu=1`,
       callbackUrl: `${base}/api/webhooks/${provider.id}`,
       ...details,
     });
@@ -164,24 +175,38 @@ async function chargeWithProvider(
 
   switch (result.kind) {
     case "redirect":
-      await prisma.payment.update({ where: { id: created.paymentId }, data: { status: "PENDING", externalId: result.externalId } });
-      return result.url;
+      await prisma.payment.update({ where: { id: created.paymentId }, data: { status: "PENDING", externalId: result.externalId, redirectUrl: result.url } });
+      return { redirectUrl: result.url };
     case "pending":
       await prisma.payment.update({ where: { id: created.paymentId }, data: { status: "PENDING", externalId: result.externalId } });
-      return null;
+      return { redirectUrl: null };
+    case "not_created": {
+      // Nada foi criado nem cobrado no fornecedor: a tentativa e a encomenda são encerradas e o comprador pode repetir.
+      await prisma.$transaction(async (tx) => {
+        await tx.payment.update({ where: { id: created.paymentId }, data: { status: "FAILED", failureReason: `Não iniciado: ${result.reason}`.slice(0, 200) } });
+        const upd = await tx.order.updateMany({ where: { id: created.orderId, status: "PENDING" }, data: { status: "CANCELED", canceledAt: new Date() } });
+        if (upd.count === 1) {
+          const o = await tx.order.findUniqueOrThrow({ where: { id: created.orderId } });
+          if (o.couponId) await tx.$executeRaw`UPDATE "Coupon" SET "usesCount" = GREATEST("usesCount" - 1, 0) WHERE "id" = ${o.couponId}`;
+          await audit(tx, created.orderId, "PENDING", "CANCELED", `charge-response:${provider.id}`, "Pagamento não iniciado pelo fornecedor");
+        }
+      });
+      await prisma.integrationLog.create({ data: { provider: provider.id, level: "error", message: `Pagamento não iniciado para ${created.orderCode}: ${result.reason}`.slice(0, 500) } });
+      return { redirectUrl: null, notStarted: result.userMessage };
+    }
     case "paid":
       await prisma.payment.update({ where: { id: created.paymentId }, data: { status: "PENDING", externalId: result.externalId } });
       await applyPaymentStatus(provider.id, { externalId: result.externalId, reference: created.reference, state: "paid", amountCents: result.amountCents, currency: result.currency, feeCents: result.feeCents, rawStatus: result.rawStatus }, "charge-response");
-      return null;
+      return { redirectUrl: null };
     case "failed":
       await prisma.payment.update({ where: { id: created.paymentId }, data: { externalId: result.externalId, failureReason: result.reason.slice(0, 200) } });
       await applyPaymentStatus(provider.id, { externalId: result.externalId, reference: created.reference, state: "failed", amountCents: null, currency: null, feeCents: null, rawStatus: result.rawStatus ?? "failed" }, "charge-response");
-      return null;
+      return { redirectUrl: null };
     case "error":
       // Estado incerto: a encomenda fica pendente e será verificada por consulta oficial; nunca se assume sucesso.
       await prisma.payment.update({ where: { id: created.paymentId }, data: { status: "PENDING", failureReason: `Estado incerto: ${result.reason}`.slice(0, 200) } });
       await prisma.integrationLog.create({ data: { provider: provider.id, level: "error", message: `Falha ao criar pagamento para ${created.orderCode} (estado incerto).` } });
-      return null;
+      return { redirectUrl: null };
   }
 }
 
@@ -193,6 +218,10 @@ const STATUS_CHECK_INTERVAL_MS = 8_000;
 
 /** Atualiza o estado através da consulta oficial do fornecedor, no máximo uma vez a cada 8 segundos. */
 export async function refreshPaymentStatus(orderId: string): Promise<void> {
+  return refreshOne(orderId);
+}
+
+async function refreshOne(orderId: string): Promise<void> {
   const payment = await prisma.payment.findFirst({ where: { orderId, status: { in: ["CREATED", "PENDING"] } }, orderBy: { createdAt: "desc" } });
   if (!payment) return;
   if (payment.lastCheckedAt && Date.now() - payment.lastCheckedAt.getTime() < STATUS_CHECK_INTERVAL_MS) return;
@@ -250,6 +279,9 @@ export async function getPaymentView(publicToken: string, opts: { refresh?: bool
     items: full.items,
     method: p?.method ?? null,
     phoneMasked: p?.phoneMasked ?? null,
+    // Retomar o pagamento na página do fornecedor (apenas enquanto pendente)
+    continueUrl: full.status === "PENDING" && p?.status === "PENDING" ? (p.redirectUrl ?? null) : null,
+    isTestPayment: full.isTestPayment,
     uncertain: Boolean(p?.failureReason?.startsWith("Estado incerto")),
     // A ligação de acesso só existe depois de o pagamento estar confirmado
     accessToken: state === "paid" ? (full.delivery?.token ?? null) : null,
@@ -273,4 +305,21 @@ export async function getDeliveryView(deliveryToken: string) {
     code: d.order.code,
     items: d.order.items.map((i) => ({ name: i.product.name, url: i.product.deliveryUrl, support: i.product.supportEmail })),
   };
+}
+
+/** Reconciliação: consulta oficial de pagamentos pendentes (ex.: comprador fechou a página e o aviso não chegou). */
+export async function reconcilePendingPayments(limit = 30): Promise<{ checked: number; changed: number }> {
+  const pending = await prisma.payment.findMany({
+    where: { status: { in: ["CREATED", "PENDING"] }, externalId: { not: null }, order: { status: "PENDING", isDemo: false } },
+    orderBy: { createdAt: "asc" },
+    take: limit,
+    select: { orderId: true },
+  });
+  let changed = 0;
+  for (const p of pending) {
+    await refreshOne(p.orderId);
+    const o = await prisma.order.findUnique({ where: { id: p.orderId }, select: { status: true } });
+    if (o && o.status !== "PENDING") changed++;
+  }
+  return { checked: pending.length, changed };
 }

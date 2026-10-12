@@ -3,7 +3,8 @@ import { prisma } from "@/server/db";
 import { newOrderCode } from "@/lib/ids";
 import { canTransition, computeOrderTotals } from "./order-logic";
 import { DomainError, NotFoundError } from "./products";
-import { audit, newDeliveryToken } from "@/server/payments/confirm";
+import { applyPaymentStatus, audit, newDeliveryToken } from "@/server/payments/confirm";
+import { getProvider } from "@/server/payments/registry";
 
 export const ORDER_STATUSES: OrderStatus[] = ["PENDING", "APPROVED", "DECLINED", "REFUNDED", "CANCELED"];
 
@@ -136,6 +137,25 @@ export async function changeOrderStatus(id: string, to: OrderStatus, isDemo: boo
   if (!order) throw new NotFoundError("Pedido");
   const check = canTransition(order.status, to, { isDemo });
   if (!check.ok) throw new DomainError(check.reason);
+
+  // Encomenda real com pagamento pendente no fornecedor: cancelar primeiro no fornecedor
+  if (!isDemo && to === "CANCELED") {
+    const pending = await prisma.payment.findMany({ where: { orderId: id, status: { in: ["CREATED", "PENDING"] }, externalId: { not: null } } });
+    for (const p of pending) {
+      const provider = getProvider(p.provider);
+      if (!provider?.cancel) continue;
+      const r = await provider.cancel(p.externalId!, `Encomenda ${order.code} cancelada na loja`);
+      if (!r.ok) {
+        if (r.alreadyPaid) {
+          const st = await provider.getStatus(p.externalId, p.idempotencyKey).catch(() => null);
+          if (st) await applyPaymentStatus(provider.id, st, "status-check");
+          throw new DomainError("O processador indica que este pagamento já foi pago: a encomenda não foi cancelada e o estado foi atualizado. Para devolver o dinheiro, peça o reembolso no painel da EPay.");
+        }
+        throw new DomainError("Não foi possível cancelar o pagamento no processador. Tente novamente dentro de instantes.");
+      }
+      await prisma.payment.update({ where: { id: p.id }, data: { status: "CANCELED", rawStatus: "cancelled", lastCheckedAt: new Date() } });
+    }
+  }
   const now = new Date();
   // updateMany com o estado anterior como condição evita alterações concorrentes
   await prisma.$transaction(async (tx) => {
@@ -164,7 +184,7 @@ export async function listCustomers(params: { isDemo: boolean; q?: string; hasPu
   const ids = customers.map((c) => c.id);
   const [agg, approved] = await Promise.all([
     prisma.order.groupBy({ by: ["customerId"], where: { customerId: { in: ids } }, _count: { _all: true }, _min: { createdAt: true } }),
-    prisma.order.groupBy({ by: ["customerId", "currency"], where: { customerId: { in: ids }, status: "APPROVED" }, _sum: { totalCents: true } }),
+    prisma.order.groupBy({ by: ["customerId", "currency"], where: { customerId: { in: ids }, status: "APPROVED", isTestPayment: false }, _sum: { totalCents: true } }),
   ]);
   return customers.map((c) => {
     const a = agg.find((x) => x.customerId === c.id);
