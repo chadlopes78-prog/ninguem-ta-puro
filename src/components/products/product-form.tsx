@@ -6,7 +6,7 @@ import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Alert } from "@/components/ui/alert";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { useFormAction } from "@/hooks/use-form-action";
-import { CURRENCIES, CURRENCY_LABELS, centsToInput } from "@/lib/money";
+import { ACTIVE_CURRENCIES, CURRENCY_LABELS, centsToInput } from "@/lib/money";
 import type { ActionResult } from "@/server/validation/common";
 import { PRODUCT_STATUS_LABELS, PRODUCT_TYPE_LABELS } from "./labels";
 import { ProductCover } from "./cover";
@@ -86,7 +86,7 @@ export function ProductForm({
               <Field label="Moeda" name="currency" error={fe.currency} required>
                 {(p) => (
                   <Select {...p} defaultValue={initial.currency}>
-                    {CURRENCIES.map((c) => (
+                    {ACTIVE_CURRENCIES.map((c) => (
                       <option key={c} value={c}>
                         {CURRENCY_LABELS[c]}
                       </option>

@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { CURRENCIES } from "@/lib/money";
+import { ACTIVE_CURRENCIES } from "@/lib/money";
 import { parseMoneyToCents } from "@/lib/money";
 
-export const currencySchema = z.enum(CURRENCIES, { errorMap: () => ({ message: "Selecione uma moeda válida" }) });
+export const currencySchema = z.enum(ACTIVE_CURRENCIES, { errorMap: () => ({ message: "A plataforma opera em metical moçambicano (MZN)" }) });
 
 /** Aceita string vazia como undefined (inputs de formulário). */
 export const optionalString = (max = 500) =>

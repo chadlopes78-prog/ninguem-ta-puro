@@ -18,3 +18,9 @@ export async function noHorizontalScroll(page: Page) {
 export async function toast(page: Page, text: string | RegExp) {
   await expect(page.getByRole("status").filter({ hasText: text }).first()).toBeVisible();
 }
+
+/** Valor em metical formatado (o separador de milhares é um espaço não separável). */
+export function mzn(value: string): RegExp {
+  // pt-MZ não agrupa números de 4 dígitos ("1250,00 MZN") mas agrupa a partir de 5 ("12 450,00 MZN")
+  return new RegExp(value.replace(/[.]/g, "\\.").replace(/ /g, "\\s?") + "\\sMZN");
+}

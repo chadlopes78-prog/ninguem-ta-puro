@@ -5,7 +5,9 @@ import { requireUser } from "@/server/auth/session";
 import { getScope } from "@/server/services/settings";
 import { getOrder } from "@/server/services/orders";
 import { NotFoundError } from "@/server/services/products";
-import { canTransition } from "@/server/services/order-logic";
+import { canTransition, ORDER_STATUS_LABELS } from "@/server/services/order-logic";
+import type { PaymentStatus } from "@prisma/client";
+import type { Tone } from "@/components/ui/badge";
 import { formatMoney } from "@/lib/money";
 import { formatDate } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
@@ -17,6 +19,9 @@ import { OrderStatusBadge } from "@/components/orders/status";
 import { changeOrderStatusAction } from "../actions";
 
 export const metadata: Metadata = { title: "Pedido" };
+
+const PAYMENT_LABEL: Record<PaymentStatus, string> = { CREATED: "Criado", PENDING: "Pendente", PAID: "Pago", FAILED: "Falhado", CANCELED: "Cancelado", EXPIRED: "Expirado" };
+const PAYMENT_TONE: Record<PaymentStatus, Tone> = { CREATED: "neutral", PENDING: "warning", PAID: "success", FAILED: "danger", CANCELED: "neutral", EXPIRED: "neutral" };
 
 const KIND = { MAIN: "Principal", ORDER_BUMP: "Oferta adicional", UPSELL: "Upsell", DOWNSELL: "Downsell" } as const;
 
@@ -65,7 +70,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
       />
       {!isDemo && o.status === "PENDING" && (
         <Alert tone="info" className="mb-5">
-          Aprovações e reembolsos só podem ocorrer através de eventos confirmados e assinados pelo processador de pagamentos (ainda não integrado).
+          A encomenda só passa a paga com confirmação oficial do processador (notificação autenticada ou consulta de estado). Regressar à página de sucesso não conta como pagamento.
         </Alert>
       )}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
@@ -117,16 +122,65 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
             </CardBody>
           </Card>
           <Card>
-            <CardHeader title="Eventos de pagamento" />
+            <CardHeader title="Pagamentos" description="Tentativas junto do processador" />
             <CardBody>
-              {o.paymentEvents.length === 0 ? (
-                <p className="text-sm text-subtle">Sem eventos do processador.</p>
+              {o.payments.length === 0 ? (
+                <p className="text-sm text-subtle">Sem tentativas de pagamento.</p>
               ) : (
-                <ul className="flex flex-col gap-2 text-sm">
-                  {o.paymentEvents.map((e) => (
-                    <li key={e.id} className="flex justify-between gap-2"><span>{e.type}</span><span className="text-muted">{e.status}</span></li>
+                <ul className="flex flex-col gap-3 text-[13px]" data-testid="payments-list">
+                  {o.payments.map((p) => (
+                    <li key={p.id} className="rounded-[var(--radius-md)] border border-line p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium">{p.provider} · {p.method ?? "—"}</span>
+                        <Badge tone={PAYMENT_TONE[p.status]}>{PAYMENT_LABEL[p.status]}</Badge>
+                      </div>
+                      <p className="mt-1 text-muted tabular">{m(p.amountCents)}{p.phoneMasked ? ` · ${p.phoneMasked}` : ""}</p>
+                      <p className="mt-0.5 break-all font-mono text-[11.5px] text-subtle">{p.externalId ?? "sem referência externa"}</p>
+                      {p.failureReason && <p className="mt-1 text-[12px] text-warning">{p.failureReason}</p>}
+                      <p className="mt-1 text-[11.5px] text-subtle">Criado {formatDate(p.createdAt, tz, true)}{p.confirmedAt ? ` · confirmado ${formatDate(p.confirmedAt, tz, true)}` : ""}</p>
+                    </li>
                   ))}
                 </ul>
+              )}
+              {o.paymentEvents.length > 0 && (
+                <>
+                  <p className="mt-4 text-[12px] font-medium uppercase tracking-wider text-subtle">Notificações recebidas</p>
+                  <ul className="mt-2 flex flex-col gap-1.5 text-[13px]">
+                    {o.paymentEvents.map((e) => (
+                      <li key={e.id} className="flex justify-between gap-2">
+                        <span>{e.type}</span>
+                        <span className="text-muted">{e.status}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              {o.delivery && (
+                <p className="mt-4 text-[12.5px] text-muted">
+                  Acesso ao produto {o.status === "APPROVED" ? "ativo" : "revogado"} · {o.delivery.accessCount} acesso(s)
+                </p>
+              )}
+            </CardBody>
+          </Card>
+          <Card>
+            <CardHeader title="Registo de auditoria" />
+            <CardBody>
+              {o.auditLogs.length === 0 ? (
+                <p className="text-sm text-subtle">Sem alterações registadas.</p>
+              ) : (
+                <ol className="flex flex-col gap-2.5 text-[13px]" data-testid="audit-log">
+                  {o.auditLogs.map((a) => (
+                    <li key={a.id}>
+                      <p>
+                        {a.fromStatus ? ORDER_STATUS_LABELS[a.fromStatus] : "—"} → <span className="font-medium">{ORDER_STATUS_LABELS[a.toStatus]}</span>
+                      </p>
+                      <p className="text-[12px] text-subtle">
+                        {formatDate(a.createdAt, tz, true)} · {a.actor}
+                        {a.reason ? ` · ${a.reason}` : ""}
+                      </p>
+                    </li>
+                  ))}
+                </ol>
               )}
             </CardBody>
           </Card>

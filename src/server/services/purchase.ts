@@ -6,6 +6,7 @@ import { flattenErrors, type FieldErrors } from "@/server/validation/common";
 import { advanceToInteractive, decide, nextKey, type Decision } from "@/lib/funnels/simulate";
 import { OFFER_STEP_TYPES, type GraphNode } from "@/lib/funnels/types";
 import { getActivePaymentProvider } from "@/server/payments/registry";
+import { startRealPayment } from "./payment-flow";
 import { consumeCouponUse, evaluateCouponCode } from "./coupons";
 import { getPublicCheckout } from "./checkouts";
 import { toGraph } from "./funnels";
@@ -18,7 +19,8 @@ export type PurchaseOutcome =
   | { kind: "coupon_error"; message: string }
   | { kind: "unavailable" }
   | { kind: "payments_unavailable"; message: string }
-  | { kind: "demo_approved"; orderCode: string; runId: string | null };
+  | { kind: "demo_approved"; orderCode: string; runId: string | null }
+  | { kind: "payment_started"; token: string; redirectUrl: string | null };
 
 export const PAYMENTS_UNAVAILABLE_MESSAGE =
   "O processamento de pagamentos ainda não está configurado. Nenhum valor foi cobrado e nenhum dado de pagamento foi recolhido.";
@@ -98,8 +100,17 @@ export async function submitCheckout(publicId: string, raw: Record<string, unkno
       await trackEvent({ type: EVENT_TYPES.CHECKOUT_PAYMENT_UNAVAILABLE, isDemo: false, checkoutId: c.id, sessionId: session?.id });
       return { kind: "payments_unavailable", message: PAYMENTS_UNAVAILABLE_MESSAGE };
     }
-    // Integração futura: criar pedido PENDING e chamar provider.createCharge(); a aprovação só chega por webhook.
-    return { kind: "payments_unavailable", message: PAYMENTS_UNAVAILABLE_MESSAGE };
+    // Encomenda PENDING + cobrança no fornecedor. A aprovação só acontece por confirmação oficial.
+    const r = await startRealPayment(
+      c,
+      { name: input.name, email: input.email, phone: input.phone, document: input.document, method: input.method, idempotencyKey: input.idempotencyKey },
+      { couponId, discountCents },
+      session?.id ?? null,
+    );
+    if (r.kind === "payments_unavailable") {
+      await trackEvent({ type: EVENT_TYPES.CHECKOUT_PAYMENT_UNAVAILABLE, isDemo: false, checkoutId: c.id, sessionId: session?.id });
+    }
+    return r;
   }
 
   // Modo de demonstração: compra simulada, claramente identificada, sem cobrança.

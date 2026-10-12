@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Plus } from "lucide-react";
 import type { ActionResult } from "@/server/validation/common";
-import { CURRENCIES, formatMoney, type CurrencyCode } from "@/lib/money";
+import { ACTIVE_CURRENCIES, formatMoney, type CurrencyCode } from "@/lib/money";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -92,7 +92,7 @@ export function OffersCard({
             <Field label="Moeda" name="currency" error={fe.currency} required>
               {(p) => (
                 <Select {...p} defaultValue={defaultCurrency}>
-                  {CURRENCIES.map((c) => (
+                  {ACTIVE_CURRENCIES.map((c) => (
                     <option key={c}>{c}</option>
                   ))}
                 </Select>

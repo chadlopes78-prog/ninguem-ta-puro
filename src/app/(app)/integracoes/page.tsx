@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Plug } from "lucide-react";
+import { CheckCircle2, Plug, XCircle } from "lucide-react";
 import { requireUser } from "@/server/auth/session";
 import { getSettings } from "@/server/services/settings";
 import { listIntegrations, recentIntegrationLogs } from "@/server/services/integrations";
@@ -18,44 +18,64 @@ export default async function IntegrationsPage() {
   await requireUser();
   const [items, logs, settings] = await Promise.all([listIntegrations(), recentIntegrationLogs(), getSettings()]);
   const tz = settings.timezone;
+  const enabled = paymentsEnabled();
   return (
     <>
-      <PageHeader title="Integrações" description="Processadores de pagamento e serviços externos." />
-      <Alert tone={paymentsEnabled() ? "success" : "warning"} className="mb-6" title={paymentsEnabled() ? "Pagamentos ativos" : "Pagamentos reais desativados"}>
-        Nenhum processador de pagamento está integrado nesta fase. Os checkouts informam o comprador de que o pagamento não está disponível e não recolhem dados de cartão. A arquitetura (abstração de fornecedores, eventos assinados, idempotência e registo) está preparada para a integração posterior.
+      <PageHeader title="Integrações" description="Processador de pagamentos e serviços externos. Os segredos ficam apenas no servidor e nunca são apresentados." />
+      <Alert tone={enabled ? "success" : "warning"} className="mb-6" title={enabled ? "Pagamentos ativos" : "Pagamentos reais ainda não ativos"}>
+        {enabled
+          ? "Os checkouts criam encomendas pendentes e só as marcam como pagas após confirmação oficial do processador."
+          : "Os checkouts informam o comprador de que o pagamento não está disponível. Nada é cobrado até a integração estar completa e configurada."}
       </Alert>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4">
         {items.map((i) => (
-          <Card key={i.id} className="flex flex-col">
+          <Card key={i.id}>
             <CardHeader
               title={i.name}
               description={`${i.regions} · ${i.methods}`}
-              action={i.status === "CONFIGURED" ? <Badge tone="success" dot>Configurado</Badge> : <Badge>Não configurado</Badge>}
+              action={i.configured ? <Badge tone="success" dot>Ativo</Badge> : <Badge>Não ativo</Badge>}
             />
-            <CardBody className="flex flex-1 flex-col gap-3 text-sm">
-              <dl className="grid grid-cols-2 gap-y-1.5 text-[13px]">
-                <dt className="text-muted">Implementação</dt>
-                <dd>{i.implemented ? "Disponível" : "Por implementar"}</dd>
-                <dt className="text-muted">Ambiente</dt>
-                <dd>{i.environment === "SANDBOX" ? "Testes (sandbox)" : "Produção"}</dd>
-                <dt className="text-muted">Última verificação</dt>
-                <dd>{i.lastCheckedAt ? formatDate(i.lastCheckedAt, tz, true) : "Nunca"}</dd>
-              </dl>
-              {i.lastError && <p className="rounded-[var(--radius-md)] bg-surface-2 p-2.5 text-[12.5px] text-muted">{i.lastError}</p>}
-              <p className="text-[12.5px] text-subtle">
-                Para ativar: implementar o fornecedor em <code className="break-all text-muted">src/server/payments/providers/{i.id}.ts</code>, definir as credenciais em variáveis de ambiente e configurar o webhook <code className="break-all text-muted">/api/webhooks/{i.id}</code>.
-              </p>
-              <div className="mt-auto">
-                <ActionButton size="sm" variant="secondary" action={checkIntegrationAction.bind(null, i.id)}>Verificar estado</ActionButton>
+            <CardBody className="grid grid-cols-1 gap-5 text-sm lg:grid-cols-2">
+              <div>
+                <p className="mb-2 text-[12px] font-medium uppercase tracking-wider text-subtle">Configuração no servidor</p>
+                <ul className="flex flex-col gap-2" data-testid={`checks-${i.id}`}>
+                  {i.checks.map((c) => (
+                    <li key={c.label} className="flex items-start gap-2">
+                      {c.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-label="OK" /> : <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" aria-label="Em falta" />}
+                      <span>
+                        <code className="break-all text-fg">{c.label}</code>
+                        <span className="block text-[12.5px] text-muted">{c.detail}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-3 text-[12px] text-subtle">Última verificação: {i.lastCheckedAt ? formatDate(i.lastCheckedAt, tz, true) : "nunca"}</p>
+                <div className="mt-3">
+                  <ActionButton size="sm" variant="secondary" action={checkIntegrationAction.bind(null, i.id)}>
+                    Verificar configuração
+                  </ActionButton>
+                </div>
               </div>
+              {i.pendingContract.length > 0 && (
+                <div>
+                  <p className="mb-2 text-[12px] font-medium uppercase tracking-wider text-subtle">A confirmar na documentação oficial</p>
+                  <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-[12.5px] text-muted">
+                    {i.pendingContract.map((p) => (
+                      <li key={p}>{p}</li>
+                    ))}
+                  </ol>
+                </div>
+              )}
             </CardBody>
           </Card>
         ))}
       </div>
       <Card className="mt-6">
-        <CardHeader title="Registo de integrações" description="Últimas 20 entradas" />
+        <CardHeader title="Registo de integrações" description="Últimas 20 entradas (sem dados sensíveis)" />
         {logs.length === 0 ? (
-          <div className="flex items-center gap-3 p-5 text-sm text-subtle"><Plug className="h-4 w-4" /> Sem registos.</div>
+          <div className="flex items-center gap-3 p-5 text-sm text-subtle">
+            <Plug className="h-4 w-4" /> Sem registos.
+          </div>
         ) : (
           <ul className="divide-y divide-line">
             {logs.map((l) => (

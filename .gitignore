@@ -1,9 +1,14 @@
 node_modules
 .next
 out
+# Ficheiros de ambiente com segredos nunca vão para o Git (.env.example e .env.test não têm segredos)
 .env
 .env.local
-.env.test.local
+.env.*.local
+.env.production
+.env.development
+*.pem
+*.key
 *.tsbuildinfo
 next-env.d.ts
 playwright-report

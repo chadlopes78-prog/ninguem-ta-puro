@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { ActionResult } from "@/server/validation/common";
-import { CURRENCIES } from "@/lib/money";
+import { ACTIVE_CURRENCIES } from "@/lib/money";
 import { Button, LinkButton } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Checkbox, Field, Input, Select } from "@/components/ui/field";
@@ -63,7 +63,7 @@ export function CouponForm({ action, initial, isNew, products }: { action: (fd: 
                 {(p) => (
                   <Select {...p} defaultValue={initial.currency}>
                     <option value="">—</option>
-                    {CURRENCIES.map((c) => (
+                    {ACTIVE_CURRENCIES.map((c) => (
                       <option key={c}>{c}</option>
                     ))}
                   </Select>

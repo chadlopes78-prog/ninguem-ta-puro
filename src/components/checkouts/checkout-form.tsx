@@ -78,7 +78,7 @@ export function CheckoutForm({
       offerName: offer?.name ?? "Oferta",
       priceCents: offer?.priceCents ?? 0,
       compareAtCents: null,
-      currency: offer?.currency ?? "BRL",
+      currency: offer?.currency ?? "MZN",
       isDemo,
       businessName,
     }),

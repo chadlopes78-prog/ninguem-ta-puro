@@ -6,7 +6,7 @@ export function cn(...inputs: ClassValue[]): string {
 
 export function formatDate(d: Date | string, timeZone?: string, withTime = false): string {
   const date = typeof d === "string" ? new Date(d) : d;
-  return new Intl.DateTimeFormat("pt-BR", {
+  return new Intl.DateTimeFormat("pt-MZ", {
     timeZone,
     day: "2-digit",
     month: "2-digit",

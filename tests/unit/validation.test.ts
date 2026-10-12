@@ -3,7 +3,7 @@ import { checkoutSchema, productSchema, publicCheckoutSchema, setupSchema } from
 import { flattenErrors } from "@/server/validation/common";
 
 describe("productSchema", () => {
-  const valid = { name: "Guia Digital de Exemplo", description: "Produto fictício utilizado para validar a interface.", type: "EBOOK", priceCents: "197,00", currency: "BRL", status: "DRAFT" };
+  const valid = { name: "Guia Digital de Exemplo", description: "Produto fictício utilizado para validar a interface.", type: "EBOOK", priceCents: "197,00", currency: "MZN", status: "DRAFT" };
   it("aceita o produto de exemplo e converte preço para cêntimos", () => {
     const r = productSchema.safeParse(valid);
     expect(r.success).toBe(true);

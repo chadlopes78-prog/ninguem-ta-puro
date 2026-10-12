@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { login, toast } from "./helpers";
+import { login, mzn, toast } from "./helpers";
 
 test.describe.serial("modo de demonstração (secção 28)", () => {
   test("ativar demo e gerar dados identificados", async ({ page }) => {
@@ -11,8 +11,8 @@ test.describe.serial("modo de demonstração (secção 28)", () => {
     await page.goto("/dashboard");
     await expect(page.getByText("Modo de demonstração", { exact: false }).first()).toBeVisible();
     await expect(page.getByText("Dados de demonstração").first()).toBeVisible();
-    await expect(page.getByText("R$ 12.450,00").first()).toBeVisible();
-    await expect(page.getByText("R$ 296,43").first()).toBeVisible();
+    await expect(page.getByText(mzn("12 450,00")).first()).toBeVisible();
+    await expect(page.getByText(mzn("296,43")).first()).toBeVisible();
   });
 
   test("filtros do dashboard atualizam os dados", async ({ page }) => {
@@ -20,9 +20,9 @@ test.describe.serial("modo de demonstração (secção 28)", () => {
     await page.goto("/dashboard");
     await page.getByRole("button", { name: "Hoje" }).click();
     await expect(page).toHaveURL(/range=today/);
-    await expect(page.getByText("R$ 12.450,00")).toHaveCount(0);
+    await expect(page.getByText(mzn("12 450,00"))).toHaveCount(0);
     await page.getByRole("button", { name: "Últimos 30 dias" }).click();
-    await expect(page.getByText("R$ 12.450,00").first()).toBeVisible();
+    await expect(page.getByText(mzn("12 450,00")).first()).toBeVisible();
   });
 
   test("dados demo não se misturam com reais", async ({ page }) => {
@@ -45,7 +45,7 @@ test.describe.serial("modo de demonstração (secção 28)", () => {
     await expect(page.getByText("1 resultado(s)")).toBeVisible();
     await page.getByRole("link", { name: /^NTP-/ }).first().click();
     await expect(page.getByRole("heading", { name: "Itens" })).toBeVisible();
-    await expect(page.getByText("Recusado").first()).toBeVisible();
+    await expect(page.getByText("Falhado").first()).toBeVisible();
   });
 
   test("percurso de funil: cupão → upsell recusado → downsell aceite → obrigado", async ({ page }) => {
@@ -68,7 +68,7 @@ test.describe.serial("modo de demonstração (secção 28)", () => {
     await page.getByPlaceholder("CÓDIGO").fill("TESTE10");
     await page.getByRole("button", { name: "Aplicar" }).click();
     await expect(page.getByText("TESTE10 aplicado")).toBeVisible();
-    await expect(page.getByText("R$ 177,30")).toBeVisible();
+    await expect(page.getByText(mzn("177,30"))).toBeVisible();
     await page.getByRole("button", { name: "Comprar agora" }).click();
 
     await expect(page).toHaveURL(/\/oferta\//);
@@ -79,7 +79,7 @@ test.describe.serial("modo de demonstração (secção 28)", () => {
     await page.getByRole("button", { name: "Sim, quero o Mini Guia" }).click();
     await expect(page.getByRole("heading", { name: "Compra de demonstração concluída" })).toBeVisible();
     await expect(page.getByText("Downsell")).toBeVisible();
-    await expect(page.getByText("R$ 224,30")).toBeVisible(); // 177,30 + 47,00
+    await expect(page.getByText(mzn("224,30"))).toBeVisible(); // 177,30 + 47,00
   });
 
   test("percurso de funil: aceitar upsell vai para obrigado", async ({ page }) => {
@@ -94,7 +94,7 @@ test.describe.serial("modo de demonstração (secção 28)", () => {
     await page.getByRole("button", { name: "Sim, quero adicionar" }).click();
     await expect(page.getByRole("heading", { name: "Compra de demonstração concluída" })).toBeVisible();
     await expect(page.getByText("Upsell")).toBeVisible();
-    await expect(page.getByText("R$ 294,00")).toBeVisible();
+    await expect(page.getByText(mzn("294,00"))).toBeVisible();
   });
 
   test("relatórios refletem upsells/downsells simulados", async ({ page }) => {
@@ -158,7 +158,7 @@ test.describe.serial("modo de demonstração (secção 28)", () => {
     await expect(page.getByText("Guia Digital Editado").first()).toBeVisible();
     await expect(page.getByText("Guia Digital de Exemplo")).toHaveCount(0);
     await page.goto("/dashboard");
-    await expect(page.getByText("R$ 12.450,00")).toHaveCount(0);
+    await expect(page.getByText(mzn("12 450,00"))).toHaveCount(0);
   });
 
   test("remover dados de demonstração", async ({ page }) => {

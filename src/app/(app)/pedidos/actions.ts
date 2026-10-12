@@ -8,9 +8,9 @@ import { changeOrderStatus, createManualOrder, ORDER_STATUSES } from "@/server/s
 import { z } from "zod";
 
 export async function changeOrderStatusAction(id: string, to: OrderStatus) {
-  return guarded(async ({ isDemo }) => {
+  return guarded(async ({ isDemo, user }) => {
     if (!ORDER_STATUSES.includes(to)) return { ok: false, error: "Estado inválido." };
-    await changeOrderStatus(assertId(id), to, isDemo);
+    await changeOrderStatus(assertId(id), to, isDemo, `admin:${user.email}`);
     revalidatePath("/pedidos");
     return { ok: true, message: "Estado do pedido atualizado." };
   });

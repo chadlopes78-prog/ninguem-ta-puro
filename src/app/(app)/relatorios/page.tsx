@@ -30,7 +30,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   const d = await getReportsData({ isDemo, range, currency: cur, defaultCurrency: settings.defaultCurrency, tz });
   const m = (c: number) => formatMoney(c, d.currency);
   const k = d.kpis;
-  const pct = (v: number | null) => (v === null ? "—" : `${v.toLocaleString("pt-BR")}%`);
+  const pct = (v: number | null) => (v === null ? "—" : `${v.toLocaleString("pt-MZ")}%`);
 
   return (
     <>

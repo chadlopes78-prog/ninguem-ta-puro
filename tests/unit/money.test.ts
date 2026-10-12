@@ -26,6 +26,18 @@ describe("parseMoneyToCents", () => {
   });
 });
 
+describe("metical moçambicano (MZN)", () => {
+  it("formata com o código MZN", () => {
+    expect(formatMoney(1245000, "MZN").replace(/\s/g, " ")).toBe("12 450,00 MZN");
+    expect(formatMoney(4700, "MZN").replace(/\s/g, " ")).toBe("47,00 MZN");
+  });
+  it("interpreta valores escritos com MZN/MT", () => {
+    expect(parseMoneyToCents("1 234,50 MZN")).toBe(123450);
+    expect(parseMoneyToCents("97,00 MT")).toBe(9700);
+    expect(parseMoneyToCents("12\u202f450,00\u00a0MTn")).toBe(1245000);
+  });
+});
+
 describe("formatação e cálculo", () => {
   it("formata em BRL e EUR", () => {
     expect(formatMoney(19700, "BRL").replace(/\s/g, " ")).toBe("R$ 197,00");

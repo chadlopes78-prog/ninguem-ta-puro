@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { login, toast } from "./helpers";
+import { login, mzn, toast } from "./helpers";
 
 test.describe.serial("modo real: produto → checkout → link público (sem pagamentos)", () => {
   let checkoutPath = "";
@@ -23,7 +23,7 @@ test.describe.serial("modo real: produto → checkout → link público (sem pag
     await page.getByLabel("Descrição").fill("Produto fictício utilizado para validar a interface.");
     await page.getByLabel("Tipo").selectOption("EBOOK");
     await page.getByLabel("Preço", { exact: true }).fill("197,00");
-    await page.getByLabel("Moeda").selectOption("BRL");
+    await page.getByLabel("Moeda").selectOption("MZN");
     await page.getByRole("button", { name: "Criar produto" }).click();
     await toast(page, "Produto criado");
     await expect(page).toHaveURL(/\/produtos\/[a-z0-9]+$/);
@@ -40,7 +40,7 @@ test.describe.serial("modo real: produto → checkout → link público (sem pag
     await toast(page, "Produto publicado");
     await page.goto("/produtos");
     await expect(page.getByRole("link", { name: /Guia Digital Editado/ }).first()).toBeVisible();
-    await expect(page.getByText("R$ 247,90").first()).toBeVisible();
+    await expect(page.getByText(mzn("247,90")).first()).toBeVisible();
   });
 
   test("pesquisa e filtros de produtos", async ({ page }) => {
@@ -72,10 +72,10 @@ test.describe.serial("modo real: produto → checkout → link público (sem pag
     expect(copied).toBe(`http://localhost:3100${checkoutPath}`);
   });
 
-  test("checkout público: dados corretos, validação, sem campos de cartão, pagamento indisponível", async ({ page }) => {
+  test("checkout público: dados corretos em MZN, validação, métodos de pagamento, sem campos de cartão", async ({ page }) => {
     await page.goto(checkoutPath);
     await expect(page.getByRole("heading", { name: "Guia Digital Editado" })).toBeVisible();
-    await expect(page.getByText("R$ 247,90").first()).toBeVisible();
+    await expect(page.getByText(mzn("247,90")).first()).toBeVisible();
     await expect(page.locator("input[name*=card], input[autocomplete^=cc-], input[name=cvv]")).toHaveCount(0);
 
     await page.getByRole("button", { name: "Finalizar compra" }).click();
@@ -84,8 +84,9 @@ test.describe.serial("modo real: produto → checkout → link público (sem pag
 
     await page.getByLabel("Nome completo").fill("Ana Compradora");
     await page.getByLabel("Email").fill("ana@exemplo.pt");
+    await expect(page.getByRole("radio", { name: /M-Pesa/ })).toBeChecked();
     await page.getByRole("button", { name: "Finalizar compra" }).click();
-    await expect(page.getByText("O processamento de pagamentos ainda não está configurado")).toBeVisible();
+    await expect(page.getByText("Introduza um número móvel moçambicano válido").first()).toBeVisible();
     // os dados do formulário mantêm-se
     await expect(page.getByLabel("Nome completo")).toHaveValue("Ana Compradora");
   });
@@ -127,7 +128,7 @@ test.describe.serial("modo real: produto → checkout → link público (sem pag
     await page.getByLabel("Oferta").selectOption({ index: 1 });
     await page.getByLabel("Código", { exact: true }).fill("TESTE10");
     await page.getByRole("button", { name: "Testar" }).click();
-    await expect(page.getByText("Válido: R$ 247,90 − R$ 24,79 = R$ 223,11").first()).toBeVisible();
+    await expect(page.getByText(/Válido: 247,90\sMZN − 24,79\sMZN = 223,11\sMZN/).first()).toBeVisible();
     await page.getByLabel("Código", { exact: true }).fill("NAOEXISTE");
     await page.getByRole("button", { name: "Testar" }).click();
     await expect(page.getByText("Cupão não encontrado").first()).toBeVisible();
@@ -146,7 +147,7 @@ test.describe.serial("modo real: produto → checkout → link público (sem pag
     await toast(page, "Pedido manual de teste criado");
     await expect(page.getByText("Teste manual").first()).toBeVisible();
     await page.goto("/dashboard");
-    await expect(page.getByText("R$ 0,00").first()).toBeVisible();
+    await expect(page.getByText(mzn("0,00")).first()).toBeVisible();
     await expect(page.getByText("Pedidos pendentes")).toBeVisible();
   });
 });

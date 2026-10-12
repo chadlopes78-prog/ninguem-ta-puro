@@ -14,7 +14,7 @@ export async function submitCheckoutAction(publicId: string, input: Record<strin
     return { kind: "invalid", fieldErrors: { _form: "Demasiadas tentativas. Aguarde alguns minutos." } };
   }
   const clean: Record<string, string> = {};
-  for (const k of ["name", "email", "phone", "document", "coupon"]) if (typeof input?.[k] === "string") clean[k] = input[k].slice(0, 300);
+  for (const k of ["name", "email", "phone", "document", "coupon", "method", "idempotencyKey"]) if (typeof input?.[k] === "string") clean[k] = input[k].slice(0, 300);
   return submitCheckout(publicId, clean, typeof sessionId === "string" ? sessionId.slice(0, 40) : undefined);
 }
 

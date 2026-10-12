@@ -1,13 +1,13 @@
 "use client";
 
 import type { ActionResult } from "@/server/validation/common";
-import { CURRENCIES, CURRENCY_LABELS } from "@/lib/money";
+import { ACTIVE_CURRENCIES, CURRENCY_LABELS } from "@/lib/money";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/field";
 import { useFormAction } from "@/hooks/use-form-action";
 
-const TIMEZONES = ["America/Sao_Paulo", "America/Manaus", "America/Fortaleza", "Europe/Lisbon", "Atlantic/Azores", "Atlantic/Madeira", "America/New_York", "UTC"];
+const TIMEZONES = ["Africa/Maputo", "America/Sao_Paulo", "America/Manaus", "America/Fortaleza", "Europe/Lisbon", "Atlantic/Azores", "Atlantic/Madeira", "America/New_York", "UTC"];
 
 export function SettingsForm({ action, initial }: { action: (fd: FormData) => Promise<ActionResult<unknown>>; initial: Record<string, string> }) {
   const { onSubmit, pending, fieldErrors: fe } = useFormAction(action);
@@ -34,13 +34,14 @@ export function SettingsForm({ action, initial }: { action: (fd: FormData) => Pr
           <Field label="Moeda padrão" name="defaultCurrency" error={fe.defaultCurrency}>
             {(p) => (
               <Select {...p} defaultValue={initial.defaultCurrency}>
-                {CURRENCIES.map((c) => <option key={c} value={c}>{CURRENCY_LABELS[c]}</option>)}
+                {ACTIVE_CURRENCIES.map((c) => <option key={c} value={c}>{CURRENCY_LABELS[c]}</option>)}
               </Select>
             )}
           </Field>
           <Field label="Idioma/região" name="locale" error={fe.locale}>
             {(p) => (
               <Select {...p} defaultValue={initial.locale}>
+                <option value="pt-MZ">Português (Moçambique)</option>
                 <option value="pt-BR">Português (Brasil)</option>
                 <option value="pt-PT">Português (Portugal)</option>
                 <option value="en-US">English (US)</option>

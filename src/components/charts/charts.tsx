@@ -15,9 +15,9 @@ function shortDay(d: string) {
 
 function compactMoney(cents: number, currency: CurrencyCode) {
   const v = cents / 100;
-  const sym = currency === "BRL" ? "R$" : currency === "EUR" ? "€" : "$";
-  if (Math.abs(v) >= 1000) return `${sym}${(v / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}k`;
-  return `${sym}${v.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}`;
+  const sym = currency === "MZN" ? "" : currency === "BRL" ? "R$" : currency === "EUR" ? "€" : "$";
+  if (Math.abs(v) >= 1000) return `${sym}${(v / 1000).toLocaleString("pt-MZ", { maximumFractionDigits: 1 })}k`;
+  return `${sym}${v.toLocaleString("pt-MZ", { maximumFractionDigits: 0 })}`;
 }
 
 function TooltipBox({ title, rows }: { title: string; rows: { label: string; value: string; color: string; dashed?: boolean }[] }) {

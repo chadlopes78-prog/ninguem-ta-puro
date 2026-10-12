@@ -29,6 +29,7 @@ export default defineConfig({
     url: `http://localhost:${PORT}/login`,
     reuseExistingServer: false,
     timeout: 120_000,
-    env: { ...testEnv, INSECURE_COOKIES: "true", NODE_ENV: "production" },
+    // Fornecedor de pagamentos de TESTE local (não é a EPay) — só funciona com a base de dados ntp_test
+    env: { ...testEnv, INSECURE_COOKIES: "true", NODE_ENV: "production", NTP_ENABLE_TEST_PROVIDER: "true", TEST_PROVIDER_SECRET: "segredo-e2e-apenas-testes", APP_BASE_URL: `http://localhost:${PORT}` },
   },
 });

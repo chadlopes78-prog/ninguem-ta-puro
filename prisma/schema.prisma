@@ -12,6 +12,7 @@ datasource db {
 }
 
 enum Currency {
+  MZN
   BRL
   EUR
   USD
@@ -322,6 +323,12 @@ model Order {
   netCents      Int
   provider      String?
   externalRef   String?
+  /// Método de pagamento escolhido (ex.: mpesa, emola) — apenas informativo
+  paymentMethod String?
+  /// Token público aleatório para a página de estado do pagamento (não revela o código interno)
+  publicToken   String?      @unique
+  /// Chave de idempotência da submissão do checkout (impede encomendas duplicadas)
+  idempotencyKey String?     @unique
   notes         String?
   isDemo        Boolean      @default(false)
   approvedAt    DateTime?
@@ -332,6 +339,9 @@ model Order {
   items         OrderItem[]
   funnelRuns    FunnelRun[]
   paymentEvents PaymentEvent[]
+  payments      Payment[]
+  auditLogs     OrderAuditLog[]
+  delivery      Delivery?
 
   @@index([isDemo, status, createdAt])
   @@index([customerId])
@@ -432,9 +442,9 @@ model Settings {
   ownerName       String?
   ownerEmail      String?
   supportEmail    String?
-  defaultCurrency Currency @default(BRL)
-  locale          String   @default("pt-BR")
-  timezone        String   @default("America/Sao_Paulo")
+  defaultCurrency Currency @default(MZN)
+  locale          String   @default("pt-MZ")
+  timezone        String   @default("Africa/Maputo")
   /// Quando ativo, toda a aplicação mostra e cria apenas dados de demonstração
   demoMode        Boolean  @default(false)
   updatedAt       DateTime @updatedAt
@@ -499,4 +509,69 @@ model PaymentEvent {
   processedAt     DateTime?
 
   @@unique([provider, externalEventId])
+}
+
+// ───────────────────────── Pagamentos reais (fornecedor externo) ─────────────────────────
+
+enum PaymentStatus {
+  CREATED
+  PENDING
+  PAID
+  FAILED
+  CANCELED
+  EXPIRED
+}
+
+/// Tentativa de pagamento junto de um fornecedor. Uma encomenda pode ter várias tentativas.
+model Payment {
+  id             String        @id @default(cuid())
+  orderId        String
+  order          Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  provider       String
+  method         String?
+  /// Telefone mascarado (ex.: 84•••••67) — o número completo não é guardado aqui
+  phoneMasked    String?
+  amountCents    Int
+  currency       Currency
+  status         PaymentStatus @default(CREATED)
+  /// Identificador/referência devolvido pelo fornecedor
+  externalId     String?
+  /// Estado bruto devolvido pelo fornecedor (auditoria)
+  rawStatus      String?
+  failureReason  String?
+  idempotencyKey String        @unique
+  lastCheckedAt  DateTime?
+  confirmedAt    DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([provider, externalId])
+  @@index([orderId])
+  @@index([status])
+}
+
+/// Registo de auditoria de todas as alterações de estado de encomendas.
+model OrderAuditLog {
+  id         String       @id @default(cuid())
+  orderId    String
+  order      Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  fromStatus OrderStatus?
+  toStatus   OrderStatus
+  /// ex.: "admin:<userId>", "webhook:epay", "status-check:epay", "checkout", "system"
+  actor      String
+  reason     String?
+  createdAt  DateTime     @default(now())
+
+  @@index([orderId, createdAt])
+}
+
+/// Acesso ao produto digital — criado uma única vez, só após pagamento confirmado.
+model Delivery {
+  id           String    @id @default(cuid())
+  orderId      String    @unique
+  order        Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  token        String    @unique
+  accessCount  Int       @default(0)
+  lastAccessAt DateTime?
+  createdAt    DateTime  @default(now())
 }

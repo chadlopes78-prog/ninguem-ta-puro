@@ -1,9 +1,10 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db";
-import type { NormalizedPaymentEvent, PaymentProvider } from "./types";
+import { applyPaymentStatus } from "./confirm";
+import type { PaymentProvider } from "./types";
 
-/** Utilitário para fornecedores que assinam com HMAC-SHA256 em hexadecimal. */
+/** Utilitário para fornecedores que assinam com HMAC-SHA256 em hexadecimal (comparação em tempo constante). */
 export function verifyHmacSha256(rawBody: string, signatureHex: string | null, secret: string | undefined): boolean {
   if (!secret || !signatureHex || !/^[0-9a-f]{64}$/i.test(signatureHex)) return false;
   const expected = createHmac("sha256", secret).update(rawBody).digest();
@@ -11,74 +12,58 @@ export function verifyHmacSha256(rawBody: string, signatureHex: string | null, s
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
-export type WebhookOutcome =
-  | { status: 401; body: { error: string } }
-  | { status: 200; body: { received: true; duplicate?: boolean; result: string } };
+export type WebhookOutcome = { status: number; body: unknown; result: string };
 
 /**
- * Processamento de webhooks: assinatura → idempotência → validação do estado → aplicação → registo.
- * Só um evento verificado pode aprovar um pedido real.
+ * Processamento de notificações: assinatura → registo idempotente → validação e aplicação → resposta esperada.
+ * - assinatura inválida: 401, nada é alterado;
+ * - evento repetido já tratado: confirmado sem efeitos;
+ * - evento registado mas não concluído (ex.: falha a meio): é reprocessado com segurança;
+ * - erro interno: 500 para o fornecedor voltar a tentar.
  */
 export async function handleWebhook(provider: PaymentProvider, rawBody: string, headers: Headers): Promise<WebhookOutcome> {
   if (!provider.verifySignature(rawBody, headers)) {
-    await prisma.integrationLog.create({ data: { provider: provider.id, level: "warn", message: "Webhook com assinatura inválida rejeitado" } });
-    return { status: 401, body: { error: "invalid signature" } };
+    await prisma.integrationLog.create({ data: { provider: provider.id, level: "warn", message: "Notificação com assinatura inválida rejeitada" } });
+    return { status: 401, body: { error: "invalid signature" }, result: "invalid_signature" };
   }
-  const event = provider.parseEvent(rawBody);
-  let stored;
+
+  let event;
   try {
-    stored = await prisma.paymentEvent.create({
-      data: {
-        provider: provider.id,
-        externalEventId: event.externalEventId,
-        type: event.type,
-        signatureValid: true,
-        payload: JSON.parse(rawBody) as Prisma.InputJsonValue,
-      },
-    });
-  } catch (e) {
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
-      return { status: 200, body: { received: true, duplicate: true, result: "duplicate" } };
+    event = provider.parseEvent(rawBody, headers);
+  } catch {
+    await prisma.integrationLog.create({ data: { provider: provider.id, level: "warn", message: "Notificação com formato inválido" } });
+    return { status: 400, body: { error: "invalid payload" }, result: "invalid_payload" };
+  }
+
+  let payload: Prisma.InputJsonValue;
+  try {
+    payload = JSON.parse(rawBody) as Prisma.InputJsonValue;
+  } catch {
+    payload = { raw: rawBody.slice(0, 10_000) };
+  }
+
+  let stored = await prisma.paymentEvent.findUnique({ where: { provider_externalEventId: { provider: provider.id, externalEventId: event.eventId } } });
+  if (stored && ["PROCESSED", "IGNORED", "REJECTED"].includes(stored.status)) {
+    return { ...provider.webhookAck(), result: "duplicate" };
+  }
+  if (!stored) {
+    try {
+      stored = await prisma.paymentEvent.create({
+        data: { provider: provider.id, externalEventId: event.eventId, type: event.state, signatureValid: true, payload },
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return { ...provider.webhookAck(), result: "duplicate" };
+      throw e;
     }
+  }
+
+  try {
+    const r = await applyPaymentStatus(provider.id, event, "webhook");
+    const status = r.result === "rejected" ? "REJECTED" : r.result === "ignored" ? "IGNORED" : "PROCESSED";
+    await prisma.paymentEvent.update({ where: { id: stored.id }, data: { status, error: r.reason ?? null, orderId: r.orderId ?? null, processedAt: new Date() } });
+    return { ...provider.webhookAck(), result: r.result };
+  } catch (e) {
+    await prisma.paymentEvent.update({ where: { id: stored.id }, data: { status: "FAILED", error: "Erro interno ao processar" } }).catch(() => undefined);
     throw e;
   }
-  const result = await applyPaymentEvent(stored.id, event);
-  return { status: 200, body: { received: true, result } };
-}
-
-const TRANSITIONS: Record<string, { from: string[]; to: "APPROVED" | "DECLINED" | "REFUNDED" | "CANCELED" }> = {
-  "payment.approved": { from: ["PENDING"], to: "APPROVED" },
-  "payment.declined": { from: ["PENDING"], to: "DECLINED" },
-  "payment.refunded": { from: ["APPROVED"], to: "REFUNDED" },
-  "payment.canceled": { from: ["PENDING"], to: "CANCELED" },
-};
-
-export async function applyPaymentEvent(eventId: string, event: NormalizedPaymentEvent): Promise<string> {
-  const rule = TRANSITIONS[event.type];
-  const finish = (status: "PROCESSED" | "IGNORED" | "REJECTED", error?: string, orderId?: string) =>
-    prisma.paymentEvent.update({ where: { id: eventId }, data: { status, error, orderId, processedAt: new Date() } }).then(() => status.toLowerCase());
-
-  if (!rule) return finish("IGNORED", "Tipo de evento não tratado");
-  const order = event.orderCode ? await prisma.order.findUnique({ where: { code: event.orderCode } }) : null;
-  if (!order || order.isDemo) return finish("REJECTED", "Pedido inexistente");
-  if (event.amountCents !== null && (event.amountCents !== order.totalCents || event.currency !== order.currency)) {
-    return finish("REJECTED", "Valor ou moeda não coincidem com o pedido", order.id);
-  }
-  if (!rule.from.includes(order.status)) return finish("IGNORED", `Estado atual ${order.status} incompatível`, order.id);
-  const now = new Date();
-  const fee = event.feeCents ?? order.feeCents;
-  const res = await prisma.order.updateMany({
-    where: { id: order.id, status: order.status },
-    data: {
-      status: rule.to,
-      externalRef: event.externalRef ?? order.externalRef,
-      feeCents: fee,
-      netCents: order.totalCents - fee,
-      ...(rule.to === "APPROVED" ? { approvedAt: now } : {}),
-      ...(rule.to === "REFUNDED" ? { refundedAt: now } : {}),
-      ...(rule.to === "CANCELED" ? { canceledAt: now } : {}),
-    },
-  });
-  if (res.count !== 1) return finish("IGNORED", "Pedido alterado concorrentemente", order.id);
-  return finish("PROCESSED", undefined, order.id);
 }

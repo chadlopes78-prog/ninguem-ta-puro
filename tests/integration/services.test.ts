@@ -18,7 +18,7 @@ const productInput = (over: Record<string, unknown> = {}) =>
     description: "Produto fictício utilizado para validar a interface.",
     type: "EBOOK",
     priceCents: "197,00",
-    currency: "BRL",
+    currency: "MZN",
     status: "PUBLISHED",
     ...over,
   });
@@ -46,7 +46,7 @@ beforeEach(async () => {
 describe("produtos", () => {
   it("cria, edita e persiste com precisão monetária", async () => {
     const p = await createProduct(productInput({ status: "DRAFT" }), false);
-    expect(p.offers[0]).toMatchObject({ priceCents: 19700, currency: "BRL", isDefault: true });
+    expect(p.offers[0]).toMatchObject({ priceCents: 19700, currency: "MZN", isDefault: true });
     await updateProduct(p.id, productInput({ name: "Guia Editado", priceCents: "247,90", status: "DRAFT" }), false);
     const reloaded = await getProduct(p.id, false);
     expect(reloaded.name).toBe("Guia Editado");
@@ -128,10 +128,10 @@ describe("cupões", () => {
     await expect(
       createCoupon(couponSchema.parse({ code: "teste10", type: "PERCENT", percentOff: 5, appliesToAll: "on", isActive: "on" }), false, "America/Sao_Paulo"),
     ).rejects.toBeInstanceOf(DuplicateCodeError);
-    const r = await evaluateCouponCode("teste10", { isDemo: false, productId: p.id, currency: "BRL", subtotalCents: 19700 });
+    const r = await evaluateCouponCode("teste10", { isDemo: false, productId: p.id, currency: "MZN", subtotalCents: 19700 });
     expect(r.evaluation).toMatchObject({ ok: true, discountCents: 1970 });
     // mesmo código não existe no âmbito demo
-    const d = await evaluateCouponCode("TESTE10", { isDemo: true, productId: p.id, currency: "BRL", subtotalCents: 19700 });
+    const d = await evaluateCouponCode("TESTE10", { isDemo: true, productId: p.id, currency: "MZN", subtotalCents: 19700 });
     expect(d.evaluation).toMatchObject({ ok: false, reason: "not_found" });
   });
 
@@ -196,15 +196,15 @@ describe("funis", () => {
 describe("demonstração ponta-a-ponta", () => {
   it("seed demo: métricas exatas, isolamento e limpeza", async () => {
     const now = new Date();
-    await seedDemoData(now, "BRL");
+    await seedDemoData(now, "MZN");
     const tz = "America/Sao_Paulo";
-    const demo = await getDashboardData({ isDemo: true, range: resolveRange({ preset: "30d" }, tz, now), defaultCurrency: "BRL", tz });
+    const demo = await getDashboardData({ isDemo: true, range: resolveRange({ preset: "30d" }, tz, now), defaultCurrency: "MZN", tz });
     expect(demo.kpis.grossCents).toBe(1245000);
     expect(demo.kpis.approvedCount).toBe(42);
     expect(demo.kpis.pendingCount).toBe(3);
     expect(demo.kpis.refundCount).toBe(1);
     expect(demo.kpis.conversionRate).not.toBeNull();
-    const real = await getDashboardData({ isDemo: false, range: resolveRange({ preset: "30d" }, tz, now), defaultCurrency: "BRL", tz });
+    const real = await getDashboardData({ isDemo: false, range: resolveRange({ preset: "30d" }, tz, now), defaultCurrency: "MZN", tz });
     expect(real.kpis.grossCents).toBe(0);
     expect(real.hasAnyOrder).toBe(false);
     await clearDemoData();
@@ -213,7 +213,7 @@ describe("demonstração ponta-a-ponta", () => {
   });
 
   it("compra simulada + upsell recusado + downsell aceite; cupão aplicado", async () => {
-    await seedDemoData(new Date(), "BRL");
+    await seedDemoData(new Date(), "MZN");
     const checkout = await prisma.checkout.findFirstOrThrow({ where: { isDemo: true, funnelId: { not: null } } });
     const r = await submitCheckout(checkout.publicId, { name: "Ana Demo", email: "ana@exemplo.invalid", coupon: "teste10" });
     expect(r.kind).toBe("demo_approved");
@@ -238,7 +238,7 @@ describe("demonstração ponta-a-ponta", () => {
   });
 
   it("aceitar upsell vai direto para obrigado", async () => {
-    await seedDemoData(new Date(), "BRL");
+    await seedDemoData(new Date(), "MZN");
     const checkout = await prisma.checkout.findFirstOrThrow({ where: { isDemo: true, funnelId: { not: null } } });
     const r = await submitCheckout(checkout.publicId, { name: "Bruno Demo", email: "bruno@exemplo.invalid" });
     if (r.kind !== "demo_approved") throw new Error("esperado demo_approved");
@@ -248,7 +248,7 @@ describe("demonstração ponta-a-ponta", () => {
   });
 
   it("cupões de teste: expirado, esgotado e produto não elegível", async () => {
-    await seedDemoData(new Date(), "BRL");
+    await seedDemoData(new Date(), "MZN");
     const checkout = await prisma.checkout.findFirstOrThrow({ where: { isDemo: true, funnelId: { not: null } } });
     for (const [code, msg] of [["EXPIRADO", "expirou"], ["ESGOTADO", "limite"], ["CURSO50", "não é válido para este produto"], ["NAOEXISTE", "não encontrado"]]) {
       const r = await submitCheckout(checkout.publicId, { name: "Ana Demo", email: "ana@exemplo.invalid", coupon: code });

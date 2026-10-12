@@ -62,7 +62,7 @@ export function ManualOrderButton({ action, products, isDemo }: { action: (fd: F
               <Select {...p} defaultValue="PENDING">
                 <option value="PENDING">Pendente</option>
                 {isDemo && <option value="APPROVED">Aprovado (demonstração)</option>}
-                <option value="DECLINED">Recusado</option>
+                <option value="DECLINED">Falhado</option>
                 <option value="CANCELED">Cancelado</option>
               </Select>
             )}

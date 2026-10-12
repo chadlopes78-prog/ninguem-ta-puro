@@ -167,7 +167,7 @@ export const settingsSchema = z.object({
   ownerEmail: optionalEmail,
   supportEmail: optionalEmail,
   defaultCurrency: currencySchema,
-  locale: z.enum(["pt-BR", "pt-PT", "en-US"]),
+  locale: z.enum(["pt-MZ", "pt-BR", "pt-PT", "en-US"]),
   timezone: z.string().refine((tz) => {
     try {
       new Intl.DateTimeFormat("en-US", { timeZone: tz });
@@ -194,6 +194,8 @@ export const publicCheckoutSchema = (opts: { requirePhone: boolean; requireDocum
       ? z.string().trim().min(5, "Documento inválido").max(30)
       : optionalString(30),
     coupon: optionalString(32),
+    method: optionalString(30),
+    idempotencyKey: optionalString(64),
   });
 
 export const loginSchema = z.object({

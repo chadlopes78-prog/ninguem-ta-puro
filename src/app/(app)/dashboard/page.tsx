@@ -88,7 +88,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: SP
         <StatCard label="Ticket médio" value={k.avgTicketCents === null ? "—" : m(k.avgTicketCents)} hint="Faturação bruta ÷ pedidos aprovados." sub={k.avgTicketCents === null ? "Sem pedidos aprovados" : "Por pedido aprovado"} />
         <StatCard
           label="Conversão do checkout"
-          value={k.conversionRate === null ? "—" : `${k.conversionRate.toLocaleString("pt-BR")}%`}
+          value={k.conversionRate === null ? "—" : `${k.conversionRate.toLocaleString("pt-MZ")}%`}
           hint="Pedidos aprovados com checkout de origem ÷ sessões de checkout registadas × 100."
           sub={k.conversionRate === null ? "Sem sessões de checkout registadas" : `${k.checkoutSessions} sessões`}
         />

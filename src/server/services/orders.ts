@@ -3,6 +3,7 @@ import { prisma } from "@/server/db";
 import { newOrderCode } from "@/lib/ids";
 import { canTransition, computeOrderTotals } from "./order-logic";
 import { DomainError, NotFoundError } from "./products";
+import { audit, newDeliveryToken } from "@/server/payments/confirm";
 
 export const ORDER_STATUSES: OrderStatus[] = ["PENDING", "APPROVED", "DECLINED", "REFUNDED", "CANCELED"];
 
@@ -65,6 +66,9 @@ export async function getOrder(id: string, isDemo: boolean) {
       funnel: { select: { id: true, name: true } },
       coupon: { select: { id: true, code: true } },
       paymentEvents: { orderBy: { receivedAt: "desc" } },
+      payments: { orderBy: { createdAt: "desc" } },
+      auditLogs: { orderBy: { createdAt: "desc" } },
+      delivery: { select: { token: true, accessCount: true, lastAccessAt: true } },
     },
   });
   if (!o) throw new NotFoundError("Pedido");
@@ -127,14 +131,15 @@ export async function createManualOrder(
   });
 }
 
-export async function changeOrderStatus(id: string, to: OrderStatus, isDemo: boolean) {
+export async function changeOrderStatus(id: string, to: OrderStatus, isDemo: boolean, actor = "admin") {
   const order = await prisma.order.findFirst({ where: { id, isDemo } });
   if (!order) throw new NotFoundError("Pedido");
   const check = canTransition(order.status, to, { isDemo });
   if (!check.ok) throw new DomainError(check.reason);
   const now = new Date();
   // updateMany com o estado anterior como condição evita alterações concorrentes
-  const res = await prisma.order.updateMany({
+  await prisma.$transaction(async (tx) => {
+  const res = await tx.order.updateMany({
     where: { id, status: order.status },
     data: {
       status: to,
@@ -144,6 +149,9 @@ export async function changeOrderStatus(id: string, to: OrderStatus, isDemo: boo
     },
   });
   if (res.count !== 1) throw new DomainError("O pedido foi alterado entretanto. Atualize a página.");
+  await audit(tx, id, order.status, to, actor, isDemo ? "Alteração manual (demonstração)" : "Alteração manual");
+  if (to === "APPROVED") await tx.delivery.upsert({ where: { orderId: id }, create: { orderId: id, token: newDeliveryToken() }, update: {} });
+  });
 }
 
 // ───────────── Clientes ─────────────

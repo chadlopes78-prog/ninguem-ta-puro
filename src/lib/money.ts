@@ -1,16 +1,23 @@
 // Estratégia monetária: valores sempre em unidades menores inteiras (cêntimos).
 // Nunca usar ponto flutuante para guardar ou somar dinheiro.
 
-export const CURRENCIES = ["BRL", "EUR", "USD"] as const;
+// Todas as moedas existentes na base de dados (compatibilidade com registos antigos).
+export const CURRENCIES = ["MZN", "BRL", "EUR", "USD"] as const;
 export type CurrencyCode = (typeof CURRENCIES)[number];
 
+/** Moedas aceites em novos preços, cupões e pagamentos. A plataforma opera em metical moçambicano. */
+export const ACTIVE_CURRENCIES = ["MZN"] as const satisfies readonly CurrencyCode[];
+export const DEFAULT_CURRENCY: CurrencyCode = "MZN";
+
 export const CURRENCY_LABELS: Record<CurrencyCode, string> = {
+  MZN: "Metical moçambicano (MZN)",
   BRL: "Real (BRL)",
   EUR: "Euro (EUR)",
   USD: "Dólar (USD)",
 };
 
 const LOCALE_BY_CURRENCY: Record<CurrencyCode, string> = {
+  MZN: "pt-MZ",
   BRL: "pt-BR",
   EUR: "pt-PT",
   USD: "en-US",
@@ -20,6 +27,8 @@ export function formatMoney(cents: number, currency: CurrencyCode, locale?: stri
   return new Intl.NumberFormat(locale ?? LOCALE_BY_CURRENCY[currency], {
     style: "currency",
     currency,
+    // MZN é apresentado com o código ISO ("1 234,50 MZN") para não haver ambiguidade
+    currencyDisplay: currency === "MZN" ? "code" : "symbol",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(cents / 100);
@@ -34,7 +43,7 @@ export function parseMoneyToCents(input: string | number): number | null {
     if (!Number.isFinite(input)) return null;
     return Math.round(input * 100);
   }
-  let s = input.trim().replace(/\s|[R$€]|US\$|BRL|EUR|USD/g, "");
+  let s = input.trim().replace(/\s|\u00a0|\u202f|[R$€]|US\$|BRL|EUR|USD|MZN|MTn|MT/g, "");
   if (!s) return null;
   if (s.startsWith("-")) return null;
   const lastComma = s.lastIndexOf(",");

@@ -52,7 +52,7 @@ export function StatCard({
             ) : (
               <>
                 {delta > 0 ? <ArrowUpRight className="h-3 w-3" aria-hidden="true" /> : <ArrowDownRight className="h-3 w-3" aria-hidden="true" />}
-                {Math.abs(delta).toLocaleString("pt-BR")}%
+                {Math.abs(delta).toLocaleString("pt-MZ")}%
               </>
             )}
           </span>

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getPublicCheckout } from "@/server/services/checkouts";
 import { getSettings } from "@/server/services/settings";
+import { getActivePaymentProvider } from "@/server/payments/registry";
 import { CheckoutView } from "@/components/checkouts/checkout-view";
 import { Unavailable } from "@/components/public/unavailable";
 import { applyCouponAction, submitCheckoutAction } from "./actions";
@@ -18,6 +19,8 @@ export default async function PublicCheckoutPage({ params }: { params: Promise<{
   if (r.state !== "ok") return <Unavailable />;
   const c = r.checkout;
   const settings = await getSettings();
+  const provider = c.isDemo ? null : getActivePaymentProvider();
+  const paymentMethods = provider && provider.supportedCurrencies.includes(c.offer.currency) ? provider.methods() : [];
   return (
     <CheckoutView
       data={{
@@ -41,6 +44,7 @@ export default async function PublicCheckoutPage({ params }: { params: Promise<{
         currency: c.offer.currency,
         isDemo: c.isDemo,
         businessName: settings.businessName,
+        paymentMethods,
       }}
       submitAction={submitCheckoutAction.bind(null, c.publicId)}
       couponAction={applyCouponAction.bind(null, c.publicId)}

@@ -1,6 +1,6 @@
 # Ninguém Tá Puro
 
-Plataforma privada de vendas digitais: produtos, checkouts, funis com upsells/downsells, pedidos, clientes, cupões e analytics. **Pagamentos reais estão desativados nesta fase.**
+Plataforma privada de vendas digitais em **metical moçambicano (MZN)**: produtos, checkouts, funis com upsells/downsells, encomendas, clientes, cupões e analytics. O fluxo de pagamento real (EPay) está implementado mas **inativo** até o contrato da API ser confirmado na documentação oficial — ver PROJECT_STATUS.md.
 
 Estado detalhado, decisões e próximos passos: [PROJECT_STATUS.md](./PROJECT_STATUS.md).
 
@@ -16,6 +16,8 @@ src/app/(auth)/         login e configuração inicial
 src/app/(app)/          área privada (dashboard, produtos, checkouts, funis, pedidos, …)
 src/app/checkout/       checkout público  /checkout/<publicId>
 src/app/oferta/         upsell/downsell público (simulação em modo demo)
+src/app/pagamento/      estado do pagamento do comprador (nunca confirma por si só)
+src/app/acesso/         acesso ao produto digital (só após pagamento confirmado)
 src/app/api/            sessão de checkout (pública) e webhooks de pagamento
 src/components/         design system (ui/), layout, gráficos e componentes por domínio
 src/lib/                lógica pura partilhada: dinheiro, datas, IDs, funis (validação/simulação)
@@ -42,10 +44,12 @@ npm run dev
 | Variável | Obrigatória | Descrição |
 |---|---|---|
 | `DATABASE_URL` | sim | Ligação PostgreSQL |
-| `APP_URL` | não | URL público (links absolutos) |
+| `APP_BASE_URL` | sim (produção) | URL público HTTPS — retorno do comprador e notificações de pagamento |
 | `DEMO_TOOLS_ENABLED` | não | `true` permite gerar dados de demonstração. Manter `false` em produção |
 | `INSECURE_COOKIES` | não | `true` apenas para testes locais em HTTP com `NODE_ENV=production` |
-| `PAYMENTS_WEBHOOK_SECRET_<ID>` | futuro | Segredo de webhook por fornecedor (ainda não usado) |
+| `EPAY_SECRET_KEY` | para pagamentos | Chave secreta da EPay (só no servidor) |
+| `EPAY_API_BASE_URL` | para pagamentos | URL base da API, copiado da documentação oficial |
+| `NTP_ENABLE_TEST_PROVIDER`, `TEST_PROVIDER_SECRET` | só testes | Fornecedor de pagamentos fictício; só funciona com a BD `ntp_test` |
 
 Nenhum segredo é exposto ao frontend.
 
@@ -60,3 +64,12 @@ Nenhum segredo é exposto ao frontend.
 | `npm run db:migrate` / `db:deploy` | Migrações Prisma |
 | `npm run db:seed-demo` / `db:clear-demo` | Dados de demonstração |
 | `npm run user:create` | Criar utilizador |
+
+## Fluxo de pagamento
+
+1. O checkout envia nome, email, método e telefone, mais uma chave de idempotência. **Nunca envia o preço.**
+2. O servidor cria a encomenda `PENDING` e a tentativa `Payment` com o preço da base de dados, e chama `createCharge` do fornecedor.
+3. O comprador vê `/pagamento/<token>`, que consulta o estado oficial periodicamente.
+4. A encomenda só passa a **paga** em `applyPaymentStatus`: notificação autenticada ou consulta oficial, com validação de montante, moeda e referência. A operação é idempotente.
+5. Só depois disso é criado o acesso `/acesso/<token>` ao produto digital.
+6. Todas as transições ficam no registo de auditoria da encomenda.

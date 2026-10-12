@@ -44,7 +44,7 @@ function rng(seed: number) {
 const FIRST = ["Ana", "Bruno", "Carla", "Diego", "Eva", "Fábio", "Gabriela", "Hugo", "Inês", "João", "Larissa", "Marco", "Nádia", "Otávio", "Paula", "Rui", "Sofia", "Tiago"];
 const LAST = ["Silva", "Santos", "Oliveira", "Costa", "Pereira", "Almeida", "Ferreira", "Rodrigues", "Martins", "Gomes"];
 
-export async function seedDemoData(now = new Date(), currency: Currency = "BRL") {
+export async function seedDemoData(now = new Date(), currency: Currency = "MZN") {
   await clearDemoData();
   const rand = rng(42);
   const dayMs = 86_400_000;

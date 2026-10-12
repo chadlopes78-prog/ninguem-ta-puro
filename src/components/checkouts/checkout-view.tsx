@@ -8,6 +8,12 @@ import { isDark, readableOn } from "@/lib/color";
 import { cn } from "@/lib/utils";
 import type { PurchaseOutcome } from "@/server/services/purchase";
 
+export interface CheckoutPaymentMethod {
+  id: string;
+  label: string;
+  requiresPhone: boolean;
+}
+
 export interface CheckoutViewData {
   publicId?: string;
   title: string;
@@ -29,6 +35,8 @@ export interface CheckoutViewData {
   currency: CurrencyCode;
   isDemo: boolean;
   businessName: string;
+  /** Métodos do fornecedor ativo (vazio quando nenhum processador está configurado) */
+  paymentMethods?: CheckoutPaymentMethod[];
 }
 
 type CouponState = { code: string; discountCents: number; totalCents: number } | null;
@@ -55,6 +63,18 @@ export function CheckoutView({
   const [couponMsg, setCouponMsg] = useState<string | null>(null);
   const [couponPending, startCoupon] = useTransition();
   const sessionId = useRef<string | undefined>(undefined);
+  // Chave de idempotência por carregamento da página: reenvios/duplo clique não criam encomendas duplicadas
+  const idempotencyKey = useRef<string>("");
+  const methods = data.paymentMethods ?? [];
+  const [method, setMethod] = useState(methods[0]?.id ?? "");
+  const selectedMethod = methods.find((m) => m.id === method);
+  const payable = methods.length > 0 && !data.isDemo;
+
+  useEffect(() => {
+    const bytes = new Uint8Array(18);
+    crypto.getRandomValues(bytes);
+    idempotencyKey.current = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  }, []);
 
   useEffect(() => {
     if (mode !== "live" || !data.publicId) return;
@@ -121,6 +141,10 @@ export function CheckoutView({
       if (typeof v === "string") input[k] = v;
     }
     if (coupon) input.coupon = coupon.code;
+    if (payable) {
+      input.method = method;
+      input.idempotencyKey = idempotencyKey.current;
+    }
     setNotice(null);
     start(async () => {
       try {
@@ -133,7 +157,10 @@ export function CheckoutView({
           setNotice({ tone: "error", text: r.message });
         } else if (r.kind === "payments_unavailable") setNotice({ tone: "warn", text: r.message });
         else if (r.kind === "unavailable") setNotice({ tone: "error", text: "Este checkout já não está disponível." });
-        else if (r.kind === "demo_approved") {
+        else if (r.kind === "payment_started") {
+          if (r.redirectUrl && /^https:\/\//.test(r.redirectUrl)) window.location.assign(r.redirectUrl);
+          else router.push(`/pagamento/${r.token}`);
+        } else if (r.kind === "demo_approved") {
           router.push(r.runId ? `/oferta/${r.runId}` : `/checkout/${data.publicId}/sucesso?pedido=${encodeURIComponent(r.orderCode)}`);
         }
       } catch {
@@ -212,7 +239,7 @@ export function CheckoutView({
             </div>
             {field("name", "Nome completo", { autoComplete: "name", placeholder: "O seu nome" }, true)}
             {field("email", "Email", { type: "email", autoComplete: "email", placeholder: "voce@exemplo.com", inputMode: "email" }, true)}
-            {data.collectPhone && field("phone", "Telefone", { type: "tel", autoComplete: "tel", placeholder: "+55 11 90000-0000" }, data.requirePhone)}
+            {data.collectPhone && !payable && field("phone", "Telefone", { type: "tel", autoComplete: "tel", placeholder: "84 123 4567" }, data.requirePhone)}
             {data.collectDocument && field("document", "Documento (CPF/NIF)", { autoComplete: "off" }, data.requireDocument)}
 
             {data.allowCoupons && (
@@ -264,14 +291,42 @@ export function CheckoutView({
               </div>
             )}
 
-            <div className={cn("rounded-xl border border-dashed p-4", dark ? "border-white/15" : "border-black/15")}>
-              <p className="flex items-center gap-2 text-sm font-medium">
-                <ShieldCheck className="h-4 w-4" aria-hidden="true" /> Métodos de pagamento
-              </p>
-              <p className={cn("mt-1 text-[12.5px]", muted)}>
-                Os métodos de pagamento serão apresentados aqui quando o processador for configurado. Esta página nunca pede dados de cartão.
-              </p>
-            </div>
+            {payable ? (
+              <fieldset className="flex flex-col gap-3">
+                <legend className="mb-1 text-[13px] font-medium">Método de pagamento</legend>
+                <div className="grid grid-cols-2 gap-2">
+                  {methods.map((m) => (
+                    <label
+                      key={m.id}
+                      className={cn(
+                        "flex min-h-12 cursor-pointer items-center gap-2.5 rounded-[10px] border px-3 text-sm font-medium transition-colors",
+                        method !== m.id && (dark ? "border-white/12 opacity-75 hover:opacity-100" : "border-black/15 opacity-75 hover:opacity-100"),
+                      )}
+                      style={method === m.id ? { borderColor: data.primaryColor } : undefined}
+                    >
+                      <input type="radio" name="method" value={m.id} checked={method === m.id} onChange={() => setMethod(m.id)} className="h-4 w-4" style={{ accentColor: data.primaryColor }} />
+                      {m.label}
+                    </label>
+                  ))}
+                </div>
+                {errors.method && <p role="alert" className="text-[12.5px] font-medium text-red-500">{errors.method}</p>}
+                {selectedMethod?.requiresPhone &&
+                  field("phone", `Número ${selectedMethod.label} para pagamento`, { type: "tel", autoComplete: "tel", inputMode: "tel", placeholder: "84 123 4567" }, true)}
+                <p className={cn("flex gap-2 text-[12px]", muted)}>
+                  <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  Receberá um pedido de confirmação no telemóvel. A compra só fica concluída depois de o pagamento ser confirmado pelo processador. Esta página nunca pede dados de cartão.
+                </p>
+              </fieldset>
+            ) : (
+              <div className={cn("rounded-xl border border-dashed p-4", dark ? "border-white/15" : "border-black/15")}>
+                <p className="flex items-center gap-2 text-sm font-medium">
+                  <ShieldCheck className="h-4 w-4" aria-hidden="true" /> Métodos de pagamento
+                </p>
+                <p className={cn("mt-1 text-[12.5px]", muted)}>
+                  Os métodos de pagamento serão apresentados aqui quando o processador for configurado. Esta página nunca pede dados de cartão.
+                </p>
+              </div>
+            )}
 
             <dl className={cn("flex flex-col gap-2 border-t pt-4 text-sm", dark ? "border-white/10" : "border-black/10")}>
               <div className="flex justify-between gap-4">

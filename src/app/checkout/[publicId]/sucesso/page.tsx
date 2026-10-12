@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { CheckCircle2 } from "lucide-react";
+import { redirect } from "next/navigation";
 import { prisma } from "@/server/db";
 import { getPublicCheckout } from "@/server/services/checkouts";
 import { formatMoney } from "@/lib/money";
@@ -18,9 +19,14 @@ export default async function SuccessPage({ params, searchParams }: { params: Pr
   // Só pedidos de demonstração deste checkout são mostrados; não expõe dados pessoais.
   const order =
     pedido && /^NTP-[A-Z0-9]{8}$/.test(pedido)
-      ? await prisma.order.findFirst({ where: { code: pedido, checkoutId: c.id }, select: { code: true, totalCents: true, currency: true, isDemo: true } })
+      ? await prisma.order.findFirst({ where: { code: pedido, checkoutId: c.id }, select: { code: true, totalCents: true, currency: true, isDemo: true, publicToken: true } })
       : null;
   if (!order) return <Unavailable title="Pedido não encontrado" message="Não foi possível encontrar este pedido." />;
+  // Encomendas reais: o retorno do browser não prova pagamento — mostrar sempre o estado confirmado
+  if (!order.isDemo) {
+    if (order.publicToken) redirect(`/pagamento/${order.publicToken}`);
+    return <Unavailable title="Pedido não encontrado" message="Não foi possível encontrar este pedido." />;
+  }
   return (
     <main className="grid min-h-dvh place-items-center px-4" style={{ background: c.backgroundColor, color: readableOn(c.backgroundColor) }}>
       <div className="w-full max-w-md text-center">
