@@ -6,10 +6,12 @@ import { getEditorState } from "@/server/services/checkout-design";
 import { checkoutViewData } from "@/server/services/checkout-view-data";
 import { NotFoundError } from "@/server/services/products";
 import { prisma } from "@/server/db";
-import { DesignEditor } from "@/components/checkouts/design-editor";
+import { getActivePaymentProviders } from "@/server/payments/registry";
+import { listPaymentOptions } from "@/server/services/payment-flow";
+import { CheckoutEditor } from "@/components/checkout-editor/editor";
 import { discardDraftAction, publishDesignAction, saveDesignDraftAction } from "../actions";
 
-export const metadata: Metadata = { title: "Personalizar checkout" };
+export const metadata: Metadata = { title: "Editor visual do checkout" };
 
 export default async function PersonalizeCheckoutPage({ params }: { params: Promise<{ productId: string }> }) {
   await requireUser();
@@ -19,16 +21,19 @@ export default async function PersonalizeCheckoutPage({ params }: { params: Prom
     if (e instanceof NotFoundError) notFound();
     throw e;
   });
+  // métodos de pagamento ativos da própria conta (só nomes/estado — nunca credenciais), como no checkout público
+  const paymentOptions = state.checkout.isDemo ? [] : listPaymentOptions((await getActivePaymentProviders(scope.ownerId)).filter((p) => p.supportedCurrencies.includes(state.product.offers[0]?.currency ?? "MZN")));
   const full = await prisma.checkout.findUniqueOrThrow({ where: { id: state.checkout.id }, include: { product: true, offer: true } });
   return (
-    <DesignEditor
-      key={`${state.checkout.id}:${state.version}:${state.draftUpdatedAt?.toISOString() ?? ""}`}
+    <CheckoutEditor
+      // a gravação do rascunho não reinicia o editor (mantém o histórico de desfazer); publicar sim
+      key={`${state.checkout.id}:${state.version}`}
       productId={state.product.id}
       productName={state.product.name}
       initial={state.draft}
       status={state.status}
       hasPublished={state.hasPublished}
-      previewData={checkoutViewData(full, settings)}
+      previewData={{ ...checkoutViewData(full, settings), paymentOptions }}
       saveAction={saveDesignDraftAction.bind(null, state.product.id)}
       publishAction={publishDesignAction.bind(null, state.product.id)}
       discardAction={discardDraftAction.bind(null, state.product.id)}

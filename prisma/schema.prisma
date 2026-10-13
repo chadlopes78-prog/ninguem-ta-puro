@@ -71,6 +71,7 @@ model User {
   refunds                Refund[]
   adminActions           AdminAuditLog[]         @relation("AdminActor")
   adminTargets           AdminAuditLog[]         @relation("AdminTarget")
+  mediaAssets            MediaAsset[]
 }
 
 /// Registo das ações administrativas (aprovar, rejeitar, banir, desbanir).
@@ -903,4 +904,24 @@ model PushConfig {
 model JobRun {
   key       String   @id
   createdAt DateTime @default(now())
+}
+
+/// Biblioteca de imagens de cada conta (usadas no editor visual do checkout).
+/// Servidas publicamente por /api/public/media/<id> (são mostradas nos checkouts públicos);
+/// só a conta dona pode listar, usar no seu design ou apagar.
+model MediaAsset {
+  id        String   @id @default(cuid())
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  filename  String
+  mimeType  String
+  sizeBytes Int
+  width     Int?
+  height    Int?
+  sha256    String
+  data      Bytes
+  createdAt DateTime @default(now())
+
+  @@unique([ownerId, sha256])
+  @@index([ownerId, createdAt])
 }

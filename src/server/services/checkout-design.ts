@@ -1,7 +1,8 @@
 // Personalização visual do checkout principal de cada produto (rascunho ≠ versão publicada).
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db";
-import { defaultDesign, designSchema, parseDesign, type CheckoutDesign } from "@/lib/checkout-design";
+import { defaultDesign, designSchema, mediaIdsIn, parseDesign, type CheckoutDesign } from "@/lib/checkout-design";
+import { assertOwnMedia } from "./media";
 import { flattenErrors, type FieldErrors } from "@/server/validation/common";
 import { ensurePrimaryCheckout } from "./primary-checkout";
 import { NotFoundError } from "./products";
@@ -61,6 +62,8 @@ export async function saveDraft(productId: string, input: unknown, scope: Scope)
   const parsed = designSchema.safeParse(input);
   if (!parsed.success) return { ok: false, fieldErrors: flattenErrors(parsed.error) };
   const { checkout } = await productScoped(productId, scope);
+  // imagens da biblioteca: só da própria conta (IDs alterados no browser são recusados)
+  if (!(await assertOwnMedia(scope.ownerId, mediaIdsIn(parsed.data)))) return { ok: false, fieldErrors: { sections: "Uma das imagens não pertence a esta conta." } };
   const draft = parsed.data as unknown as Prisma.InputJsonValue;
   await prisma.checkoutDesign.upsert({
     where: { checkoutId: checkout.id },

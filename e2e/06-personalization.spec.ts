@@ -27,12 +27,11 @@ test.describe.serial("personalização do checkout", () => {
     await page.getByTestId("personalization-card").filter({ hasText: "Guia Digital Editado" }).getByTestId("personalize").click();
     await expect(page).toHaveURL(/\/checkouts\/personalizar\/[a-z0-9]+$/);
 
-    await page.getByTestId("add-block").click();
-    await page.getByTestId("add-testimonials").click();
+    // clicar num elemento da biblioteca adiciona-o à página (também pode ser arrastado — ver 11-checkout-editor)
+    await page.getByTestId("lib-testimonials").click();
     await page.getByRole("textbox", { name: "Nome", exact: true }).fill("Marta Sitoe");
-    await page.getByRole("textbox", { name: "Depoimento" }).fill("Material excelente, recomendo a todos.");
-    await page.getByTestId("add-block").click();
-    await page.getByTestId("add-countdown").click();
+    await page.getByRole("textbox", { name: "Testemunho", exact: true }).fill("Material excelente, recomendo a todos.");
+    await page.getByTestId("lib-countdown").click();
     await expect(page.getByTestId("editor-preview").getByText("Material excelente, recomendo a todos.")).toBeVisible();
     await expect(page.getByTestId("editor-preview").locator("[data-block=countdown]")).toBeVisible();
 
@@ -91,12 +90,16 @@ test.describe.serial("personalização do checkout", () => {
     await noHorizontalScroll(page);
 
     await page.getByTestId("personalization-card").first().getByTestId("personalize").click();
-    await expect(page.getByTestId("blocks-list")).toBeVisible();
+    // no telemóvel: separadores Elementos / Página / Propriedades, sem deslocamento horizontal
+    await expect(page.getByTestId("editor-canvas")).toBeVisible();
+    await expect(page.getByTestId("editor-canvas")).toHaveAttribute("data-device", "mobile");
     await noHorizontalScroll(page);
-    await page.getByRole("tab", { name: "Pré-visualizar" }).click();
-    await expect(page.getByTestId("editor-preview")).toBeVisible();
-    await expect(page.getByTestId("blocks-list")).toBeHidden();
+    await page.getByTestId("pane-library").click();
+    await expect(page.getByTestId("element-library")).toBeVisible();
+    await expect(page.getByTestId("editor-canvas")).toBeHidden();
     await noHorizontalScroll(page);
+    await page.getByTestId("pane-canvas").click();
+    await expect(page.getByTestId("editor-canvas")).toBeVisible();
 
     await page.goto(GUIA);
     await expect(page.getByText("Material excelente, recomendo a todos.")).toBeVisible();

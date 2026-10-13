@@ -8,7 +8,8 @@ import { deleteCheckout, duplicateCheckout, getPublicCheckout } from "@/server/s
 import { backfillPrimaryCheckouts, checkoutPath, ensurePrimaryCheckout, slugify } from "@/server/services/primary-checkout";
 import { discardDraft, getEditorState, listCheckoutPersonalization, publicDesign, publishDesign, saveDraft } from "@/server/services/checkout-design";
 import { submitCheckout } from "@/server/services/purchase";
-import { designSchema, newBlock, type CheckoutDesign } from "@/lib/checkout-design";
+import { designSchema, newElement, type CheckoutDesign } from "@/lib/checkout-design";
+import { insertElement } from "@/lib/checkout-design-ops";
 import { newCheckoutPublicId } from "@/lib/ids";
 import { scopeOf, type Scope } from "@/server/scope";
 import type { AuthUser } from "@/server/auth/service";
@@ -106,19 +107,26 @@ describe("5–7. personalização por produto, rascunho e publicação", () => {
     const b = await createProduct(input({ name: "Outro Produto" }), S);
     return { a, b };
   }
+  const els = (d: CheckoutDesign) => d.sections.flatMap((s) => s.columns.flat());
+  const has = (d: CheckoutDesign, type: string) => els(d).some((x) => x.type === type);
   function withTestimonial(base: CheckoutDesign): CheckoutDesign {
-    const t = newBlock("testimonials");
-    return { theme: { ...base.theme, primaryColor: "#FF5500", announcement: "Oferta de lançamento" }, blocks: [...base.blocks, t] };
+    const d = insertElement(base, newElement("testimonials"), { sectionId: base.sections[0].id, col: 0, index: 0 });
+    return { ...d, theme: { ...d.theme, primaryColor: "#FF5500", announcement: "Oferta de lançamento" } };
   }
+  const without = (d: CheckoutDesign, type: string): CheckoutDesign => ({ ...d, sections: d.sections.map((s) => ({ ...s, columns: s.columns.map((c) => c.filter((x) => x.type !== type)) })) });
 
   it("sem personalização mostra o modelo padrão", async () => {
     const { a } = await two();
     const s = await getEditorState(a.id, S);
     expect(s.status).toBe("default");
-    expect(s.draft.blocks.map((b) => b.type)).toEqual(["product", "guarantee"]);
+    // modelo padrão profissional com dados reais do produto + formulário de compra protegido
+    expect(els(s.draft).map((b) => b.type)).toEqual(["image", "heading", "text", "price", "checkout"]);
+    expect(s.draft.sections[0].layout).toBe("3-2");
+    // sem o selo "Compra segura" (removido a pedido do proprietário)
+    expect(JSON.stringify(s.draft)).not.toContain("Compra segura");
     const pub = await getPublicCheckout("handwriting-heroes");
     if (pub.state !== "ok") throw new Error();
-    expect(publicDesign(pub.checkout).blocks[0].type).toBe("product");
+    expect(els(publicDesign(pub.checkout)).some((x) => x.type === "checkout")).toBe(true);
   });
 
   it("rascunho não substitui a versão publicada; publicar aplica ao checkout correto; outros não são afetados", async () => {
@@ -128,30 +136,30 @@ describe("5–7. personalização por produto, rascunho e publicação", () => {
 
     let pubA = await getPublicCheckout("handwriting-heroes");
     if (pubA.state !== "ok") throw new Error();
-    expect(publicDesign(pubA.checkout).blocks.some((x) => x.type === "testimonials")).toBe(false); // ainda não publicado
+    expect(has(publicDesign(pubA.checkout), "testimonials")).toBe(false); // ainda não publicado
     expect((await getEditorState(a.id, S)).status).toBe("unpublished_changes");
 
     await publishDesign(a.id, S);
     pubA = await getPublicCheckout("handwriting-heroes");
     if (pubA.state !== "ok") throw new Error();
     const dA = publicDesign(pubA.checkout);
-    expect(dA.blocks.some((x) => x.type === "testimonials")).toBe(true);
+    expect(has(dA, "testimonials")).toBe(true);
     expect(dA.theme).toMatchObject({ primaryColor: "#FF5500", announcement: "Oferta de lançamento" });
     expect((await getEditorState(a.id, S)).status).toBe("published");
 
     const pubB = await getPublicCheckout("outro-produto");
     if (pubB.state !== "ok") throw new Error();
-    expect(publicDesign(pubB.checkout).blocks.some((x) => x.type === "testimonials")).toBe(false);
+    expect(has(publicDesign(pubB.checkout), "testimonials")).toBe(false);
     expect(await prisma.checkoutDesign.count({ where: { checkout: { productId: b.id } } })).toBe(0);
 
     // novo rascunho após publicação: compradores continuam a ver a versão publicada
-    await saveDraft(a.id, { ...dA, blocks: dA.blocks.filter((x) => x.type !== "testimonials") }, S);
+    await saveDraft(a.id, without(dA, "testimonials"), S);
     pubA = await getPublicCheckout("handwriting-heroes");
     if (pubA.state !== "ok") throw new Error();
-    expect(publicDesign(pubA.checkout).blocks.some((x) => x.type === "testimonials")).toBe(true);
+    expect(has(publicDesign(pubA.checkout), "testimonials")).toBe(true);
     // descartar volta à versão publicada
     await discardDraft(a.id, S);
-    expect((await getEditorState(a.id, S)).draft.blocks.some((x) => x.type === "testimonials")).toBe(true);
+    expect(has((await getEditorState(a.id, S)).draft, "testimonials")).toBe(true);
     // o link não mudou
     expect((await ensurePrimaryCheckout(a.id)).slug).toBe("handwriting-heroes");
   });
@@ -159,15 +167,26 @@ describe("5–7. personalização por produto, rascunho e publicação", () => {
   it("design inválido ou malicioso é rejeitado no servidor", async () => {
     const { a } = await two();
     const base = (await getEditorState(a.id, S)).draft;
+    const checkoutEl = els(base).find((x) => x.type === "checkout")!;
+    const withEl = (el: unknown) => ({ ...base, sections: [{ ...base.sections[0], columns: [[...base.sections[0].columns[0], el], base.sections[0].columns[1]] }] });
     const bad = [
-      { ...base, blocks: base.blocks.filter((x) => x.type !== "product") }, // sem cabeçalho do produto
+      without(base, "checkout"), // sem formulário de compra
+      withEl({ ...checkoutEl, id: "outro" }), // dois formulários
+      { ...base, sections: base.sections.map((s) => ({ ...s, columns: s.columns.map((c) => c.map((x) => (x.type === "checkout" ? { ...x, style: { hideMobile: true } } : x))) })) }, // formulário oculto
       { ...base, theme: { ...base.theme, primaryColor: "red" } },
-      { ...base, blocks: [...base.blocks, { id: "v1", type: "video", url: "https://malicioso.exemplo/x.mp4", caption: "" }] },
-      { ...base, blocks: [...base.blocks, { id: "i1", type: "image", imageUrl: "javascript:alert(1)", alt: "", caption: "" }] },
-      { ...base, blocks: [...base.blocks, { id: "x", type: "script", code: "alert(1)" }] },
+      withEl({ id: "v1", type: "video", style: {}, url: "https://malicioso.exemplo/x.mp4", caption: "" }),
+      withEl({ id: "i1", type: "image", style: {}, src: "javascript:alert(1)" }),
+      withEl({ id: "i2", type: "image", style: {}, src: "/api/public/media/../../etc" }),
+      withEl({ id: "x", type: "script", code: "alert(1)" }),
+      withEl({ id: "c1", type: "heading", style: { color: "red; background:url(https://x)" }, text: "t" }), // CSS livre
+      withEl({ id: "c2", type: "text", style: { fontSize: 9999 }, text: "t" }),
+      withEl({ id: "b1", type: "button", style: {}, label: "Pagar", action: "link", url: "javascript:alert(1)" }),
+      { ...base, sections: [{ ...base.sections[0], layout: "1" }] }, // colunas incoerentes
     ];
     for (const d of bad) expect((await saveDraft(a.id, d, S)).ok).toBe(false);
-    expect(designSchema.safeParse({ ...base, blocks: [...base.blocks, { id: "v2", type: "video", url: "https://youtu.be/dQw4w9WgXcQ", caption: "" }] }).success).toBe(true);
+    expect(designSchema.safeParse(withEl({ id: "v2", type: "video", style: {}, url: "https://youtu.be/dQw4w9WgXcQ", caption: "" })).success).toBe(true);
+    // texto com HTML é guardado como texto simples (o React escapa-o ao mostrar; nunca é executado)
+    expect(designSchema.safeParse(withEl({ id: "t1", type: "text", style: {}, source: "custom", text: "<script>alert(1)</script>" })).success).toBe(true);
   });
 });
 
@@ -244,5 +263,35 @@ describe("11. permissões e integridade", () => {
     expect((await getPublicCheckout("../etc/passwd")).state).toBe("unavailable");
     expect((await getPublicCheckout("Com-Maiusculas")).state).toBe("unavailable");
     expect((await getPublicCheckout("nao-existe")).state).toBe("unavailable");
+  });
+});
+
+describe("designs da versão anterior (lista de blocos)", () => {
+  it("são convertidos para secções sem perder conteúdo; o antigo selo 'Compra segura' sai do checkout público", async () => {
+    const p = await createProduct(input(), S);
+    const legacy = {
+      theme: { primaryColor: "#FF5500", backgroundColor: "#0B0C0E", buttonText: "Comprar já", layout: "split", announcement: "Promoção" },
+      blocks: [
+        { id: "product", type: "product", showImage: true, headline: "Título antigo", subheadline: "" },
+        { id: "t1", type: "testimonials", title: "Clientes", items: [{ name: "Marta", text: "Excelente", role: "", avatarUrl: "", rating: 5 }] },
+        { id: "guarantee", type: "guarantee", title: "Compra segura", body: "O acesso é libertado assim que o pagamento for confirmado.", days: 0 },
+        { id: "g2", type: "guarantee", title: "Garantia de 7 dias", body: "Devolvemos o dinheiro.", days: 7 },
+      ],
+    };
+    await prisma.checkoutDesign.create({ data: { checkoutId: p.primaryCheckout.id, draft: legacy, published: legacy, publishedAt: new Date(), version: 1 } });
+    const pub = await getPublicCheckout("handwriting-heroes");
+    if (pub.state !== "ok") throw new Error();
+    const d = publicDesign(pub.checkout);
+    const all = d.sections.flatMap((s) => s.columns.flat());
+    expect(d.version).toBe(2);
+    expect(d.theme).toMatchObject({ primaryColor: "#FF5500", buttonText: "Comprar já", announcement: "Promoção" });
+    expect(all.filter((x) => x.type === "checkout")).toHaveLength(1);
+    expect(all.find((x) => x.type === "heading")).toMatchObject({ source: "custom", text: "Título antigo" });
+    expect(all.some((x) => x.type === "testimonials")).toBe(true);
+    expect(all.filter((x) => x.type === "guarantee").map((x) => (x as { title: string }).title)).toEqual(["Garantia de 7 dias"]);
+    expect(JSON.stringify(d)).not.toContain("Compra segura");
+    // o editor abre o design convertido e consegue guardá-lo no formato novo
+    const st = await getEditorState(p.id, S);
+    expect((await saveDraft(p.id, st.draft, S)).ok).toBe(true);
   });
 });

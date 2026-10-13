@@ -1,6 +1,6 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-14 · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
+Última atualização: 2026-10-14 · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
 
 ## Estado geral
 
@@ -10,8 +10,8 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 |---|---|---|
 | Lint | `npm run lint` | ✅ 0 erros, 0 avisos |
 | Tipos TypeScript | `npm run typecheck` | ✅ sem erros |
-| Testes unitários + integração | `npm test` | ✅ 221/221 (12 de multiutilizador A–G + 3 da política de acesso; 16 de notificações/relatórios; 10 de funis; 18 de gateways) |
-| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 69/69 (1 de navegação no telemóvel com rede lenta, 5 de várias contas/aprovação/Administração, 10 de notificações/PWA/relatórios, 8 de funis, 9 de pagamentos, 4 de personalização, 3 de gateways) |
+| Testes unitários + integração | `npm test` | ✅ 233/233 (6 de operações do editor, 5 da biblioteca de imagens, 16 de personalização do checkout, 12 de multiutilizador A–G, 16 de notificações/relatórios, 10 de funis, 18 de gateways) |
+| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 75/75 (6 do editor visual com arrastar e soltar real, 1 de navegação lenta no telemóvel, 5 de várias contas, 10 de notificações/PWA/relatórios, 8 de funis, 9 de pagamentos, 4 de personalização, 3 de gateways) |
 | Build de produção | `npm run build` | ✅ sem erros |
 | Fuga de segredos | build com `EPAY_SECRET_KEY`, `E2PAYMENTS_CLIENT_ID/SECRET` e `INTEGRATIONS_ENCRYPTION_KEY` fictícias + `grep` em `.next/` e log | ✅ valor ausente do bundle do browser, do output do servidor e do log; nenhuma variável `NEXT_PUBLIC_`; `.env` com segredos fora do Git |
 
@@ -26,6 +26,119 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | 5 — Operação | ✅ Concluída | Pedidos (filtros, detalhe, transições), clientes, cupões (com testador), relatórios |
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
+
+## Editor visual do checkout tipo Elementor (sessão 12)
+
+### Análise (antes de alterar)
+
+- O checkout era desenhado por `CheckoutView`, que juntava num só componente:
+  - um cabeçalho fixo ("Nome do negócio" + "Ligação cifrada");
+  - uma coluna de blocos (`checkout-blocks`), com o bloco "Compra segura" no modelo padrão;
+  - o formulário de compra;
+  - um rodapé ("© …" + "Suporte: …").
+- A personalização era uma lista de blocos com botões ↑/↓ (`design-editor`), guardada em `CheckoutDesign.draft/published` (rascunho ≠ publicado).
+- O formulário, a criação da encomenda, a EPay/E2Payments, os avisos, os funis e as páginas de obrigado/entrega estão no servidor (`purchase.ts`, `payment-flow.ts`, `post-purchase.ts`). Nada disso foi alterado.
+
+### O que mudou
+
+- **Remoções pedidas (só no checkout público):** saíram o "Compra segura" (também dos designs já publicados, convertidos automaticamente), o cabeçalho "Ninguém Tá Puro — Ligação cifrada" e o rodapé "© … / Suporte: …". Nada os substitui.
+  - A marca continua no painel e na Administração.
+  - O email de suporte continua configurável e é usado onde já era (por exemplo, na página de estado do pagamento).
+  - Os mecanismos reais de segurança não mudaram.
+- **Modelo padrão profissional para cada produto**, só com dados reais:
+  - secção de 2 colunas (60/40);
+  - à esquerda: imagem do produto (ou iniciais), nome (H1), descrição e preço com o preço anterior riscado;
+  - à direita: formulário de compra, fixo ao deslocar no computador;
+  - no telemóvel fica tudo numa coluna.
+  - Benefícios, testemunhos, garantia e vídeo são opcionais na biblioteca, porque dependem de informação que só o vendedor tem.
+- **Modelo de dados v2** (JSON em `CheckoutDesign`, validado com zod):
+  - estrutura: `secções → colunas (1–3, com proporções) → elementos`, cada um com conteúdo e estilos;
+  - estilos de elemento: tipo e tamanho de letra (computador e telemóvel), peso, cor, alinhamento, altura da linha, espaçamento entre letras, margens, espaço interno, largura máxima, fundo, contorno, cantos e visibilidade por dispositivo;
+  - opções de secção: colunas, largura do conteúdo, espaços, alinhamento vertical, fundo, contorno e visibilidade.
+  - Os designs antigos (v1) são convertidos à leitura, sem perder conteúdo. Não houve migração de dados.
+- **Elementos:**
+  - básicos: Título (próprio ou nome do produto), Subtítulo, Texto (próprio ou descrição do produto), Imagem, Banner, Botão, Espaçador, Divisor;
+  - conteúdo: Vídeo (YouTube/Vimeo), Lista de benefícios, Testemunhos, Garantia, Bloco de informações, Elementos de confiança configuráveis, Perguntas frequentes, Cronómetro (só visual);
+  - produto: Resumo do produto e Preço, sempre com os dados reais da oferta;
+  - **Formulário de compra protegido**, que é a implementação real de sempre (`purchase-form.tsx`):
+    - existe exatamente uma vez e não pode ser eliminado, duplicado nem ocultado;
+    - pode mudar de posição e de título/texto;
+    - mantém os campos obrigatórios, a validação, os cupões, os métodos EPay/E2Payments, o resumo, a idempotência e o redirecionamento.
+  - O Botão só leva ao formulário ou abre um link https; nunca simula uma compra.
+- **Editor** (`src/components/checkout-editor`), em ecrã inteiro:
+  - biblioteca de elementos e secções à esquerda, página ao centro, propriedades à direita (separadores Conteúdo / Estilo / Avançado; definições de secção e de página);
+  - **arrastar e soltar** (`@dnd-kit`, com rato, toque — premir sem largar — e teclado): da biblioteca para qualquer coluna, entre colunas e secções, e reordenar secções. Uma **linha verde mostra onde o elemento vai ficar** antes de largar;
+  - duplicar, eliminar, mover ↑/↓ (também por teclado), desfazer/refazer (Ctrl+Z / Ctrl+Shift+Z), Ctrl+S, Ctrl+D e Delete;
+  - pré-visualização em **Computador (1200 px reduzido à escala) / Tablet / Telemóvel**, com o layout responsivo real (consultas de contentor);
+  - **Guardar rascunho**, **Pré-visualizar** (guarda o rascunho e abre-o num separador, sem publicar), **Publicar**, **Cancelar alterações** (com confirmação), **Descartar rascunho**, estado da gravação e aviso ao sair com alterações por guardar;
+  - no telemóvel: separadores Elementos / Página / Propriedades, toque para adicionar, premir sem largar para arrastar.
+- **Imagens:**
+  - três origens: carregar do dispositivo (ou arrastar o ficheiro), biblioteca da conta (com opção de apagar) ou link https;
+  - opções: largura (computador e telemóvel), largura máxima, proporção, altura, enquadramento (preencher ou mostrar toda), ponto focal, cantos, alinhamento, legenda, texto alternativo, substituir e remover;
+  - as imagens grandes são reduzidas no browser (máximo 2000 px, WebP) antes do envio.
+- **Desempenho:**
+  - o checkout público não carrega o editor (133 kB de JavaScript inicial; o editor tem 173 kB e só carrega no painel);
+  - a imagem do produto carrega com prioridade e as restantes em diferido;
+  - as imagens da biblioteca são servidas com cache imutável.
+
+### Modelo de dados e migração
+
+- Migração `20261020090000_media_library`, apenas aditiva: tabela `MediaAsset` (`ownerId`, `filename`, `mimeType`, `sizeBytes`, `width`, `height`, `sha256`, `data`), com chave única `(ownerId, sha256)` e índice `(ownerId, createdAt)`.
+- O design continua em `CheckoutDesign.draft/published` (JSON), agora com `version: 2`, secções, colunas, elementos, estilos, opções responsivas e o identificador do formulário protegido. Ao reabrir o editor, a página é reconstruída a partir da base de dados.
+
+### Segurança
+
+- Tudo o que o utilizador escreve é texto simples (o React escapa-o). Não há HTML, CSS livre nem scripts.
+- As cores são `#RRGGBB` e os números têm limites. Os links e as imagens só aceitam `https://` ou `/api/public/media/<id>`. Os vídeos só aceitam YouTube e Vimeo, incorporados em `youtube-nocookie`.
+- **Carregamento de imagens:**
+  - só com sessão de uma conta aprovada e pedidos da própria origem;
+  - formato verificado pelo conteúdo (JPEG, PNG, WebP ou GIF; SVG é recusado);
+  - até 3 MB e até 8000 px de lado; nome do ficheiro limpo;
+  - limite de 300 imagens por conta.
+- **Isolamento:**
+  - cada conta só lista e apaga as suas imagens;
+  - uma imagem usada num rascunho ou checkout publicado não pode ser apagada;
+  - ao guardar um design, o servidor confirma que todas as imagens da biblioteca pertencem à conta;
+  - o editor só abre produtos da própria conta (ids de outra conta respondem 404).
+- A leitura pública das imagens usa `nosniff`, CSP `sandbox` e `Content-Disposition: inline`.
+- O editor mostra os métodos de pagamento ativos da conta só por nome, como o checkout público, e nunca credenciais.
+
+### Testes executados (os 18 pontos pedidos)
+
+`e2e/11-checkout-editor.spec.ts` (6 testes no browser, com arrastar e soltar real com o rato), `tests/unit/checkout-design-ops.test.ts` (6), `tests/integration/media.test.ts` (5) e `tests/integration/checkout-personalization.test.ts` (16, atualizados):
+
+1. **Checkout padrão:** abre com nome, descrição, preço, formulário e resumo reais (computador e telemóvel).
+2. **Remoções:** sem "Compra segura", "Ligação cifrada", "©" nem "Suporte:"; sem cabeçalho nem rodapé.
+3. **Adicionar imagem:** arrastada da biblioteca, ficheiro carregado, validado e servido.
+4. **Imagem acima do título:** arrastada para cima do título.
+5. **Imagem abaixo do título:** movida para baixo do título.
+6. **Reorganizar:** nova secção arrastada da biblioteca, descrição movida para essa secção e secção movida para o topo.
+7. **Estilos:** tamanho de letra (44 px) e cor do título, com desfazer/refazer.
+8. **Guardar:** rascunho guardado, com o estado visível.
+9. **Persistência:** ao recarregar, a ordem, a imagem, o texto alternativo e os estilos vêm da base de dados.
+10. **Publicar:** a publicação funciona e o rascunho não altera o checkout público antes disso.
+11. **Versão publicada:** a página pública mostra a ordem, a imagem e os estilos publicados.
+12. **Computador e telemóvel:** no telemóvel o título passa para 35 px automaticamente e não há deslocamento horizontal, também no editor.
+13. **Compra de teste:** compra no checkout personalizado com o fornecedor de teste local.
+14. **EPay** e 15. **E2Payments:** cobertos pelos testes de integração existentes (`epay`, `gateways`, `multi-tenant`), que continuam a passar. Os gateways são simulados; não houve pagamentos reais.
+16. **Redirecionamento:** depois da confirmação oficial, o comprador é encaminhado para a página de acesso ao produto, com o link de entrega correto.
+17. **Isolamento:**
+    - o editor de um produto inexistente ou de outra conta responde 404;
+    - apagar uma imagem de outra conta responde 404;
+    - um carregamento a partir de outro site responde 403;
+    - um SVG é recusado com 400;
+    - sem sessão, a lista de imagens responde 401;
+    - nos testes de integração: imagens e checkouts de outra conta são recusados e uma imagem em uso não é apagada.
+18. **Sem erros:** em todos os testes do editor, nenhum erro de consola nem de página.
+
+Regressão: os testes anteriores continuam todos a passar (pagamentos, funis/upsell, notificações, relatórios, multiutilizador). As especificações 05, 06 e 08 foram adaptadas ao novo editor; os comportamentos verificados são os mesmos.
+
+### Pendências / limitações
+
+- Edição de texto diretamente na página (como no Elementor) não foi feita: o texto é editado no painel de propriedades e aparece de imediato.
+- Não há modelos de página prontos além do padrão (a estrutura permite acrescentá-los).
+- As imagens ficam na base de dados (PostgreSQL). Com muito volume, mover para armazenamento de ficheiros (Vercel Blob/S3).
+- Ao reabrir o editor depois de publicar, o histórico de desfazer recomeça.
 
 ## Desempenho no telemóvel (sessão 11)
 
@@ -554,7 +667,7 @@ Cada item abaixo tem verificação automática (unitária, integração ou E2E) 
 
 ## Modelo de dados (resumo)
 
-`User` (papel OWNER/USER, estado de aprovação, suspensão), `AdminAuditLog`, `Session`, `LoginAttempt` · `Product`, `Offer` · `Checkout`, `CheckoutSession` · `Funnel`, `FunnelStep`, `FunnelEdge`, `FunnelRun` · `Customer`, `Order`, `OrderItem` · `Coupon`, `CouponProduct` · `AnalyticsEvent` · `Settings` · `IntegrationConfig`, `IntegrationLog` · `PaymentEvent`. Todas as entidades comerciais têm `ownerId` (conta dona). Esquema completo em `prisma/schema.prisma`; migração inicial em `prisma/migrations/`.
+`User` (papel OWNER/USER, estado de aprovação, suspensão), `AdminAuditLog`, `MediaAsset` (imagens por conta), `Session`, `LoginAttempt` · `Product`, `Offer` · `Checkout`, `CheckoutSession` · `Funnel`, `FunnelStep`, `FunnelEdge`, `FunnelRun` · `Customer`, `Order`, `OrderItem` · `Coupon`, `CouponProduct` · `AnalyticsEvent` · `Settings` · `IntegrationConfig`, `IntegrationLog` · `PaymentEvent`. Todas as entidades comerciais têm `ownerId` (conta dona). Esquema completo em `prisma/schema.prisma`; migração inicial em `prisma/migrations/`.
 
 ## Como continuar (instruções exatas)
 
@@ -609,6 +722,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 12 (2026-10-14)**: editor visual do checkout tipo Elementor (secções/colunas/elementos, arrastar e soltar com indicadores, propriedades de conteúdo/estilo/avançado, dispositivos, desfazer/refazer, rascunho/publicação, aviso ao sair), modelo padrão profissional com dados reais, biblioteca de imagens por conta (carregamento validado), formulário de compra protegido e remoção do "Compra segura", do cabeçalho "Ligação cifrada" e do rodapé do checkout público. Pagamentos, funis e redirecionamentos intactos. 233 testes unitários/integração e 75 E2E a passar.
 - **Sessão 11 (2026-10-14)**: desempenho no telemóvel: menos consultas e em paralelo (JOIN do Prisma, sessão numa consulta, configurações sem upsert, layout e relatórios em paralelo), tarefas de notificações limitadas, gráficos carregados à parte (Dashboard/Relatórios 217 → 110 kB) e resposta imediata ao toque (menu fecha logo, indicador e barra de progresso). 221 testes unitários/integração e 69 E2E a passar.
 - **Sessão 10 (2026-10-14)**: sistema multiutilizador com registo pendente, aprovação/rejeição/suspensão pelo proprietário, Administração da Plataforma, isolamento total por conta (`ownerId` em todas as entidades), credenciais EPay/E2Payments por conta (cifradas, sem fallback) e avisos de pagamento verificados com a chave da conta dona. A migração atribui os dados existentes e as credenciais ao proprietário sem as alterar. 221 testes unitários/integração e 68 E2E a passar.
 - **Sessão 9 (2026-10-13)**: notificações push via PWA/Web Push (VAPID + aes128gcm, sem Pushcut), fila persistente com tentativas e confirmação de receção, central de notificações, preferências e dispositivos, resumo diário (cron + execução oportunista), relatórios de faturamento (indicadores, gráficos, transações, CSV) e registo de reembolsos parciais/totais. EPay/E2Payments intactas; migração aditiva. 206 testes unitários/integração e 63 E2E a passar; entrega em dispositivos reais por comprovar.

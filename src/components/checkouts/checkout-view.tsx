@@ -1,14 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { Lock, Mail, ShieldCheck, Tag, TriangleAlert, X } from "lucide-react";
-import { formatMoney, type CurrencyCode } from "@/lib/money";
 import { isDark, readableOn } from "@/lib/color";
+import type { CurrencyCode } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import type { PurchaseOutcome } from "@/server/services/purchase";
-import type { CheckoutDesign, DesignBlock } from "@/lib/checkout-design";
-import { CheckoutBlock } from "./checkout-blocks";
+import { CONTENT_WIDTHS, FONT_FAMILIES, SECTION_LAYOUTS, defaultDesign, type CheckoutDesign, type DesignElement, type DesignSection } from "@/lib/checkout-design";
+import { ElementContent, boxStyle, visibilityClass, type RenderCtx } from "./checkout-elements";
+import { PurchaseForm, type Palette } from "./purchase-form";
 
 /** Opção de pagamento de um gateway ativo. id: "epay" (página alojada) ou "e2payments:mpesa" (direto). */
 export interface CheckoutPaymentOption {
@@ -46,406 +44,137 @@ export interface CheckoutViewData {
   paymentOptions?: CheckoutPaymentOption[];
 }
 
-type CouponState = { code: string; discountCents: number; totalCents: number } | null;
+export interface ElementLocation {
+  sectionId: string;
+  col: number;
+  index: number;
+}
+
+/**
+ * Pontos de extensão usados SÓ pelo editor visual (arrastar, selecionar, indicadores).
+ * O checkout público não os passa e, por isso, não carrega nenhum código do editor.
+ */
+export interface EditorHooks {
+  section: (section: DesignSection, index: number, node: React.ReactNode) => React.ReactNode;
+  column: (section: DesignSection, col: number, props: { className: string; style: React.CSSProperties; children: React.ReactNode; empty: boolean }) => React.ReactNode;
+  element: (el: DesignElement, at: ElementLocation, node: React.ReactNode) => React.ReactNode;
+}
+
+type Vars = React.CSSProperties & Record<`--${string}`, string | number>;
 
 export function CheckoutView({
   data: rawData,
-  design,
-  selectedBlockId,
+  design: rawDesign,
   mode = "live",
   submitAction,
   couponAction,
+  editor,
 }: {
   data: CheckoutViewData;
-  /** Personalização visual (blocos e tema). Nunca altera preço, moeda, formulário ou pagamento. */
+  /** Personalização visual (secções e elementos). Nunca altera preço, moeda, formulário ou pagamento. */
   design?: CheckoutDesign | null;
-  /** Bloco destacado no editor visual */
-  selectedBlockId?: string | null;
   mode?: "live" | "preview";
   submitAction?: (input: Record<string, string>, sessionId?: string) => Promise<PurchaseOutcome>;
   couponAction?: (code: string) => Promise<{ ok: true; discountCents: number; totalCents: number; code: string } | { ok: false; message: string }>;
+  editor?: EditorHooks;
 }) {
-  const data: CheckoutViewData = design
-    ? { ...rawData, primaryColor: design.theme.primaryColor, backgroundColor: design.theme.backgroundColor, buttonText: design.theme.buttonText }
-    : rawData;
-  const blocks: DesignBlock[] = design?.blocks ?? [{ id: "product", type: "product", showImage: true, headline: "", subheadline: "" }];
-  const stacked = design?.theme.layout === "stacked";
-  const productBlock = (blocks.find((b) => b.type === "product") as Extract<DesignBlock, { type: "product" }> | undefined) ?? { id: "product", type: "product" as const, showImage: true, headline: "", subheadline: "" };
+  const design = rawDesign ?? defaultDesign(rawData);
+  const data: CheckoutViewData = { ...rawData, primaryColor: design.theme.primaryColor, backgroundColor: design.theme.backgroundColor, buttonText: design.theme.buttonText };
   const dark = isDark(data.backgroundColor);
-  const onPrimary = readableOn(data.primaryColor);
-  const router = useRouter();
-  const [pending, start] = useTransition();
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [notice, setNotice] = useState<{ tone: "warn" | "error"; text: string } | null>(null);
-  const [coupon, setCoupon] = useState<CouponState>(null);
-  const [couponInput, setCouponInput] = useState("");
-  const [couponMsg, setCouponMsg] = useState<string | null>(null);
-  const [couponPending, startCoupon] = useTransition();
-  const sessionId = useRef<string | undefined>(undefined);
-  // Chave de idempotência por carregamento da página: reenvios/duplo clique não criam encomendas duplicadas
-  const idempotencyKey = useRef<string>("");
-  const options = !data.isDemo ? (data.paymentOptions ?? []) : [];
-  const [method, setMethod] = useState(options[0]?.id ?? "");
-  const selectedMethod = options.find((m) => m.id === method) ?? null;
-  // Só um gateway alojado ativo (ex.: apenas EPay): mantém-se a apresentação anterior, sem escolha
-  const onlyHosted = options.length === 1 && options[0].hosted ? { ...options[0].hosted, provider: options[0].providerName } : null;
-  const hosted = selectedMethod?.hosted ? { ...selectedMethod.hosted, provider: selectedMethod.providerName } : null;
-  const payable = options.length > 0;
-  const multiProvider = new Set(options.map((o) => o.providerId)).size > 1;
-
-  const newIdempotencyKey = () => {
-    const bytes = new Uint8Array(18);
-    crypto.getRandomValues(bytes);
-    idempotencyKey.current = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  const p: Palette = {
+    dark,
+    fg: dark ? "text-white" : "text-[#0a0b0d]",
+    muted: dark ? "text-white/60" : "text-black/55",
+    panel: dark ? "bg-white/[0.04] border-white/10" : "bg-white border-black/10 shadow-sm",
+    primary: data.primaryColor,
+    onPrimary: readableOn(data.primaryColor),
   };
-  useEffect(newIdempotencyKey, []);
-
-  useEffect(() => {
-    if (mode !== "live" || !data.publicId) return;
-    const key = `ntp:cs:${data.publicId}`;
-    try {
-      const existing = sessionStorage.getItem(key);
-      if (existing) {
-        sessionId.current = existing;
-        return;
-      }
-    } catch {}
-    const utm = new URLSearchParams(window.location.search);
-    fetch(`/api/public/checkout/${data.publicId}/session`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ source: utm.get("utm_source"), medium: utm.get("utm_medium"), campaign: utm.get("utm_campaign") }),
-    })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j: { sessionId?: string } | null) => {
-        if (j?.sessionId) {
-          sessionId.current = j.sessionId;
-          try {
-            sessionStorage.setItem(key, j.sessionId);
-          } catch {}
-        }
-      })
-      .catch(() => undefined);
-  }, [mode, data.publicId]);
-
-  const total = coupon ? coupon.totalCents : data.priceCents;
-  const fg = dark ? "text-white" : "text-[#0a0b0d]";
-  const muted = dark ? "text-white/60" : "text-black/55";
-  const panel = dark ? "bg-white/[0.04] border-white/10" : "bg-white border-black/10 shadow-sm";
-  const inputCls = cn(
-    "h-11 w-full rounded-[10px] border px-3.5 text-[15px] outline-none transition-colors focus:ring-2",
-    dark ? "border-white/12 bg-white/[0.05] text-white placeholder:text-white/35 focus:border-white/30" : "border-black/15 bg-white text-black placeholder:text-black/35 focus:border-black/40",
-  );
-
-  const applyCoupon = () => {
-    if (!couponAction || !couponInput.trim()) return;
-    startCoupon(async () => {
-      try {
-        const r = await couponAction(couponInput);
-        if (r.ok) {
-          setCoupon({ code: r.code, discountCents: r.discountCents, totalCents: r.totalCents });
-          setCouponMsg(null);
-        } else {
-          setCoupon(null);
-          setCouponMsg(r.message);
-        }
-      } catch {
-        setCouponMsg("Erro de rede ao validar o cupão. Tente novamente.");
-      }
-    });
+  const editing = Boolean(editor);
+  const ctx: RenderCtx = {
+    data,
+    p,
+    editing,
+    storageKey: data.publicId ?? "preview",
+    checkout: (el) => (
+      <PurchaseForm data={data} mode={editing ? "preview" : mode} title={el.title} subtitle={el.subtitle} p={p} submitAction={submitAction} couponAction={couponAction} />
+    ),
   };
 
-  const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (mode !== "live" || !submitAction) return;
-    const fd = new FormData(e.currentTarget);
-    const input: Record<string, string> = {};
-    for (const k of ["name", "email", "phone", "document"]) {
-      const v = fd.get(k);
-      if (typeof v === "string") input[k] = v;
-    }
-    if (coupon) input.coupon = coupon.code;
-    if (payable) {
-      input.method = method;
-      input.idempotencyKey = idempotencyKey.current;
-    }
-    setNotice(null);
-    start(async () => {
-      try {
-        const r = await submitAction(input, sessionId.current);
-        setErrors(r.kind === "invalid" ? r.fieldErrors : {});
-        if (r.kind === "invalid") setNotice({ tone: "error", text: r.fieldErrors._form ?? "Verifique os campos assinalados." });
-        else if (r.kind === "coupon_error") {
-          setCoupon(null);
-          setCouponMsg(r.message);
-          setNotice({ tone: "error", text: r.message });
-        } else if (r.kind === "payments_unavailable") setNotice({ tone: "warn", text: r.message });
-        else if (r.kind === "unavailable") setNotice({ tone: "error", text: "Este checkout já não está disponível." });
-        else if (r.kind === "payment_not_started") {
-          // nada foi cobrado; nova tentativa usa uma nova chave
-          newIdempotencyKey();
-          setNotice({ tone: "error", text: r.message });
-        } else if (r.kind === "payment_started") {
-          if (r.redirectUrl && /^https:\/\//.test(r.redirectUrl)) window.location.assign(r.redirectUrl);
-          else router.push(`/pagamento/${r.token}`);
-        } else if (r.kind === "demo_approved") {
-          router.push(r.runId ? `/oferta/${r.runId}` : `/checkout/${data.publicId}/sucesso?pedido=${encodeURIComponent(r.orderCode)}`);
-        }
-      } catch {
-        setNotice({ tone: "error", text: "Erro de rede. Os seus dados foram mantidos — tente novamente." });
-      }
-    });
+  const renderElement = (el: DesignElement, at: ElementLocation) => {
+    const node = (
+      <div
+        key={el.id}
+        className={cn("min-w-0", visibilityClass(el.style, editing), el.type === "checkout" && el.stickyDesktop && "@2xl:sticky @2xl:top-6")}
+        style={boxStyle(el.style)}
+        data-block={el.type}
+        data-element-id={el.id}
+      >
+        <ElementContent el={el} ctx={ctx} />
+      </div>
+    );
+    return editor ? <div key={el.id}>{editor.element(el, at, node)}</div> : node;
   };
 
-  const field = (name: string, label: string, props: React.InputHTMLAttributes<HTMLInputElement>, required: boolean) => (
-    <div className="flex flex-col gap-1.5">
-      <label htmlFor={`co-${name}`} className={cn("text-[13px] font-medium", fg)}>
-        {label} {!required && <span className={cn("font-normal", muted)}>(opcional)</span>}
-      </label>
-      <input
-        id={`co-${name}`}
-        name={name}
-        className={cn(inputCls, errors[name] && "border-red-500/70")}
-        style={{ ["--tw-ring-color" as string]: `${data.primaryColor}55` }}
-        aria-invalid={errors[name] ? true : undefined}
-        aria-describedby={errors[name] ? `co-${name}-err` : undefined}
-        required={required}
-        {...props}
-      />
-      {errors[name] && (
-        <p id={`co-${name}-err`} role="alert" className="text-[12.5px] font-medium text-red-500">
-          {errors[name]}
-        </p>
-      )}
-    </div>
-  );
+  const renderSection = (s: DesignSection, index: number) => {
+    const st = s.style;
+    const cols = SECTION_LAYOUTS[s.layout].cols;
+    const width = CONTENT_WIDTHS[st.contentWidth].px;
+    const inner: Vars = {
+      "--cols": cols.map((c) => `minmax(0, ${c}fr)`).join(" "),
+      "--py": `${st.paddingY}px`,
+      "--py-m": `${Math.min(st.paddingY, 32)}px`,
+      maxWidth: width || undefined,
+      paddingInline: st.paddingX,
+      columnGap: st.gap,
+      rowGap: Math.min(st.gap, 32),
+    };
+    const node = (
+      <section
+        key={s.id}
+        className={cn("min-w-0", visibilityClass(st, editing))}
+        style={{ background: st.background || undefined, borderRadius: st.radius || undefined, border: st.borderWidth ? `${st.borderWidth}px solid ${st.borderColor || "currentColor"}` : undefined }}
+        data-section-id={s.id}
+      >
+        <div className="mx-auto grid grid-cols-1 py-[var(--py-m)] @2xl:py-[var(--py)] @2xl:[grid-template-columns:var(--cols)]" style={inner}>
+          {s.columns.map((col, ci) => {
+            const props = {
+              className: "flex min-w-0 flex-col",
+              style: { rowGap: st.rowGap, justifyContent: st.valign === "center" ? "center" : st.valign === "end" ? "flex-end" : "flex-start" } as React.CSSProperties,
+              children: col.map((el, i) => renderElement(el, { sectionId: s.id, col: ci, index: i })),
+              empty: col.length === 0,
+            };
+            return editor ? (
+              <div key={ci} className="flex min-w-0 flex-col">
+                {editor.column(s, ci, props)}
+              </div>
+            ) : (
+              <div key={ci} className={props.className} style={props.style}>
+                {props.children}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    );
+    return editor ? <div key={s.id}>{editor.section(s, index, node)}</div> : node;
+  };
+
+  const rootStyle: Vars = {
+    background: data.backgroundColor,
+    fontFamily: FONT_FAMILIES[design.theme.fontFamily].css,
+    "--ck-heading": FONT_FAMILIES[design.theme.headingFont].css,
+  };
 
   return (
-    <div className={cn("@container min-h-full", fg)} style={{ background: data.backgroundColor }} data-testid="checkout-root" data-mode={dark ? "dark" : "light"}>
-      {data.isDemo && (
-        <div className="bg-[#f5a524] px-4 py-2 text-center text-[12.5px] font-semibold text-black">
-          CHECKOUT DE DEMONSTRAÇÃO — nenhuma cobrança é efetuada
-        </div>
-      )}
-      {mode === "preview" && (
-        <div className="bg-[#60a5fa] px-4 py-2 text-center text-[12.5px] font-semibold text-black">Pré-visualização — submissões desativadas</div>
-      )}
-      {design?.theme.announcement && (
-        <div className="px-4 py-2.5 text-center text-[13px] font-semibold" style={{ background: data.primaryColor, color: onPrimary }} data-block="announcement">
+    <div className={cn("@container min-h-full overflow-x-clip", p.fg)} style={rootStyle} data-testid="checkout-root" data-mode={dark ? "dark" : "light"}>
+      {data.isDemo && <div className="bg-[#f5a524] px-4 py-2 text-center text-[12.5px] font-semibold text-black">CHECKOUT DE DEMONSTRAÇÃO — nenhuma cobrança é efetuada</div>}
+      {mode === "preview" && !editing && <div className="bg-[#60a5fa] px-4 py-2 text-center text-[12.5px] font-semibold text-black">Pré-visualização — submissões desativadas</div>}
+      {design.theme.announcement && (
+        <div className="px-4 py-2.5 text-center text-[13px] font-semibold" style={{ background: data.primaryColor, color: p.onPrimary }} data-block="announcement">
           {design.theme.announcement}
         </div>
       )}
-      <header className={cn("border-b", dark ? "border-white/10" : "border-black/10")}>
-        <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4 sm:px-6">
-          <span className="truncate font-display text-[15px] font-semibold">{data.businessName}</span>
-          <span className={cn("flex items-center gap-1.5 text-[12px]", muted)}>
-            <Lock className="h-3.5 w-3.5" aria-hidden="true" /> Ligação cifrada
-          </span>
-        </div>
-      </header>
-
-      <div className={cn("mx-auto grid gap-6 px-4 py-6 sm:px-6 sm:py-10", stacked ? "max-w-2xl" : "max-w-5xl @3xl:grid-cols-[1.1fr_1fr] @3xl:gap-10")}>
-        <section aria-label="Produto" className="flex min-w-0 flex-col gap-6">
-          {blocks.map((b) => (
-            <CheckoutBlock
-              key={b.id}
-              block={b}
-              p={{ dark, muted, panel, primary: data.primaryColor }}
-              storageKey={data.publicId ?? "preview"}
-              selected={selectedBlockId === undefined ? undefined : selectedBlockId === b.id}
-              productHeader={<div data-block="product">
-          {!productBlock.showImage ? null : data.imageUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={data.imageUrl} alt={data.productName} className="aspect-[16/10] w-full rounded-2xl object-cover" />
-          ) : (
-            <div className={cn("grid aspect-[16/10] w-full place-items-center rounded-2xl border", panel)} aria-hidden="true">
-              <span className="font-display text-5xl font-semibold" style={{ color: data.primaryColor }}>
-                {data.productName.split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase()}
-              </span>
-            </div>
-          )}
-          <h1 className={cn("font-display text-2xl font-semibold leading-tight tracking-tight sm:text-3xl", productBlock.showImage && "mt-6")}>{productBlock.headline || data.title}</h1>
-          {(productBlock.subheadline || data.description) && <p className={cn("mt-3 whitespace-pre-line text-[15px] leading-relaxed", muted)}>{productBlock.subheadline || data.description}</p>}
-          <div className="mt-5 flex items-baseline gap-3">
-            <span className="font-display text-3xl font-semibold tabular">{formatMoney(data.priceCents, data.currency)}</span>
-            {data.compareAtCents && <span className={cn("text-lg line-through tabular", muted)}>{formatMoney(data.compareAtCents, data.currency)}</span>}
-          </div>
-        </div>}
-            />
-          ))}
-        </section>
-
-        <section aria-label="Finalizar compra" className="min-w-0">
-          <form onSubmit={onSubmit} noValidate className={cn("flex flex-col gap-5 rounded-2xl border p-5 sm:p-6", panel)}>
-            <div>
-              <h2 className="text-base font-semibold">Os seus dados</h2>
-              <p className={cn("mt-0.5 text-[13px]", muted)}>Usados para enviar o acesso ao produto.</p>
-            </div>
-            {field("name", "Nome completo", { autoComplete: "name", placeholder: "O seu nome" }, true)}
-            {field("email", "Email", { type: "email", autoComplete: "email", placeholder: "voce@exemplo.com", inputMode: "email" }, true)}
-            {data.collectPhone && !selectedMethod?.requiresPhone && field("phone", "Telefone", { type: "tel", autoComplete: "tel", placeholder: "84 123 4567" }, data.requirePhone)}
-            {data.collectDocument && field("document", "Documento (CPF/NIF)", { autoComplete: "off" }, data.requireDocument)}
-
-            {data.allowCoupons && (
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="co-coupon" className="text-[13px] font-medium">
-                  Cupão de desconto <span className={cn("font-normal", muted)}>(opcional)</span>
-                </label>
-                {coupon ? (
-                  <div className={cn("flex h-11 items-center justify-between rounded-[10px] border px-3.5 text-sm", dark ? "border-emerald-400/30 bg-emerald-400/10" : "border-emerald-600/30 bg-emerald-50")}>
-                    <span className="flex items-center gap-2 font-medium">
-                      <Tag className="h-4 w-4" aria-hidden="true" /> {coupon.code} aplicado (−{formatMoney(coupon.discountCents, data.currency)})
-                    </span>
-                    <button type="button" onClick={() => setCoupon(null)} aria-label="Remover cupão" className={muted}>
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex gap-2">
-                    <input
-                      id="co-coupon"
-                      value={couponInput}
-                      onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          applyCoupon();
-                        }
-                      }}
-                      className={cn(inputCls, "uppercase")}
-                      placeholder="CÓDIGO"
-                      maxLength={32}
-                      aria-describedby={couponMsg ? "co-coupon-msg" : undefined}
-                    />
-                    <button
-                      type="button"
-                      onClick={applyCoupon}
-                      disabled={mode !== "live" || couponPending || !couponInput.trim()}
-                      className={cn("h-11 shrink-0 rounded-[10px] border px-4 text-sm font-medium disabled:opacity-50", dark ? "border-white/15 hover:bg-white/5" : "border-black/15 hover:bg-black/5")}
-                    >
-                      {couponPending ? "A validar…" : "Aplicar"}
-                    </button>
-                  </div>
-                )}
-                {couponMsg && (
-                  <p id="co-coupon-msg" role="alert" className="text-[12.5px] font-medium text-red-500">
-                    {couponMsg}
-                  </p>
-                )}
-              </div>
-            )}
-
-            {onlyHosted ? (
-              <div className={cn("rounded-xl border p-4", dark ? "border-white/12 bg-white/[0.03]" : "border-black/10 bg-black/[0.02]")} data-testid="hosted-payment">
-                <p className="flex items-center gap-2 text-sm font-medium">
-                  <ShieldCheck className="h-4 w-4" aria-hidden="true" /> Pagamento seguro com {onlyHosted.methodsLabel}
-                </p>
-                <p className={cn("mt-1 text-[12.5px]", muted)}>
-                  Ao continuar, será encaminhado para a página de pagamento da {onlyHosted.provider}, onde escolhe o método e confirma no telemóvel. A compra só fica concluída depois de o pagamento ser confirmado. Esta página nunca pede dados de cartão.
-                </p>
-                {onlyHosted.isTest && <p className="mt-2 text-[12px] font-semibold text-amber-500">Ambiente de teste da {onlyHosted.provider}: nenhum dinheiro real é cobrado.</p>}
-              </div>
-            ) : payable ? (
-              <fieldset className="flex flex-col gap-3" data-testid="payment-options">
-                <legend className="mb-1 text-[13px] font-medium">Método de pagamento</legend>
-                <div className="grid grid-cols-1 gap-2 min-[380px]:grid-cols-2">
-                  {options.map((m) => (
-                    <label
-                      key={m.id}
-                      className={cn(
-                        "flex min-h-12 cursor-pointer items-center gap-2.5 rounded-[10px] border px-3 py-2 text-sm font-medium transition-colors",
-                        method !== m.id && (dark ? "border-white/12 opacity-75 hover:opacity-100" : "border-black/15 opacity-75 hover:opacity-100"),
-                        m.hosted && options.length % 2 === 1 && "min-[380px]:col-span-2",
-                      )}
-                      style={method === m.id ? { borderColor: data.primaryColor } : undefined}
-                    >
-                      <input type="radio" name="method" value={m.id} checked={method === m.id} onChange={() => setMethod(m.id)} className="h-4 w-4 shrink-0" style={{ accentColor: data.primaryColor }} />
-                      <span className="min-w-0">
-                        <span className="block">{m.hosted ? `${m.providerName} — ${m.hosted.methodsLabel}` : m.label}</span>
-                        {multiProvider && !m.hosted && <span className={cn("block text-[11.5px] font-normal", muted)}>via {m.providerName}</span>}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-                {errors.method && <p role="alert" className="text-[12.5px] font-medium text-red-500">{errors.method}</p>}
-                {selectedMethod?.requiresPhone &&
-                  field("phone", `Número ${selectedMethod.label} para pagamento`, { type: "tel", autoComplete: "tel", inputMode: "tel", placeholder: "84 123 4567" }, true)}
-                {hosted ? (
-                  <p className={cn("flex gap-2 text-[12px]", muted)} data-testid="hosted-payment">
-                    <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                    Será encaminhado para a página de pagamento da {hosted.provider}, onde escolhe o método e confirma no telemóvel. A compra só fica concluída depois de o pagamento ser confirmado.
-                    {hosted.isTest ? " Ambiente de teste: nenhum dinheiro real é cobrado." : ""}
-                  </p>
-                ) : (
-                  <p className={cn("flex gap-2 text-[12px]", muted)}>
-                    <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                    Receberá um pedido de confirmação no telemóvel. A compra só fica concluída depois de o pagamento ser confirmado pelo processador. Esta página nunca pede dados de cartão.
-                  </p>
-                )}
-              </fieldset>
-            ) : (
-              <div className={cn("rounded-xl border border-dashed p-4", dark ? "border-white/15" : "border-black/15")}>
-                <p className="flex items-center gap-2 text-sm font-medium">
-                  <ShieldCheck className="h-4 w-4" aria-hidden="true" /> Métodos de pagamento
-                </p>
-                <p className={cn("mt-1 text-[12.5px]", muted)}>
-                  Não existem métodos de pagamento disponíveis de momento. Nenhum valor pode ser cobrado nesta página. Esta página nunca pede dados de cartão.
-                </p>
-              </div>
-            )}
-
-            <dl className={cn("flex flex-col gap-2 border-t pt-4 text-sm", dark ? "border-white/10" : "border-black/10")}>
-              <div className="flex justify-between gap-4">
-                <dt className={muted}>{data.productName} · {data.offerName}</dt>
-                <dd className="tabular">{formatMoney(data.priceCents, data.currency)}</dd>
-              </div>
-              {coupon && (
-                <div className="flex justify-between gap-4 text-emerald-500">
-                  <dt>Desconto ({coupon.code})</dt>
-                  <dd className="tabular">−{formatMoney(coupon.discountCents, data.currency)}</dd>
-                </div>
-              )}
-              <div className="flex justify-between gap-4 text-base font-semibold">
-                <dt>Total</dt>
-                <dd className="tabular">{formatMoney(total, data.currency)}</dd>
-              </div>
-            </dl>
-
-            {notice && (
-              <div role="alert" className={cn("flex gap-2.5 rounded-xl border px-3.5 py-3 text-[13.5px]", notice.tone === "warn" ? "border-amber-500/40 bg-amber-500/10" : "border-red-500/40 bg-red-500/10")}>
-                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                <span>{notice.text}</span>
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={mode !== "live" || pending}
-              className="flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[15px] font-semibold transition-[filter,transform] hover:brightness-105 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
-              style={{ background: data.primaryColor, color: onPrimary }}
-            >
-              {pending ? (onlyHosted || hosted ? "A preparar o pagamento…" : selectedMethod ? "A aguardar confirmação no telemóvel…" : "A processar…") : data.buttonText}
-            </button>
-            {pending && selectedMethod && !selectedMethod.hosted && (
-              <p className={cn("text-center text-[12.5px]", muted)} role="status" data-testid="awaiting-phone">
-                Confirme o pagamento no telemóvel ({selectedMethod.label}). Pode demorar até 2 minutos — não feche esta página.
-              </p>
-            )}
-            {data.isDemo && <p className={cn("text-center text-[12px]", muted)}>Compra simulada: será criado apenas um pedido de demonstração.</p>}
-          </form>
-        </section>
-      </div>
-
-      <footer className={cn("border-t", dark ? "border-white/10" : "border-black/10")}>
-        <div className={cn("mx-auto flex max-w-5xl flex-col gap-2 px-4 py-6 text-[12.5px] sm:flex-row sm:items-center sm:justify-between sm:px-6", muted)}>
-          <span>© {data.businessName}</span>
-          {data.supportEmail && (
-            <a href={`mailto:${data.supportEmail}`} className="flex items-center gap-1.5 hover:underline">
-              <Mail className="h-3.5 w-3.5" aria-hidden="true" /> Suporte: {data.supportEmail}
-            </a>
-          )}
-        </div>
-      </footer>
+      <main className="flex flex-col">{design.sections.map(renderSection)}</main>
     </div>
   );
 }
