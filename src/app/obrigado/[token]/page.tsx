@@ -14,7 +14,7 @@ export default async function ThankYouPage({ params, searchParams }: { params: P
   // O estado vem sempre da base de dados (confirmado pelo processador); o URL não confirma nada.
   const view = await getThankYouView(token, { refresh: true });
   if (!view) return <Unavailable title="Encomenda não encontrada" message="Não foi possível encontrar esta encomenda." />;
-  const settings = await getSettings();
+  const settings = await getSettings(view.ownerId);
   const failedUpsell = oferta === "nao-paga" && view.upsells.some((u) => u.status !== "APPROVED");
   return (
     <>

@@ -5,6 +5,7 @@ import { defaultDesign, designSchema, parseDesign, type CheckoutDesign } from "@
 import { flattenErrors, type FieldErrors } from "@/server/validation/common";
 import { ensurePrimaryCheckout } from "./primary-checkout";
 import { NotFoundError } from "./products";
+import { own, type Scope } from "@/server/scope";
 
 export type DesignStatus = "default" | "published" | "unpublished_changes";
 
@@ -29,16 +30,16 @@ export function publicDesign(checkout: { primaryColor: string; backgroundColor: 
   return parseDesign(checkout.design?.published) ?? defaultDesign(themeFrom(checkout));
 }
 
-async function productScoped(productId: string, isDemo: boolean) {
+async function productScoped(productId: string, scope: Scope) {
   // Autorização no servidor: só produtos do âmbito atual (dados reais ou de demonstração)
-  const product = await prisma.product.findFirst({ where: { id: productId, isDemo }, include: { offers: { where: { isDefault: true }, take: 1 } } });
+  const product = await prisma.product.findFirst({ where: { id: productId, ...own(scope) }, include: { offers: { where: { isDefault: true }, take: 1 } } });
   if (!product) throw new NotFoundError("Produto");
   const checkout = await ensurePrimaryCheckout(product.id);
   return { product, checkout };
 }
 
-export async function getEditorState(productId: string, isDemo: boolean) {
-  const { product, checkout } = await productScoped(productId, isDemo);
+export async function getEditorState(productId: string, scope: Scope) {
+  const { product, checkout } = await productScoped(productId, scope);
   const record = await prisma.checkoutDesign.findUnique({ where: { checkoutId: checkout.id } });
   const fallback = defaultDesign(themeFrom(checkout));
   return {
@@ -56,10 +57,10 @@ export async function getEditorState(productId: string, isDemo: boolean) {
 export type SaveDesignResult = { ok: true } | { ok: false; fieldErrors: FieldErrors };
 
 /** Guarda o rascunho. Não altera a versão publicada (compradores continuam a ver a anterior). */
-export async function saveDraft(productId: string, input: unknown, isDemo: boolean): Promise<SaveDesignResult> {
+export async function saveDraft(productId: string, input: unknown, scope: Scope): Promise<SaveDesignResult> {
   const parsed = designSchema.safeParse(input);
   if (!parsed.success) return { ok: false, fieldErrors: flattenErrors(parsed.error) };
-  const { checkout } = await productScoped(productId, isDemo);
+  const { checkout } = await productScoped(productId, scope);
   const draft = parsed.data as unknown as Prisma.InputJsonValue;
   await prisma.checkoutDesign.upsert({
     where: { checkoutId: checkout.id },
@@ -70,8 +71,8 @@ export async function saveDraft(productId: string, input: unknown, isDemo: boole
 }
 
 /** Publica o rascunho atual no checkout do produto. O link do checkout não muda. */
-export async function publishDesign(productId: string, isDemo: boolean) {
-  const { checkout } = await productScoped(productId, isDemo);
+export async function publishDesign(productId: string, scope: Scope) {
+  const { checkout } = await productScoped(productId, scope);
   const record = await prisma.checkoutDesign.findUnique({ where: { checkoutId: checkout.id } });
   const draft = parseDesign(record?.draft);
   if (!record || !draft) throw new NotFoundError("Rascunho");
@@ -86,8 +87,8 @@ export async function publishDesign(productId: string, isDemo: boolean) {
 }
 
 /** Descarta o rascunho, voltando à versão publicada (ou ao modelo padrão). */
-export async function discardDraft(productId: string, isDemo: boolean) {
-  const { checkout } = await productScoped(productId, isDemo);
+export async function discardDraft(productId: string, scope: Scope) {
+  const { checkout } = await productScoped(productId, scope);
   const record = await prisma.checkoutDesign.findUnique({ where: { checkoutId: checkout.id } });
   if (!record) return;
   if (record.published) await prisma.checkoutDesign.update({ where: { id: record.id }, data: { draft: record.published as Prisma.InputJsonValue, draftUpdatedAt: new Date() } });
@@ -95,9 +96,9 @@ export async function discardDraft(productId: string, isDemo: boolean) {
 }
 
 /** Lista para a área "Personalizar Checkout": todos os produtos do âmbito, com o seu checkout principal. */
-export async function listCheckoutPersonalization(isDemo: boolean, q?: string) {
+export async function listCheckoutPersonalization(scope: Scope, q?: string) {
   const products = await prisma.product.findMany({
-    where: { isDemo, status: { not: "ARCHIVED" }, ...(q ? { name: { contains: q, mode: "insensitive" as const } } : {}) },
+    where: { ...own(scope), status: { not: "ARCHIVED" }, ...(q ? { name: { contains: q, mode: "insensitive" as const } } : {}) },
     orderBy: { createdAt: "desc" },
     select: { id: true },
   });

@@ -17,7 +17,8 @@
     "db:deploy": "prisma migrate deploy",
     "db:seed-demo": "tsx --env-file=.env scripts/seed-demo.ts",
     "db:clear-demo": "tsx --env-file=.env scripts/clear-demo.ts",
-    "user:create": "tsx --env-file=.env scripts/create-user.ts"
+    "user:create": "tsx --env-file=.env scripts/create-user.ts",
+    "user:set-owner": "tsx --env-file=.env scripts/set-owner.ts"
   },
   "engines": {
     "node": ">=20"

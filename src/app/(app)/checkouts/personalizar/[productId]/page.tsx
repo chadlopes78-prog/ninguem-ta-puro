@@ -14,8 +14,8 @@ export const metadata: Metadata = { title: "Personalizar checkout" };
 export default async function PersonalizeCheckoutPage({ params }: { params: Promise<{ productId: string }> }) {
   await requireUser();
   const { productId } = await params;
-  const { isDemo, settings } = await getScope();
-  const state = await getEditorState(productId, isDemo).catch((e) => {
+  const { settings, scope } = await getScope();
+  const state = await getEditorState(productId, scope).catch((e) => {
     if (e instanceof NotFoundError) notFound();
     throw e;
   });

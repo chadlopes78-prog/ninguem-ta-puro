@@ -19,8 +19,8 @@ export const metadata: Metadata = { title: "Cliente" };
 export default async function CustomerPage({ params }: { params: Promise<{ id: string }> }) {
   await requireUser();
   const { id } = await params;
-  const { isDemo, settings } = await getScope();
-  const c = await getCustomer(id, isDemo).catch((e) => {
+  const { isDemo, settings, scope } = await getScope();
+  const c = await getCustomer(id, scope).catch((e) => {
     if (e instanceof NotFoundError) notFound();
     throw e;
   });

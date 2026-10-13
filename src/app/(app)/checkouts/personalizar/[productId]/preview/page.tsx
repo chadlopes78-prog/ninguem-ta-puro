@@ -13,8 +13,8 @@ export default async function DesignPreviewPage({ params, searchParams }: { para
   await requireUser();
   const { productId } = await params;
   const { versao } = await searchParams;
-  const { isDemo, settings } = await getScope();
-  const state = await getEditorState(productId, isDemo).catch((e) => {
+  const { settings, scope } = await getScope();
+  const state = await getEditorState(productId, scope).catch((e) => {
     if (e instanceof NotFoundError) notFound();
     throw e;
   });

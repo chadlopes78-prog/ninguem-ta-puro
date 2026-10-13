@@ -5,11 +5,12 @@ import { canTransition, computeOrderTotals } from "./order-logic";
 import { DomainError, NotFoundError } from "./products";
 import { applyPaymentStatus, audit, newDeliveryToken } from "@/server/payments/confirm";
 import { getProvider } from "@/server/payments/registry";
+import { own, type Scope } from "@/server/scope";
 
 export const ORDER_STATUSES: OrderStatus[] = ["PENDING", "APPROVED", "DECLINED", "REFUNDED", "CANCELED"];
 
 export interface OrderFilter {
-  isDemo: boolean;
+  scope: Scope;
   status?: OrderStatus;
   q?: string;
   from?: Date;
@@ -21,7 +22,7 @@ export interface OrderFilter {
 }
 
 export function buildOrderWhere(f: OrderFilter): Prisma.OrderWhereInput {
-  const where: Prisma.OrderWhereInput = { isDemo: f.isDemo };
+  const where: Prisma.OrderWhereInput = { ...own(f.scope) };
   if (f.status) where.status = f.status;
   if (f.from || f.to) where.createdAt = { ...(f.from ? { gte: f.from } : {}), ...(f.to ? { lt: f.to } : {}) };
   if (f.productId) where.items = { some: { productId: f.productId } };
@@ -57,9 +58,9 @@ export async function listOrders(f: OrderFilter) {
   return { total, rows, page, pageSize, pages: Math.max(1, Math.ceil(total / pageSize)) };
 }
 
-export async function getOrder(id: string, isDemo: boolean) {
+export async function getOrder(id: string, scope: Scope) {
   const o = await prisma.order.findFirst({
-    where: { id, isDemo },
+    where: { id, ...own(scope) },
     include: {
       customer: true,
       items: { include: { product: { select: { id: true, name: true } }, offer: { select: { name: true } } } },
@@ -80,12 +81,13 @@ export async function getOrder(id: string, isDemo: boolean) {
 export async function upsertCustomer(
   tx: Prisma.TransactionClient,
   data: { email: string; name: string; phone?: string; document?: string },
-  isDemo: boolean,
+  scope: Scope,
 ) {
   const email = data.email.toLowerCase().trim();
+  // Clientes são de cada conta: o mesmo email em duas lojas são dois clientes distintos
   return tx.customer.upsert({
-    where: { email_isDemo: { email, isDemo } },
-    create: { email, name: data.name, phone: data.phone ?? null, document: data.document ?? null, isDemo },
+    where: { ownerId_email_isDemo: { ownerId: scope.ownerId, email, isDemo: scope.isDemo } },
+    create: { email, name: data.name, phone: data.phone ?? null, document: data.document ?? null, ...own(scope) },
     update: { name: data.name, ...(data.phone ? { phone: data.phone } : {}), ...(data.document ? { document: data.document } : {}) },
   });
 }
@@ -93,18 +95,19 @@ export async function upsertCustomer(
 /** Pedido manual de teste. Nunca aprovado fora do modo de demonstração. */
 export async function createManualOrder(
   input: { productId: string; offerId: string; customerName: string; customerEmail: string; status: OrderStatus; notes?: string },
-  isDemo: boolean,
+  scope: Scope,
 ) {
+  const isDemo = scope.isDemo;
   if (input.status === "APPROVED" && !isDemo) {
     throw new DomainError("Pedidos só podem ser aprovados com confirmação válida do processador de pagamentos.");
   }
   if (input.status === "REFUNDED") throw new DomainError("Estado inicial inválido.");
-  const offer = await prisma.offer.findFirst({ where: { id: input.offerId, productId: input.productId, product: { isDemo } }, include: { product: true } });
+  const offer = await prisma.offer.findFirst({ where: { id: input.offerId, productId: input.productId, product: own(scope) }, include: { product: true } });
   if (!offer) throw new DomainError("Produto ou oferta inexistente.");
   const totals = computeOrderTotals([{ unitPriceCents: offer.priceCents, quantity: 1 }], 0);
   const now = new Date();
   return prisma.$transaction(async (tx) => {
-    const customer = await upsertCustomer(tx, { email: input.customerEmail, name: input.customerName }, isDemo);
+    const customer = await upsertCustomer(tx, { email: input.customerEmail, name: input.customerName }, scope);
     return tx.order.create({
       data: {
         code: newOrderCode(),
@@ -114,7 +117,7 @@ export async function createManualOrder(
         currency: offer.currency,
         ...totals,
         notes: input.notes ?? null,
-        isDemo,
+        ...own(scope),
         approvedAt: input.status === "APPROVED" ? now : null,
         canceledAt: input.status === "CANCELED" ? now : null,
         items: {
@@ -133,8 +136,9 @@ export async function createManualOrder(
   });
 }
 
-export async function changeOrderStatus(id: string, to: OrderStatus, isDemo: boolean, actor = "admin") {
-  const order = await prisma.order.findFirst({ where: { id, isDemo } });
+export async function changeOrderStatus(id: string, to: OrderStatus, scope: Scope, actor = "admin") {
+  const isDemo = scope.isDemo;
+  const order = await prisma.order.findFirst({ where: { id, ...own(scope) } });
   if (!order) throw new NotFoundError("Pedido");
   const check = canTransition(order.status, to, { isDemo });
   if (!check.ok) throw new DomainError(check.reason);
@@ -143,7 +147,8 @@ export async function changeOrderStatus(id: string, to: OrderStatus, isDemo: boo
   if (!isDemo && to === "CANCELED") {
     const pending = await prisma.payment.findMany({ where: { orderId: id, status: { in: ["CREATED", "PENDING"] }, externalId: { not: null } } });
     for (const p of pending) {
-      const provider = await getProvider(p.provider);
+      // credenciais da conta dona da encomenda (nunca de outra conta)
+      const provider = await getProvider(p.provider, order.ownerId);
       if (!provider?.cancel) continue;
       const r = await provider.cancel(p.externalId!, `Encomenda ${order.code} cancelada na loja`);
       if (!r.ok) {
@@ -176,22 +181,22 @@ export async function changeOrderStatus(id: string, to: OrderStatus, isDemo: boo
   if (to === "REFUNDED") {
     const done = await tx.refund.aggregate({ where: { orderId: id }, _sum: { amountCents: true } });
     const remaining = order.totalCents - (done._sum.amountCents ?? 0);
-    if (remaining > 0) await tx.refund.create({ data: { orderId: id, amountCents: remaining, currency: order.currency, reason: "Reembolso total", actor, isDemo } });
+    if (remaining > 0) await tx.refund.create({ data: { orderId: id, amountCents: remaining, currency: order.currency, reason: "Reembolso total", actor, ...own(scope) } });
   }
   });
 }
 
 // ───────────── Clientes ─────────────
 
-export async function listCustomers(params: { isDemo: boolean; q?: string; hasPurchases?: boolean }) {
-  const where: Prisma.CustomerWhereInput = { isDemo: params.isDemo };
+export async function listCustomers(params: { scope: Scope; q?: string; hasPurchases?: boolean }) {
+  const where: Prisma.CustomerWhereInput = { ...own(params.scope) };
   if (params.q) where.OR = [{ name: { contains: params.q, mode: "insensitive" } }, { email: { contains: params.q, mode: "insensitive" } }];
   if (params.hasPurchases) where.orders = { some: { status: "APPROVED" } };
   const customers = await prisma.customer.findMany({ where, orderBy: { createdAt: "desc" }, take: 500 });
   const ids = customers.map((c) => c.id);
   const [agg, approved] = await Promise.all([
-    prisma.order.groupBy({ by: ["customerId"], where: { customerId: { in: ids } }, _count: { _all: true }, _min: { createdAt: true } }),
-    prisma.order.groupBy({ by: ["customerId", "currency"], where: { customerId: { in: ids }, status: "APPROVED", isTestPayment: false }, _sum: { totalCents: true } }),
+    prisma.order.groupBy({ by: ["customerId"], where: { customerId: { in: ids }, ...own(params.scope) }, _count: { _all: true }, _min: { createdAt: true } }),
+    prisma.order.groupBy({ by: ["customerId", "currency"], where: { customerId: { in: ids }, ...own(params.scope), status: "APPROVED", isTestPayment: false }, _sum: { totalCents: true } }),
   ]);
   return customers.map((c) => {
     const a = agg.find((x) => x.customerId === c.id);
@@ -204,9 +209,9 @@ export async function listCustomers(params: { isDemo: boolean; q?: string; hasPu
   });
 }
 
-export async function getCustomer(id: string, isDemo: boolean) {
+export async function getCustomer(id: string, scope: Scope) {
   const c = await prisma.customer.findFirst({
-    where: { id, isDemo },
+    where: { id, ...own(scope) },
     include: { orders: { orderBy: { createdAt: "desc" }, include: { items: { select: { description: true } } } } },
   });
   if (!c) throw new NotFoundError("Cliente");

@@ -1,6 +1,6 @@
 // Exportação CSV das transações do período (mesmos filtros da página Relatórios). Exige sessão válida.
 import type { OrderStatus } from "@prisma/client";
-import { getCurrentUser } from "@/server/auth/session";
+import { getActiveUser } from "@/server/auth/session";
 import { getScope } from "@/server/services/settings";
 import { csvCell, listTransactions, TX_SORTS, type TxSort } from "@/server/services/finance";
 import { gatewayLabel } from "@/server/services/finance-logic";
@@ -15,18 +15,19 @@ export const dynamic = "force-dynamic";
 const MAX_ROWS = 5000;
 
 export async function GET(req: Request) {
-  const user = await getCurrentUser();
+  // só contas aprovadas e não suspensas; os dados exportados são sempre os da própria conta
+  const user = await getActiveUser();
   if (!user) return new Response("Não autenticado", { status: 401 });
   if (!rateLimit(`csv:${user.id}`, 20, 10 * 60_000)) return new Response("Demasiadas exportações. Aguarde alguns minutos.", { status: 429 });
   const sp = new URL(req.url).searchParams;
-  const { isDemo, settings } = await getScope();
+  const { isDemo, settings, scope } = await getScope();
   const tz = settings.timezone;
   const range = resolveRange({ preset: sp.get("range"), from: sp.get("from"), to: sp.get("to") }, tz);
   const status = sp.get("estado");
   const gateway = sp.get("gateway");
   const produto = sp.get("produto");
   const currency = sp.get("currency");
-  const tx = await listTransactions(isDemo, range, {
+  const tx = await listTransactions(scope, range, {
     q: sp.get("q")?.slice(0, 100) || undefined,
     status: ORDER_STATUSES.includes(status as OrderStatus) ? (status as OrderStatus) : undefined,
     gateway: gateway && /^[a-z0-9-]{1,40}$/.test(gateway) ? gateway : undefined,

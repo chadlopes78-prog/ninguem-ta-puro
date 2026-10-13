@@ -9,8 +9,8 @@ import { LinkButton } from "@/components/ui/button";
 export default async function CheckoutPreviewPage({ params }: { params: Promise<{ id: string }> }) {
   await requireUser();
   const { id } = await params;
-  const { isDemo, settings } = await getScope();
-  const c = await getCheckout(id, isDemo).catch((e) => {
+  const { settings, scope } = await getScope();
+  const c = await getCheckout(id, scope).catch((e) => {
     if (e instanceof NotFoundError) notFound();
     throw e;
   });

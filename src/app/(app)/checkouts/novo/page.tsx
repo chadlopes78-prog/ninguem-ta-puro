@@ -7,16 +7,17 @@ import { PageHeader } from "@/components/ui/page-header";
 import { DemoBadge } from "@/components/ui/badge";
 import { CheckoutForm } from "@/components/checkouts/checkout-form";
 import { saveCheckoutAction } from "../actions";
+import { own } from "@/server/scope";
 
 export const metadata: Metadata = { title: "Novo checkout" };
 
 export default async function NewCheckoutPage({ searchParams }: { searchParams: Promise<{ productId?: string }> }) {
   await requireUser();
   const { productId } = await searchParams;
-  const { isDemo, settings } = await getScope();
+  const { isDemo, settings, scope } = await getScope();
   const [products, funnels] = await Promise.all([
-    listProductOptions(isDemo),
-    prisma.funnel.findMany({ where: { isDemo }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    listProductOptions(scope),
+    prisma.funnel.findMany({ where: own(scope), select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
   const pre = products.find((p) => p.id === productId);
   return (

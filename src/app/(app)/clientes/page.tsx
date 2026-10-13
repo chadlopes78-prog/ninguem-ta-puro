@@ -18,8 +18,8 @@ export const metadata: Metadata = { title: "Clientes" };
 export default async function CustomersPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   await requireUser();
   const sp = await searchParams;
-  const { isDemo, settings } = await getScope();
-  const rows = await listCustomers({ isDemo, q: sp.q?.slice(0, 100), hasPurchases: sp.compras === "sim" });
+  const { isDemo, settings, scope } = await getScope();
+  const rows = await listCustomers({ scope, q: sp.q?.slice(0, 100), hasPurchases: sp.compras === "sim" });
   return (
     <>
       <PageHeader title={<span className="flex flex-wrap items-center gap-3">Clientes {isDemo && <DemoBadge />}</span>} description="Dados pessoais visíveis apenas para utilizadores autenticados." />

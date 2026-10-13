@@ -11,8 +11,8 @@ export const metadata: Metadata = { title: "Novo cupão" };
 
 export default async function NewCouponPage() {
   await requireUser();
-  const { isDemo, settings } = await getScope();
-  const products = await listProductOptions(isDemo);
+  const { isDemo, settings, scope } = await getScope();
+  const products = await listProductOptions(scope);
   return (
     <>
       <PageHeader breadcrumbs={[{ label: "Cupons", href: "/cupons" }, { label: "Novo" }]} title={<span className="flex flex-wrap items-center gap-3">Novo cupão {isDemo && <DemoBadge />}</span>} />

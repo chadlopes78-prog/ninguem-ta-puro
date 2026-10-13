@@ -7,7 +7,7 @@ import { useFormAction } from "@/hooks/use-form-action";
 import { setupAction } from "../actions";
 
 export function SetupForm() {
-  const { onSubmit, pending, error, fieldErrors } = useFormAction(setupAction, { redirectTo: (d) => d?.next });
+  const { onSubmit, pending, error, fieldErrors } = useFormAction(setupAction, { successMessage: "Conta criada.", redirectTo: (d) => d?.next });
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
       {error && <Alert tone="danger">{error}</Alert>}

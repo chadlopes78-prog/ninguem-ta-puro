@@ -22,9 +22,10 @@ export default async function PublicCheckoutPage({ params }: { params: Promise<{
   const r = await getPublicCheckout(publicId);
   if (r.state !== "ok") return <Unavailable />;
   const c = r.checkout;
-  const settings = await getSettings();
+  // Nome do negócio e gateways da conta dona deste checkout (nunca de outra conta)
+  const settings = await getSettings(c.ownerId);
   // Apenas gateways ativos e configurados que aceitem a moeda do produto
-  const providers = c.isDemo ? [] : (await getActivePaymentProviders()).filter((p) => p.supportedCurrencies.includes(c.offer.currency));
+  const providers = c.isDemo ? [] : (await getActivePaymentProviders(c.ownerId)).filter((p) => p.supportedCurrencies.includes(c.offer.currency));
   const paymentOptions = listPaymentOptions(providers);
   return (
     <CheckoutView

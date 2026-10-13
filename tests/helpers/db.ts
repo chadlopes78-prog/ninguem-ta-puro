@@ -9,3 +9,15 @@ export async function resetTestDb() {
     await prisma.$executeRawUnsafe(`TRUNCATE ${tables.map((t) => `"public"."${t.tablename}"`).join(", ")} CASCADE`);
   }
 }
+
+/** Conta proprietária de teste (aprovada). As credenciais das variáveis de ambiente só valem para esta conta. */
+export async function testOwner(email = "proprietario@ntp.local") {
+  const { createUser } = await import("@/server/auth/service");
+  return createUser({ email, name: "Dono de teste", password: "password-123456" }, { role: "OWNER", status: "APPROVED" });
+}
+
+/** Conta comum aprovada (outro vendedor). */
+export async function testSeller(email: string, name = "Vendedor") {
+  const { createUser } = await import("@/server/auth/service");
+  return createUser({ email, name, password: "password-123456" }, { role: "USER", status: "APPROVED" });
+}

@@ -4,7 +4,7 @@
 import { createHmac } from "crypto";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/server/db";
-import { resetTestDb } from "../helpers/db";
+import { resetTestDb, testOwner } from "../helpers/db";
 import { productSchema } from "@/server/validation/schemas";
 import { createProduct } from "@/server/services/products";
 import { submitCheckout } from "@/server/services/purchase";
@@ -15,6 +15,8 @@ import { handleWebhook } from "@/server/payments/webhooks";
 import { epayProvider } from "@/server/payments/providers/epay";
 import { e2Amount, e2Reference } from "@/server/payments/providers/e2payments";
 import { decryptSecret } from "@/server/secret-box";
+import { scopeOf, type Scope } from "@/server/scope";
+import type { AuthUser } from "@/server/auth/service";
 
 const EPAY_KEY = "sk_test_51abcDEF_fake_key_for_tests";
 const E2_ID = "e2-client-id-0123456789";
@@ -72,8 +74,12 @@ beforeAll(() => {
 });
 afterAll(() => vi.unstubAllGlobals());
 
+let OWNER: AuthUser;
+let S: Scope; // âmbito real da conta proprietária de teste
 beforeEach(async () => {
   await resetTestDb();
+  OWNER = await testOwner();
+  S = scopeOf(OWNER.id, false);
   calls = [];
   e2Token = () => ({ status: 200, body: { token_type: "Bearer", access_token: "tok_abc", expires_in: 3600 } });
   e2Charge = () => ({ status: 201, body: { message: "Transação realizada com sucesso" } });
@@ -95,7 +101,7 @@ const key = () => `idem${Date.now()}${seq++}abcdefgh`;
 async function product(price = "1.500,00") {
   const p = await createProduct(
     productSchema.parse({ name: "Curso Digital", description: "Produto para testes de gateways", type: "COURSE", priceCents: price, currency: "MZN", status: "PUBLISHED", deliveryUrl: "https://conteudo.exemplo/curso" }),
-    false,
+    S,
   );
   return { product: p, slug: p.primaryCheckout.slug! };
 }
@@ -104,19 +110,19 @@ const buy = (slug: string, extra: Record<string, unknown> = {}) => submitCheckou
 const orderOf = (token: string) => prisma.order.findUniqueOrThrow({ where: { publicToken: token }, include: { payments: true, delivery: true, auditLogs: true } });
 
 async function configureE2(wallets: { mpesa?: string; emola?: string } = { mpesa: "111111", emola: "222222" }) {
-  const r = await updateE2Credentials({ clientId: E2_ID, clientSecret: E2_SECRET, mpesaWalletId: wallets.mpesa ?? "", emolaWalletId: wallets.emola ?? "" });
+  const r = await updateE2Credentials(OWNER.id, { clientId: E2_ID, clientSecret: E2_SECRET, mpesaWalletId: wallets.mpesa ?? "", emolaWalletId: wallets.emola ?? "" });
   expect(r.ok).toBe(true);
 }
 async function activateE2() {
   await configureE2();
-  expect((await setGatewayEnabled("e2payments", true)).ok).toBe(true);
+  expect((await setGatewayEnabled(OWNER.id, "e2payments", true)).ok).toBe(true);
 }
-const activeIds = async () => (await getActivePaymentProviders()).map((p) => p.id);
+const activeIds = async () => (await getActivePaymentProviders(OWNER.id)).map((p) => p.id);
 
 describe("1. EPay mantém-se como estava", () => {
   it("sem qualquer configuração nova, a EPay continua ativa e o checkout funciona como antes (página alojada)", async () => {
     expect(await activeIds()).toEqual(["epay"]);
-    const gw = await listGateways();
+    const gw = await listGateways(OWNER.id);
     expect(gw.find((g) => g.id === "epay")!.status).toBe("active");
     expect(gw.find((g) => g.id === "e2payments")!.status).toBe("credentials_missing");
 
@@ -135,22 +141,22 @@ describe("1. EPay mantém-se como estava", () => {
 
 describe("2. credenciais da E2Payments", () => {
   it("guardar credenciais não altera a EPay; o segredo fica cifrado e nunca é devolvido", async () => {
-    await prisma.integrationConfig.create({ data: { provider: "epay", enabled: true, status: "CONFIGURED", publicConfig: { nota: "existente" } } });
-    const before = await prisma.integrationConfig.findUniqueOrThrow({ where: { provider: "epay" } });
+    await prisma.integrationConfig.create({ data: { ownerId: OWNER.id, provider: "epay", enabled: true, status: "CONFIGURED", publicConfig: { nota: "existente" } } });
+    const before = await prisma.integrationConfig.findUniqueOrThrow({ where: { ownerId_provider: { ownerId: OWNER.id, provider: "epay" } } });
 
     await configureE2();
 
-    const after = await prisma.integrationConfig.findUniqueOrThrow({ where: { provider: "epay" } });
+    const after = await prisma.integrationConfig.findUniqueOrThrow({ where: { ownerId_provider: { ownerId: OWNER.id, provider: "epay" } } });
     expect(after).toEqual(before);
     expect(process.env.EPAY_SECRET_KEY).toBe(EPAY_KEY);
 
-    const row = await prisma.integrationConfig.findUniqueOrThrow({ where: { provider: "e2payments" } });
+    const row = await prisma.integrationConfig.findUniqueOrThrow({ where: { ownerId_provider: { ownerId: OWNER.id, provider: "e2payments" } } });
     expect(row.secretConfig).not.toContain(E2_SECRET);
     expect(row.secretConfig).not.toContain(E2_ID);
     expect(JSON.parse(decryptSecret(row.secretConfig)!)).toEqual({ clientId: E2_ID, clientSecret: E2_SECRET });
     expect(row.enabled).toBe(false); // guardar não ativa
 
-    const view = JSON.stringify(await listGateways());
+    const view = JSON.stringify(await listGateways(OWNER.id));
     expect(view).not.toContain(E2_SECRET);
     expect(view).not.toContain(E2_ID);
     expect(view).toContain("••••6789");
@@ -159,16 +165,16 @@ describe("2. credenciais da E2Payments", () => {
     expect(logs).not.toContain(E2_ID);
 
     // reenviar sem o segredo mantém o valor guardado
-    expect((await updateE2Credentials({ mpesaWalletId: "333333", emolaWalletId: "" })).ok).toBe(true);
-    const row2 = await prisma.integrationConfig.findUniqueOrThrow({ where: { provider: "e2payments" } });
+    expect((await updateE2Credentials(OWNER.id, { mpesaWalletId: "333333", emolaWalletId: "" })).ok).toBe(true);
+    const row2 = await prisma.integrationConfig.findUniqueOrThrow({ where: { ownerId_provider: { ownerId: OWNER.id, provider: "e2payments" } } });
     expect(JSON.parse(decryptSecret(row2.secretConfig)!).clientSecret).toBe(E2_SECRET);
     expect(row2.publicConfig).toEqual({ mpesaWalletId: "333333", emolaWalletId: null, apiHost: "https://e2payments.explicador.co.mz" });
   });
 
   it("sem INTEGRATIONS_ENCRYPTION_KEY guarda-se na mesma, cifrado com a chave do servidor; validação dos campos", async () => {
     delete process.env.INTEGRATIONS_ENCRYPTION_KEY;
-    expect((await updateE2Credentials({ clientId: E2_ID, clientSecret: E2_SECRET, mpesaWalletId: "111111" })).ok).toBe(true);
-    const row = await prisma.integrationConfig.findUniqueOrThrow({ where: { provider: "e2payments" } });
+    expect((await updateE2Credentials(OWNER.id, { clientId: E2_ID, clientSecret: E2_SECRET, mpesaWalletId: "111111" })).ok).toBe(true);
+    const row = await prisma.integrationConfig.findUniqueOrThrow({ where: { ownerId_provider: { ownerId: OWNER.id, provider: "e2payments" } } });
     expect(row.secretConfig!.startsWith("v1d:")).toBe(true);
     expect(row.secretConfig).not.toContain(E2_SECRET);
     expect(JSON.parse(decryptSecret(row.secretConfig)!).clientSecret).toBe(E2_SECRET);
@@ -176,7 +182,7 @@ describe("2. credenciais da E2Payments", () => {
     // definir mais tarde uma chave dedicada não estraga o que já estava guardado
     process.env.INTEGRATIONS_ENCRYPTION_KEY = ENC_KEY;
     expect(JSON.parse(decryptSecret(row.secretConfig)!).clientSecret).toBe(E2_SECRET);
-    expect((await listGateways()).find((g) => g.id === "e2payments")!.configured).toBe(true);
+    expect((await listGateways(OWNER.id)).find((g) => g.id === "e2payments")!.configured).toBe(true);
 
     // se o segredo do servidor mudar, as credenciais deixam de ser legíveis e o painel pede-as de novo
     const url = process.env.DATABASE_URL!;
@@ -188,13 +194,13 @@ describe("2. credenciais da E2Payments", () => {
     }
 
     // campos vazios mantêm o Client ID/Secret guardados; IDs de carteira inválidos são recusados
-    const bad = await updateE2Credentials({ clientId: "", clientSecret: "", mpesaWalletId: "#abc", emolaWalletId: "x" });
+    const bad = await updateE2Credentials(OWNER.id, { clientId: "", clientSecret: "", mpesaWalletId: "#abc", emolaWalletId: "x" });
     expect(bad.ok).toBe(false);
     if (!bad.ok) {
       expect(Object.keys(bad.fieldErrors ?? {}).sort()).toEqual(["emolaWalletId", "mpesaWalletId"]);
     }
-    expect((await updateE2Credentials({ clientId: "", clientSecret: "", mpesaWalletId: "#222", emolaWalletId: "" })).ok).toBe(true);
-    const kept = await prisma.integrationConfig.findUniqueOrThrow({ where: { provider: "e2payments" } });
+    expect((await updateE2Credentials(OWNER.id, { clientId: "", clientSecret: "", mpesaWalletId: "#222", emolaWalletId: "" })).ok).toBe(true);
+    const kept = await prisma.integrationConfig.findUniqueOrThrow({ where: { ownerId_provider: { ownerId: OWNER.id, provider: "e2payments" } } });
     expect(JSON.parse(decryptSecret(kept.secretConfig)!)).toEqual({ clientId: E2_ID, clientSecret: E2_SECRET });
   });
 
@@ -202,18 +208,18 @@ describe("2. credenciais da E2Payments", () => {
     process.env.E2PAYMENTS_CLIENT_ID = E2_ID;
     process.env.E2PAYMENTS_CLIENT_SECRET = E2_SECRET;
     process.env.E2PAYMENTS_MPESA_WALLET_ID = "#555555";
-    const g = (await listGateways()).find((x) => x.id === "e2payments")!;
+    const g = (await listGateways(OWNER.id)).find((x) => x.id === "e2payments")!;
     expect(g.configured).toBe(true);
     expect(g.e2!.fromEnv).toBe(true);
     expect(g.methods).toEqual(["M-Pesa"]);
-    expect((await updateE2Credentials({ clientId: "x", clientSecret: "y", mpesaWalletId: "1" })).ok).toBe(false);
+    expect((await updateE2Credentials(OWNER.id, { clientId: "x", clientSecret: "y", mpesaWalletId: "1" })).ok).toBe(false);
   });
 });
 
 describe("3–4. ativar e desativar a E2Payments", () => {
   it("só fica ativa depois de a E2Payments aceitar as credenciais; cobra conforme o SDK oficial", async () => {
     await configureE2();
-    expect((await listGateways()).find((g) => g.id === "e2payments")!.status).toBe("inactive");
+    expect((await listGateways(OWNER.id)).find((g) => g.id === "e2payments")!.status).toBe("inactive");
     expect(await activeIds()).toEqual(["epay"]);
 
     await activateE2();
@@ -250,9 +256,9 @@ describe("3–4. ativar e desativar a E2Payments", () => {
   it("credenciais rejeitadas: não ativa e mostra erro de configuração", async () => {
     await configureE2();
     e2Token = () => ({ status: 401, body: { message: "Unauthenticated." } });
-    const r = await setGatewayEnabled("e2payments", true);
+    const r = await setGatewayEnabled(OWNER.id, "e2payments", true);
     expect(r.ok).toBe(false);
-    const g = (await listGateways()).find((x) => x.id === "e2payments")!;
+    const g = (await listGateways(OWNER.id)).find((x) => x.id === "e2payments")!;
     expect(g.status).toBe("config_error");
     expect(g.enabled).toBe(false);
     expect(await activeIds()).toEqual(["epay"]);
@@ -261,7 +267,7 @@ describe("3–4. ativar e desativar a E2Payments", () => {
   it("mostra o erro devolvido pela E2Payments quando as credenciais são rejeitadas", async () => {
     await configureE2();
     e2Token = () => ({ status: 401, body: { error: "invalid_client", error_description: "Client authentication failed", message: "Client authentication failed" } });
-    const r = await testGatewayConnection("e2payments");
+    const r = await testGatewayConnection(OWNER.id, "e2payments");
     expect(r.ok).toBe(false);
     expect(r.message).toContain("HTTP 401 — invalid_client: Client authentication failed");
     expect(r.message).not.toContain(E2_SECRET);
@@ -276,17 +282,19 @@ describe("3–4. ativar e desativar a E2Payments", () => {
       c.body?.client_id === E2_ID && c.body?.client_secret === E2_SECRET
         ? { status: 200, body: { token_type: "Bearer", access_token: "tok_abc" } }
         : { status: 401, body: { error: "invalid_client", message: "Client authentication failed" } };
-    expect((await updateE2Credentials({ clientId: E2_SECRET, clientSecret: E2_ID, mpesaWalletId: "111111" })).ok).toBe(true);
-    const row = await prisma.integrationConfig.findUniqueOrThrow({ where: { provider: "e2payments" } });
+    expect((await updateE2Credentials(OWNER.id, { clientId: E2_SECRET, clientSecret: E2_ID, mpesaWalletId: "111111" })).ok).toBe(true);
+    const row = await prisma.integrationConfig.findUniqueOrThrow({ where: { ownerId_provider: { ownerId: OWNER.id, provider: "e2payments" } } });
     expect(JSON.parse(decryptSecret(row.secretConfig)!)).toEqual({ clientId: E2_ID, clientSecret: E2_SECRET });
     expect(row.verifiedAt).not.toBeNull();
-    expect((await setGatewayEnabled("e2payments", true)).ok).toBe(true);
+    expect((await setGatewayEnabled(OWNER.id, "e2payments", true)).ok).toBe(true);
     expect(await activeIds()).toEqual(["epay", "e2payments"]);
   });
 
   it("se o servidor só aceitar formulário ou HTTP Basic (formas OAuth padrão), a ligação funciona na mesma", async () => {
     for (const accepted of ["form", "basic"] as const) {
       await resetTestDb();
+      OWNER = await testOwner();
+      S = scopeOf(OWNER.id, false);
       calls = [];
       e2Token = (c) => {
         const isForm = c.headers["content-type"]?.includes("x-www-form-urlencoded");
@@ -294,8 +302,8 @@ describe("3–4. ativar e desativar a E2Payments", () => {
         return ok ? { status: 200, body: { token_type: "Bearer", access_token: `tok_${accepted}` } } : { status: 401, body: { error: "invalid_client", message: "Client authentication failed" } };
       };
       await configureE2();
-      expect((await testGatewayConnection("e2payments")).ok).toBe(true);
-      expect((await setGatewayEnabled("e2payments", true)).ok).toBe(true);
+      expect((await testGatewayConnection(OWNER.id, "e2payments")).ok).toBe(true);
+      expect((await setGatewayEnabled(OWNER.id, "e2payments", true)).ok).toBe(true);
       const { slug } = await product();
       const r = await buy(slug, { method: "e2payments:mpesa", phone: "841234567" });
       if (r.kind !== "payment_started") throw new Error(r.kind);
@@ -310,14 +318,14 @@ describe("3–4. ativar e desativar a E2Payments", () => {
         ? { status: 200, body: { token_type: "Bearer", access_token: "tok_new" } }
         : { status: 401, body: { error: "invalid_client", message: "Client authentication failed" } };
     await configureE2();
-    const t = await testGatewayConnection("e2payments");
+    const t = await testGatewayConnection(OWNER.id, "e2payments");
     expect(t.ok).toBe(true);
     expect(t.message).toContain("mpesaemolatech.com");
-    const row = await prisma.integrationConfig.findUniqueOrThrow({ where: { provider: "e2payments" } });
+    const row = await prisma.integrationConfig.findUniqueOrThrow({ where: { ownerId_provider: { ownerId: OWNER.id, provider: "e2payments" } } });
     expect((row.publicConfig as Record<string, unknown>).apiHost).toBe("https://mpesaemolatech.com");
-    expect((await listGateways()).find((g) => g.id === "e2payments")!.e2!.apiHost).toBe("mpesaemolatech.com");
+    expect((await listGateways(OWNER.id)).find((g) => g.id === "e2payments")!.e2!.apiHost).toBe("mpesaemolatech.com");
 
-    expect((await setGatewayEnabled("e2payments", true)).ok).toBe(true);
+    expect((await setGatewayEnabled(OWNER.id, "e2payments", true)).ok).toBe(true);
     const { slug } = await product();
     calls = [];
     const r = await buy(slug, { method: "e2payments:mpesa", phone: "841234567" });
@@ -331,60 +339,60 @@ describe("3–4. ativar e desativar a E2Payments", () => {
   });
 
   it("segredo copiado mascarado ou cifrado é identificado sem contactar a E2Payments", async () => {
-    await updateE2Credentials({ clientId: E2_ID, clientSecret: "$2y$10$abcdefghijklmnopqrstuv", mpesaWalletId: "111111" });
+    await updateE2Credentials(OWNER.id, { clientId: E2_ID, clientSecret: "$2y$10$abcdefghijklmnopqrstuv", mpesaWalletId: "111111" });
     calls = [];
-    const r = await testGatewayConnection("e2payments");
+    const r = await testGatewayConnection(OWNER.id, "e2payments");
     expect(r.ok).toBe(false);
     expect(r.message).toContain("valor cifrado");
     expect(calls).toHaveLength(0);
-    expect((await updateE2Credentials({ clientSecret: "abc•••••xyz", mpesaWalletId: "111111" })).ok).toBe(true);
-    expect((await testGatewayConnection("e2payments")).message).toContain("mascarado");
+    expect((await updateE2Credentials(OWNER.id, { clientSecret: "abc•••••xyz", mpesaWalletId: "111111" })).ok).toBe(true);
+    expect((await testGatewayConnection(OWNER.id, "e2payments")).message).toContain("mascarado");
   });
 
   it("remove espaços invisíveis e aspas coladas com as credenciais", async () => {
-    expect((await updateE2Credentials({ clientId: `\u200B "${E2_ID}"\u00A0`, clientSecret: `'${E2_SECRET}'\uFEFF`, mpesaWalletId: " #111111 " })).ok).toBe(true);
-    const row = await prisma.integrationConfig.findUniqueOrThrow({ where: { provider: "e2payments" } });
+    expect((await updateE2Credentials(OWNER.id, { clientId: `\u200B "${E2_ID}"\u00A0`, clientSecret: `'${E2_SECRET}'\uFEFF`, mpesaWalletId: " #111111 " })).ok).toBe(true);
+    const row = await prisma.integrationConfig.findUniqueOrThrow({ where: { ownerId_provider: { ownerId: OWNER.id, provider: "e2payments" } } });
     expect(JSON.parse(decryptSecret(row.secretConfig)!)).toEqual({ clientId: E2_ID, clientSecret: E2_SECRET });
   });
 
   it("desativar impede novos pagamentos mas mantém credenciais", async () => {
     await activateE2();
     const { slug } = await product();
-    expect((await setGatewayEnabled("e2payments", false)).ok).toBe(true);
+    expect((await setGatewayEnabled(OWNER.id, "e2payments", false)).ok).toBe(true);
     expect(await activeIds()).toEqual(["epay"]);
     calls = [];
     const r = await buy(slug, { method: "e2payments:mpesa", phone: "841234567" });
     expect(r).toEqual({ kind: "invalid", fieldErrors: { method: "Escolha um método de pagamento" } });
     expect(calls).toHaveLength(0);
     expect(await prisma.order.count()).toBe(0);
-    const row = await prisma.integrationConfig.findUniqueOrThrow({ where: { provider: "e2payments" } });
+    const row = await prisma.integrationConfig.findUniqueOrThrow({ where: { ownerId_provider: { ownerId: OWNER.id, provider: "e2payments" } } });
     expect(row.secretConfig).toBeTruthy();
-    expect((await listGateways()).find((x) => x.id === "e2payments")!.status).toBe("inactive");
+    expect((await listGateways(OWNER.id)).find((x) => x.id === "e2payments")!.status).toBe("inactive");
     // reativar não pede as credenciais de novo
-    expect((await setGatewayEnabled("e2payments", true)).ok).toBe(true);
+    expect((await setGatewayEnabled(OWNER.id, "e2payments", true)).ok).toBe(true);
   });
 });
 
 describe("5–7. combinações de gateways", () => {
   it("5. desativar a EPay preserva a configuração e permite reativar", async () => {
     await activateE2();
-    expect((await setGatewayEnabled("epay", false)).ok).toBe(true);
+    expect((await setGatewayEnabled(OWNER.id, "epay", false)).ok).toBe(true);
     expect(await activeIds()).toEqual(["e2payments"]);
     expect(process.env.EPAY_SECRET_KEY).toBe(EPAY_KEY);
-    expect((await listGateways()).find((x) => x.id === "epay")!.status).toBe("inactive");
+    expect((await listGateways(OWNER.id)).find((x) => x.id === "epay")!.status).toBe("inactive");
 
     const { slug } = await product();
     const viaEpay = await buy(slug, { method: "epay" });
     expect(viaEpay.kind).toBe("invalid");
     expect(epayCalls()).toHaveLength(0);
 
-    expect((await setGatewayEnabled("epay", true)).ok).toBe(true);
+    expect((await setGatewayEnabled(OWNER.id, "epay", true)).ok).toBe(true);
     expect(await activeIds()).toEqual(["epay", "e2payments"]);
   });
 
   it("6. ambos ativos: o comprador escolhe e cada pagamento vai só para o gateway escolhido", async () => {
     await activateE2();
-    const options = listPaymentOptions(await getActivePaymentProviders());
+    const options = listPaymentOptions(await getActivePaymentProviders(OWNER.id));
     expect(options.map((o) => o.id)).toEqual(["epay", "e2payments:mpesa", "e2payments:emola"]);
 
     const { slug } = await product();
@@ -420,7 +428,7 @@ describe("5–7. combinações de gateways", () => {
   });
 
   it("7. nenhum gateway ativo: sem métodos e sem encomendas", async () => {
-    await setGatewayEnabled("epay", false);
+    await setGatewayEnabled(OWNER.id, "epay", false);
     expect(await activeIds()).toEqual([]);
     const { slug } = await product();
     const r = await buy(slug, { method: "epay" });
@@ -468,7 +476,7 @@ describe("8–10. confirmação e estados da E2Payments", () => {
 
     // visitar a página de estado ou reconciliar não confirma nada (não há consulta documentada)
     await refreshPaymentStatus(o.id);
-    await reconcilePendingPayments();
+    await reconcilePendingPayments(OWNER.id);
     const view = await getPaymentView(r.token, { refresh: true });
     expect(view!.state).toBe("pending");
     expect(view!.manualReview).toBe(true);
@@ -476,14 +484,14 @@ describe("8–10. confirmação e estados da E2Payments", () => {
     o = await orderOf(r.token);
     expect(o.status).toBe("PENDING");
 
-    const done = await resolveUncertainPayment(o.id, "paid", "dono@loja.co.mz");
+    const done = await resolveUncertainPayment(o.id, "paid", "dono@loja.co.mz", OWNER.id);
     expect(done.ok).toBe(true);
     o = await orderOf(r.token);
     expect(o.status).toBe("APPROVED");
     expect(o.delivery).not.toBeNull();
     expect(o.auditLogs.some((a) => a.actor === "manual-verification:e2payments" && a.toStatus === "APPROVED")).toBe(true);
     // não pode ser aplicado duas vezes nem a pagamentos normais
-    expect((await resolveUncertainPayment(o.id, "paid", "dono@loja.co.mz")).ok).toBe(false);
+    expect((await resolveUncertainPayment(o.id, "paid", "dono@loja.co.mz", OWNER.id)).ok).toBe(false);
   });
 
   it("carteira sem acesso (403): nada cobrado e o gateway sai do checkout até novo teste", async () => {
@@ -494,16 +502,16 @@ describe("8–10. confirmação e estados da E2Payments", () => {
     expect(r.kind).toBe("payment_not_started");
     const o = await prisma.order.findFirstOrThrow({ include: { payments: true } });
     expect(o.status).toBe("CANCELED");
-    expect((await listGateways()).find((x) => x.id === "e2payments")!.status).toBe("config_error");
+    expect((await listGateways(OWNER.id)).find((x) => x.id === "e2payments")!.status).toBe("config_error");
     expect(await activeIds()).toEqual(["epay"]);
     // um teste de ligação bem-sucedido volta a disponibilizá-lo
-    expect((await testGatewayConnection("e2payments")).ok).toBe(true);
+    expect((await testGatewayConnection(OWNER.id, "e2payments")).ok).toBe(true);
     expect(await activeIds()).toEqual(["epay", "e2payments"]);
   });
 
   it("a E2Payments não aceita notificações (não documentadas)", async () => {
     await activateE2();
-    const p = (await getProvider("e2payments"))!;
+    const p = (await getProvider("e2payments", OWNER.id))!;
     expect(p.acceptsWebhooks).toBe(false);
     expect(p.verifySignature("{}", new Headers())).toBe(false);
     expect(p.getStatus).toBeUndefined();
@@ -524,13 +532,15 @@ describe("11–12. histórico e confirmações com gateway desativado", () => {
     const o = await orderOf(r.token);
 
     await activateE2();
-    await setGatewayEnabled("epay", false);
+    await setGatewayEnabled(OWNER.id, "epay", false);
 
     // notificação assinada da EPay (formato de docs/epay-api.md) para o pagamento já iniciado
     const raw = JSON.stringify({ id: "01epaypaymentid0000000001", external_reference: o.payments[0].idempotencyKey, status: "paid", amount: "1500.00", fee: "0.00", net_amount: "1500.00", currency: "MZN", payment_type: "mpesa", paid_at: "2026-10-12T10:17:20+02:00" });
     const headers = new Headers({ "content-type": "application/json", "X-EducavelPay-Signature": createHmac("sha256", EPAY_KEY).update(raw).digest("hex") });
-    const provider = (await getProvider("epay"))!;
-    expect(provider).toBe(epayProvider);
+    const provider = (await getProvider("epay", OWNER.id))!;
+    // instância da EPay da conta proprietária, com a chave da variável de ambiente (só esta conta a pode usar)
+    expect(provider.id).toBe(epayProvider.id);
+    expect(provider.environment()).toBe(epayProvider.environment());
     const out = await handleWebhook(provider, raw, headers);
     expect(out.result).toBe("processed");
 

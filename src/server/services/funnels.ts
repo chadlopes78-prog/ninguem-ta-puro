@@ -3,6 +3,7 @@ import { prisma } from "@/server/db";
 import type { FunnelGraph, GraphNode, StepConfig } from "@/lib/funnels/types";
 import { validateFunnel, type FunnelRefs, type FunnelValidation } from "@/lib/funnels/validate";
 import { DomainError, NotFoundError } from "./products";
+import { own, type Scope } from "@/server/scope";
 
 export function defaultGraph(): FunnelGraph {
   return {
@@ -20,8 +21,8 @@ export function defaultGraph(): FunnelGraph {
   };
 }
 
-export async function listFunnels(params: { isDemo: boolean; q?: string; status?: string }) {
-  const where: Prisma.FunnelWhereInput = { isDemo: params.isDemo };
+export async function listFunnels(params: { scope: Scope; q?: string; status?: string }) {
+  const where: Prisma.FunnelWhereInput = { ...own(params.scope) };
   if (params.q) where.name = { contains: params.q, mode: "insensitive" };
   if (params.status === "ACTIVE" || params.status === "INACTIVE" || params.status === "DRAFT") where.status = params.status;
   return prisma.funnel.findMany({
@@ -31,8 +32,8 @@ export async function listFunnels(params: { isDemo: boolean; q?: string; status?
   });
 }
 
-export async function getFunnelRecord(id: string, isDemo: boolean) {
-  const f = await prisma.funnel.findFirst({ where: { id, isDemo }, include: { steps: true, edges: true } });
+export async function getFunnelRecord(id: string, scope: Scope) {
+  const f = await prisma.funnel.findFirst({ where: { id, ...own(scope) }, include: { steps: true, edges: true } });
   if (!f) throw new NotFoundError("Funil");
   return f;
 }
@@ -55,10 +56,10 @@ export function toGraph(f: { steps: { key: string; type: FunnelStepType; label: 
   };
 }
 
-export async function loadRefs(isDemo: boolean): Promise<FunnelRefs> {
+export async function loadRefs(scope: Scope): Promise<FunnelRefs> {
   const [products, checkouts] = await Promise.all([
-    prisma.product.findMany({ where: { isDemo }, select: { id: true, name: true, status: true, offers: { select: { id: true, isActive: true } } } }),
-    prisma.checkout.findMany({ where: { isDemo }, select: { id: true, name: true, isActive: true } }),
+    prisma.product.findMany({ where: own(scope), select: { id: true, name: true, status: true, offers: { select: { id: true, isActive: true } } } }),
+    prisma.checkout.findMany({ where: own(scope), select: { id: true, name: true, isActive: true } }),
   ]);
   return {
     products: new Map(
@@ -93,9 +94,9 @@ async function writeGraph(tx: Prisma.TransactionClient, funnelId: string, graph:
   }
 }
 
-export async function createFunnel(meta: { name: string; description?: string }, isDemo: boolean, graph: FunnelGraph = defaultGraph()) {
+export async function createFunnel(meta: { name: string; description?: string }, scope: Scope, graph: FunnelGraph = defaultGraph()) {
   return prisma.$transaction(async (tx) => {
-    const f = await tx.funnel.create({ data: { name: meta.name, description: meta.description ?? null, isDemo } });
+    const f = await tx.funnel.create({ data: { name: meta.name, description: meta.description ?? null, ...own(scope) } });
     await writeGraph(tx, f.id, graph);
     return f;
   });
@@ -104,10 +105,10 @@ export async function createFunnel(meta: { name: string; description?: string },
 export async function saveFunnel(
   id: string,
   input: { name: string; description?: string; graph: FunnelGraph },
-  isDemo: boolean,
+  scope: Scope,
 ): Promise<{ validation: FunnelValidation; deactivated: boolean }> {
-  const funnel = await getFunnelRecord(id, isDemo);
-  const validation = validateFunnel(input.graph, await loadRefs(isDemo));
+  const funnel = await getFunnelRecord(id, scope);
+  const validation = validateFunnel(input.graph, await loadRefs(scope));
   const deactivated = funnel.status === "ACTIVE" && !validation.valid;
   await prisma.$transaction(async (tx) => {
     await tx.funnel.update({
@@ -119,20 +120,20 @@ export async function saveFunnel(
   return { validation, deactivated };
 }
 
-export async function validateStoredFunnel(id: string, isDemo: boolean): Promise<FunnelValidation> {
-  const f = await getFunnelRecord(id, isDemo);
-  return validateFunnel(toGraph(f), await loadRefs(isDemo));
+export async function validateStoredFunnel(id: string, scope: Scope): Promise<FunnelValidation> {
+  const f = await getFunnelRecord(id, scope);
+  return validateFunnel(toGraph(f), await loadRefs(scope));
 }
 
-export async function activateFunnel(id: string, isDemo: boolean): Promise<FunnelValidation> {
-  const f = await getFunnelRecord(id, isDemo);
+export async function activateFunnel(id: string, scope: Scope): Promise<FunnelValidation> {
+  const f = await getFunnelRecord(id, scope);
   const graph = toGraph(f);
-  const validation = validateFunnel(graph, await loadRefs(isDemo));
+  const validation = validateFunnel(graph, await loadRefs(scope));
   if (!validation.valid) return validation;
 
   const checkoutIds = graph.nodes.filter((n) => n.type === "CHECKOUT" && n.config.checkoutId).map((n) => n.config.checkoutId!);
   const conflicts = await prisma.checkout.findMany({
-    where: { id: { in: checkoutIds }, funnelId: { not: id }, funnel: { status: "ACTIVE" } },
+    where: { id: { in: checkoutIds }, ...own(scope), funnelId: { not: id }, funnel: { status: "ACTIVE" } },
     include: { funnel: true },
   });
   if (conflicts.length) {
@@ -147,19 +148,19 @@ export async function activateFunnel(id: string, isDemo: boolean): Promise<Funne
   }
   await prisma.$transaction([
     prisma.funnel.update({ where: { id }, data: { status: "ACTIVE" } }),
-    prisma.checkout.updateMany({ where: { id: { in: checkoutIds }, isDemo }, data: { funnelId: id } }),
+    prisma.checkout.updateMany({ where: { id: { in: checkoutIds }, ...own(scope) }, data: { funnelId: id } }),
   ]);
   return validation;
 }
 
-export async function deactivateFunnel(id: string, isDemo: boolean) {
-  await getFunnelRecord(id, isDemo);
+export async function deactivateFunnel(id: string, scope: Scope) {
+  await getFunnelRecord(id, scope);
   return prisma.funnel.update({ where: { id }, data: { status: "INACTIVE" } });
 }
 
-export async function duplicateFunnel(id: string, isDemo: boolean) {
-  const f = await getFunnelRecord(id, isDemo);
-  const copy = await createFunnel({ name: `${f.name} (cópia)`.slice(0, 100), description: f.description ?? undefined }, isDemo, toGraph(f));
+export async function duplicateFunnel(id: string, scope: Scope) {
+  const f = await getFunnelRecord(id, scope);
+  const copy = await createFunnel({ name: `${f.name} (cópia)`.slice(0, 100), description: f.description ?? undefined }, scope, toGraph(f));
   // Funis do assistente: a cópia mantém o produto inicial e a página de obrigado (fica em rascunho)
   if (f.productId) {
     const page = await prisma.thankYouPage.findUnique({ where: { funnelId: f.id } });
@@ -171,8 +172,8 @@ export async function duplicateFunnel(id: string, isDemo: boolean) {
   return copy;
 }
 
-export async function deleteFunnel(id: string, isDemo: boolean) {
-  const f = await prisma.funnel.findFirst({ where: { id, isDemo }, include: { _count: { select: { orders: true } } } });
+export async function deleteFunnel(id: string, scope: Scope) {
+  const f = await prisma.funnel.findFirst({ where: { id, ...own(scope) }, include: { _count: { select: { orders: true } } } });
   if (!f) throw new NotFoundError("Funil");
   if (f.status === "ACTIVE") throw new DomainError("Desative o funil antes de o eliminar.");
   if (f._count.orders > 0) throw new DomainError("Este funil tem pedidos associados e não pode ser eliminado.");

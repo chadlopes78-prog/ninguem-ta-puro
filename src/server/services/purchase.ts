@@ -13,6 +13,7 @@ import { toGraph } from "./funnels";
 import { computeOrderTotals } from "./order-logic";
 import { upsertCustomer } from "./orders";
 import { EVENT_TYPES, trackEvent } from "./analytics";
+import { scopeOf } from "@/server/scope";
 
 export type PurchaseOutcome =
   | { kind: "invalid"; fieldErrors: FieldErrors }
@@ -33,13 +34,14 @@ export async function startCheckoutSession(publicId: string, utm: { source?: str
   const session = await prisma.checkoutSession.create({
     data: {
       checkoutId: c.id,
+      ownerId: c.ownerId,
       isDemo: c.isDemo,
       utmSource: utm.source?.slice(0, 100),
       utmMedium: utm.medium?.slice(0, 100),
       utmCampaign: utm.campaign?.slice(0, 100),
     },
   });
-  await trackEvent({ type: EVENT_TYPES.CHECKOUT_VIEW, isDemo: c.isDemo, checkoutId: c.id, sessionId: session.id });
+  await trackEvent({ type: EVENT_TYPES.CHECKOUT_VIEW, ownerId: c.ownerId, isDemo: c.isDemo, checkoutId: c.id, sessionId: session.id });
   return session.id;
 }
 
@@ -48,14 +50,16 @@ export async function previewCoupon(publicId: string, code: string) {
   if (res.state !== "ok") return { ok: false as const, message: "Checkout indisponível." };
   const c = res.checkout;
   if (!c.allowCoupons) return { ok: false as const, message: "Este checkout não aceita cupões." };
+  // Cupões da conta dona do checkout (nunca de outra conta)
   const { evaluation } = await evaluateCouponCode(code, {
-    isDemo: c.isDemo,
+    scope: scopeOf(c.ownerId, c.isDemo),
     productId: c.productId,
     currency: c.offer.currency,
     subtotalCents: c.offer.priceCents,
   });
   await trackEvent({
     type: evaluation.ok ? EVENT_TYPES.COUPON_APPLIED : EVENT_TYPES.COUPON_REJECTED,
+    ownerId: c.ownerId,
     isDemo: c.isDemo,
     checkoutId: c.id,
     meta: { code: code.slice(0, 32).toUpperCase() },
@@ -76,7 +80,7 @@ export async function submitCheckout(publicId: string, raw: Record<string, unkno
   const session = sessionId
     ? await prisma.checkoutSession.findFirst({ where: { id: sessionId, checkoutId: c.id } })
     : null;
-  await trackEvent({ type: EVENT_TYPES.CHECKOUT_SUBMIT, isDemo: c.isDemo, checkoutId: c.id, sessionId: session?.id });
+  await trackEvent({ type: EVENT_TYPES.CHECKOUT_SUBMIT, ownerId: c.ownerId, isDemo: c.isDemo, checkoutId: c.id, sessionId: session?.id });
   if (session) await prisma.checkoutSession.update({ where: { id: session.id }, data: { status: "SUBMITTED" } });
 
   let couponId: string | null = null;
@@ -84,7 +88,7 @@ export async function submitCheckout(publicId: string, raw: Record<string, unkno
   if (input.coupon) {
     if (!c.allowCoupons) return { kind: "coupon_error", message: "Este checkout não aceita cupões." };
     const { evaluation, coupon } = await evaluateCouponCode(input.coupon, {
-      isDemo: c.isDemo,
+      scope: scopeOf(c.ownerId, c.isDemo),
       productId: c.productId,
       currency: c.offer.currency,
       subtotalCents: c.offer.priceCents,
@@ -96,8 +100,9 @@ export async function submitCheckout(publicId: string, raw: Record<string, unkno
 
   if (!c.isDemo) {
     // Modo real: sem processador configurado, não se cria cobrança nem se aprova nada.
-    if (!(await paymentsEnabled())) {
-      await trackEvent({ type: EVENT_TYPES.CHECKOUT_PAYMENT_UNAVAILABLE, isDemo: false, checkoutId: c.id, sessionId: session?.id });
+    // Gateways da conta dona do checkout: nunca as credenciais de outra conta
+    if (!(await paymentsEnabled(c.ownerId))) {
+      await trackEvent({ type: EVENT_TYPES.CHECKOUT_PAYMENT_UNAVAILABLE, ownerId: c.ownerId, isDemo: false, checkoutId: c.id, sessionId: session?.id });
       return { kind: "payments_unavailable", message: PAYMENTS_UNAVAILABLE_MESSAGE };
     }
     // Encomenda PENDING + cobrança no fornecedor. A aprovação só acontece por confirmação oficial.
@@ -108,7 +113,7 @@ export async function submitCheckout(publicId: string, raw: Record<string, unkno
       session?.id ?? null,
     );
     if (r.kind === "payments_unavailable") {
-      await trackEvent({ type: EVENT_TYPES.CHECKOUT_PAYMENT_UNAVAILABLE, isDemo: false, checkoutId: c.id, sessionId: session?.id });
+      await trackEvent({ type: EVENT_TYPES.CHECKOUT_PAYMENT_UNAVAILABLE, ownerId: c.ownerId, isDemo: false, checkoutId: c.id, sessionId: session?.id });
     }
     return r;
   }
@@ -117,12 +122,12 @@ export async function submitCheckout(publicId: string, raw: Record<string, unkno
   const totals = computeOrderTotals([{ unitPriceCents: c.offer.priceCents, quantity: 1 }], discountCents);
   const funnel =
     c.funnelId
-      ? await prisma.funnel.findFirst({ where: { id: c.funnelId, status: "ACTIVE", isDemo: true }, include: { steps: true, edges: true } })
+      ? await prisma.funnel.findFirst({ where: { id: c.funnelId, status: "ACTIVE", isDemo: true, ownerId: c.ownerId }, include: { steps: true, edges: true } })
       : null;
 
   const result = await prisma.$transaction(async (tx) => {
     if (couponId && !(await consumeCouponUse(tx, couponId))) return null;
-    const customer = await upsertCustomer(tx, { email: input.email, name: input.name, phone: input.phone, document: input.document }, true);
+    const customer = await upsertCustomer(tx, { email: input.email, name: input.name, phone: input.phone, document: input.document }, scopeOf(c.ownerId, true));
     const order = await tx.order.create({
       data: {
         code: newOrderCode(),
@@ -135,6 +140,7 @@ export async function submitCheckout(publicId: string, raw: Record<string, unkno
         currency: c.offer.currency,
         ...totals,
         notes: "Compra simulada em modo de demonstração — nenhum valor foi cobrado.",
+        ownerId: c.ownerId,
         isDemo: true,
         approvedAt: new Date(),
         items: {
@@ -161,7 +167,7 @@ export async function submitCheckout(publicId: string, raw: Record<string, unkno
       if (next) {
         runId = newRunId();
         await tx.funnelRun.create({
-          data: { id: runId, funnelId: funnel.id, orderId: order.id, currentStepKey: next.key, isDemo: true, history: [] },
+          data: { id: runId, funnelId: funnel.id, orderId: order.id, currentStepKey: next.key, ownerId: c.ownerId, isDemo: true, history: [] },
         });
       }
     }
@@ -188,7 +194,7 @@ export async function getRunView(runId: string) {
   let offer = null;
   if (node && OFFER_STEP_TYPES.includes(node.type) && node.config.offerId) {
     offer = await prisma.offer.findFirst({
-      where: { id: node.config.offerId, productId: node.config.productId, product: { isDemo: run.isDemo } },
+      where: { id: node.config.offerId, productId: node.config.productId, product: { isDemo: run.isDemo, ownerId: run.ownerId } },
       include: { product: true },
     });
   }
@@ -249,6 +255,7 @@ export async function decideRun(runId: string, stepKey: string, decision: Decisi
   });
   await trackEvent({
     type: decision === "accept" ? EVENT_TYPES.OFFER_ACCEPT : EVENT_TYPES.OFFER_DECLINE,
+    ownerId: run.ownerId,
     isDemo: true,
     funnelId: run.funnelId,
     orderId: order.id,
@@ -258,6 +265,6 @@ export async function decideRun(runId: string, stepKey: string, decision: Decisi
   return { ok: true };
 }
 
-export async function trackRunView(runId: string, stepKey: string, funnelId: string, isDemo: boolean) {
-  await trackEvent({ type: EVENT_TYPES.FUNNEL_STEP_VIEW, isDemo, funnelId, stepKey, meta: { runId } });
+export async function trackRunView(runId: string, stepKey: string, funnelId: string, isDemo: boolean, ownerId: string) {
+  await trackEvent({ type: EVENT_TYPES.FUNNEL_STEP_VIEW, ownerId, isDemo, funnelId, stepKey, meta: { runId } });
 }

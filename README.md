@@ -37,7 +37,8 @@ Regras: lógica de negócio fica em `src/server/services` e `src/lib`; páginas 
 npm install
 cp .env.example .env                 # definir DATABASE_URL
 npx prisma migrate deploy
-npm run user:create -- email@exemplo.com "Nome" "password-segura-10"   # ou /setup
+# primeira conta: abrir /setup (BD vazia) — fica a conta proprietária (OWNER)
+npm run user:set-owner -- email@exemplo.com   # (opcional) definir/recuperar o proprietário no servidor
 npm run dev
 ```
 
@@ -49,8 +50,8 @@ npm run dev
 | `APP_BASE_URL` | sim (produção) | URL público HTTPS — retorno do comprador e notificações de pagamento |
 | `DEMO_TOOLS_ENABLED` | não | `true` permite gerar dados de demonstração. Manter `false` em produção |
 | `INSECURE_COOKIES` | não | `true` apenas para testes locais em HTTP com `NODE_ENV=production` |
-| `EPAY_SECRET_KEY` | para EPay | Chave secreta da EPay `sk_test_…` (sandbox) ou `sk_live_…` (produção). Só no servidor |
-| `E2PAYMENTS_CLIENT_ID`, `E2PAYMENTS_CLIENT_SECRET`, `E2PAYMENTS_MPESA_WALLET_ID`, `E2PAYMENTS_EMOLA_WALLET_ID` | opcional | Credenciais da E2Payments (alternativa ao formulário da aba Integrações). Só no servidor |
+| `EPAY_SECRET_KEY` | opcional | Chave secreta da EPay **da conta proprietária** (`sk_test_…`/`sk_live_…`). Nunca é usada por outras contas, que guardam a sua chave cifrada na aba Integrações. Só no servidor |
+| `E2PAYMENTS_CLIENT_ID`, `E2PAYMENTS_CLIENT_SECRET`, `E2PAYMENTS_MPESA_WALLET_ID`, `E2PAYMENTS_EMOLA_WALLET_ID` | opcional | Credenciais E2Payments **da conta proprietária** (alternativa ao formulário). Nunca usadas por outras contas. Só no servidor |
 | `INTEGRATIONS_ENCRYPTION_KEY` | opcional | Chave dedicada (≥ 32 caracteres) para cifrar as credenciais introduzidas na aba Integrações. Sem ela, usa-se uma chave derivada de `DATABASE_URL` |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | opcional | Chaves das notificações push (Web Push). Sem elas, são geradas e guardadas cifradas na BD na primeira utilização |
 | `CRON_SECRET` | opcional | Protege a tarefa diária `/api/cron/notifications` (resumo diário e reenvio de push). Sem ela, as tarefas correm quando o painel é aberto |
@@ -67,8 +68,15 @@ Nenhum segredo é exposto ao frontend.
 | `npm test` | Unitários + integração (BD `ntp_test` de `.env.test`) |
 | `npm run test:e2e` | Playwright contra o build (porta 3100, BD `ntp_test`) |
 | `npm run db:migrate` / `db:deploy` | Migrações Prisma |
-| `npm run db:seed-demo` / `db:clear-demo` | Dados de demonstração |
-| `npm run user:create` | Criar utilizador |
+| `npm run db:seed-demo -- email` / `db:clear-demo -- email` | Dados de demonstração de uma conta |
+| `npm run user:create -- email "Nome" "password"` | Criar conta comum já aprovada (no servidor) |
+| `npm run user:set-owner -- email` | Definir a conta proprietária (OWNER); só no servidor, nunca por HTTP |
+
+## Contas e Administração
+
+- Registo público em `/registo`: a conta fica **pendente de aprovação** (definido no servidor) e só vê a página `/conta`.
+- O proprietário (OWNER, no máximo um — garantido por índice único parcial na BD) aprova, rejeita, suspende e reativa contas em **Administração** (`/admin`). Nenhum papel ou estado vem do formulário.
+- Cada conta tem os seus produtos, checkouts, funis, clientes, pedidos, cupões, relatórios, notificações, configurações e credenciais de pagamento. O isolamento é aplicado no servidor (`ownerId` obrigatório + `Scope` em todos os serviços); os pagamentos e avisos dos gateways usam sempre as credenciais da conta dona do checkout.
 
 ## Fluxo de pagamento
 
@@ -84,6 +92,6 @@ Nenhum segredo é exposto ao frontend.
 O script `vercel-build` verifica a configuração, aplica as migrações (`prisma migrate deploy`) e compila. É preciso:
 - uma base de dados PostgreSQL (`DATABASE_URL`, por exemplo Vercel Storage → Neon);
 - `APP_BASE_URL`;
-- `EPAY_SECRET_KEY`, para cobrar.
+- `EPAY_SECRET_KEY` (opcional) para a conta proprietária cobrar pela EPay; as outras contas configuram a sua chave na aba Integrações.
 
 Diagnóstico: `GET /api/health`. Passo a passo em [PROJECT_STATUS.md](./PROJECT_STATUS.md#deploy-na-vercel).

@@ -2,9 +2,9 @@ import "server-only";
 import { unstable_rethrow } from "next/navigation";
 import type { Settings } from "@prisma/client";
 import type { ZodSchema } from "zod";
-import { requireUser } from "@/server/auth/session";
 import type { AuthUser } from "@/server/auth/service";
 import { getScope } from "@/server/services/settings";
+import type { Scope } from "@/server/scope";
 import { DomainError, NotFoundError } from "@/server/services/products";
 import { flattenErrors, type ActionResult } from "@/server/validation/common";
 
@@ -12,14 +12,18 @@ export interface ActionCtx {
   user: AuthUser;
   isDemo: boolean;
   settings: Settings;
+  /** Conta autenticada + modo: o único âmbito com que as ações leem ou alteram dados */
+  scope: Scope;
 }
 
-/** Envolve uma server action: exige sessão válida no servidor e converte erros em mensagens úteis. */
+/**
+ * Envolve uma server action: exige sessão válida e conta aprovada/não suspensa (verificado no servidor em cada
+ * chamada) e converte erros em mensagens úteis. O âmbito de dados vem da sessão, nunca dos argumentos.
+ */
 export async function guarded<T>(fn: (ctx: ActionCtx) => Promise<ActionResult<T>>): Promise<ActionResult<T>> {
-  const user = await requireUser();
-  const { isDemo, settings } = await getScope();
+  const { user, isDemo, settings, scope } = await getScope();
   try {
-    return await fn({ user, isDemo, settings });
+    return await fn({ user, isDemo, settings, scope });
   } catch (e) {
     unstable_rethrow(e);
     if (e instanceof DomainError || e instanceof NotFoundError) return { ok: false, error: e.message };

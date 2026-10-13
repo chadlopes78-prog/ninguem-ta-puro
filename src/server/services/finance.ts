@@ -9,6 +9,7 @@ import { audit } from "@/server/payments/confirm";
 import { recordRefundEvent } from "@/server/notifications/events";
 import { schedulePushDispatch } from "@/server/notifications/push";
 import { DomainError, NotFoundError } from "./products";
+import { own, type Scope } from "@/server/scope";
 import {
   financeCurrencies,
   financeDaily,
@@ -21,12 +22,12 @@ import {
 } from "./finance-logic";
 
 /** Pedidos com movimento na janela (criados ou confirmados) e reembolsos registados na janela. */
-export async function loadFinanceData(p: { isDemo: boolean; from: Date; to: Date }): Promise<{ orders: FinanceOrder[]; refunds: FinanceRefund[]; currencies: CurrencyCode[] }> {
+export async function loadFinanceData(p: { scope: Scope; from: Date; to: Date }): Promise<{ orders: FinanceOrder[]; refunds: FinanceRefund[]; currencies: CurrencyCode[] }> {
   const span = { gte: p.from, lt: p.to };
   const [rows, refundRows] = await Promise.all([
     prisma.order.findMany({
       // pagamentos com credenciais de teste do gateway nunca contam como receita
-      where: { isDemo: p.isDemo, isTestPayment: false, OR: [{ createdAt: span }, { approvedAt: span }] },
+      where: { ...own(p.scope), isTestPayment: false, OR: [{ createdAt: span }, { approvedAt: span }] },
       select: {
         id: true,
         status: true,
@@ -40,7 +41,7 @@ export async function loadFinanceData(p: { isDemo: boolean; from: Date; to: Date
         items: { select: { productId: true, totalCents: true, product: { select: { name: true } } } },
       },
     }),
-    prisma.refund.findMany({ where: { isDemo: p.isDemo, createdAt: span, order: { isTestPayment: false } }, select: { orderId: true, amountCents: true, currency: true, createdAt: true } }),
+    prisma.refund.findMany({ where: { ...own(p.scope), createdAt: span, order: { isTestPayment: false } }, select: { orderId: true, amountCents: true, currency: true, createdAt: true } }),
   ]);
   const orders: FinanceOrder[] = rows.map((r) => ({
     id: r.id,
@@ -57,9 +58,9 @@ export async function loadFinanceData(p: { isDemo: boolean; from: Date; to: Date
   return { orders, refunds, currencies: financeCurrencies(orders, refunds) };
 }
 
-export async function getFinanceReport(p: { isDemo: boolean; range: DateRange; currency?: CurrencyCode; defaultCurrency: CurrencyCode; tz: string }) {
+export async function getFinanceReport(p: { scope: Scope; range: DateRange; currency?: CurrencyCode; defaultCurrency: CurrencyCode; tz: string }) {
   const { range, tz } = p;
-  const [cur, prev] = await Promise.all([loadFinanceData({ isDemo: p.isDemo, from: range.from, to: range.to }), loadFinanceData({ isDemo: p.isDemo, from: range.previous.from, to: range.previous.to })]);
+  const [cur, prev] = await Promise.all([loadFinanceData({ scope: p.scope, from: range.from, to: range.to }), loadFinanceData({ scope: p.scope, from: range.previous.from, to: range.previous.to })]);
   const currencies = cur.currencies.length ? cur.currencies : [p.defaultCurrency];
   const currency = p.currency && CURRENCIES.includes(p.currency) ? p.currency : currencies.includes(p.defaultCurrency) ? p.defaultCurrency : currencies[0];
   const w = { from: range.from, to: range.to };
@@ -91,7 +92,7 @@ export interface TxFilters {
   pageSize?: number;
 }
 
-function txWhere(isDemo: boolean, range: { from: Date; to: Date }, f: TxFilters): Prisma.OrderWhereInput {
+function txWhere(scope: Scope, range: { from: Date; to: Date }, f: TxFilters): Prisma.OrderWhereInput {
   const span = { gte: range.from, lt: range.to };
   const and: Prisma.OrderWhereInput[] = [{ OR: [{ createdAt: span }, { approvedAt: span }, { refunds: { some: { createdAt: span } } }] }];
   if (f.status) and.push({ status: f.status });
@@ -111,13 +112,13 @@ function txWhere(isDemo: boolean, range: { from: Date; to: Date }, f: TxFilters)
       ],
     });
   }
-  return { isDemo, AND: and };
+  return { ...own(scope), AND: and };
 }
 
-export async function listTransactions(isDemo: boolean, range: { from: Date; to: Date }, f: TxFilters) {
+export async function listTransactions(scope: Scope, range: { from: Date; to: Date }, f: TxFilters) {
   const pageSize = Math.min(Math.max(f.pageSize ?? 20, 1), 5000);
   const page = Math.max(1, f.page ?? 1);
-  const where = txWhere(isDemo, range, f);
+  const where = txWhere(scope, range, f);
   const dir = f.dir === "asc" ? "asc" : "desc";
   const orderBy: Prisma.OrderOrderByWithRelationInput[] = f.sort === "amount" ? [{ totalCents: dir }, { createdAt: "desc" }] : [{ createdAt: dir }];
   const [rows, total] = await Promise.all([
@@ -169,10 +170,10 @@ export async function listTransactions(isDemo: boolean, range: { from: Date; to:
   };
 }
 
-export async function transactionFilterOptions(isDemo: boolean) {
+export async function transactionFilterOptions(scope: Scope) {
   const [products, gateways] = await Promise.all([
-    prisma.product.findMany({ where: { isDemo }, select: { id: true, name: true }, orderBy: { name: "asc" }, take: 200 }),
-    prisma.payment.groupBy({ by: ["provider"], where: { order: { isDemo } } }),
+    prisma.product.findMany({ where: own(scope), select: { id: true, name: true }, orderBy: { name: "asc" }, take: 200 }),
+    prisma.payment.groupBy({ by: ["provider"], where: { order: own(scope) } }),
   ]);
   return { products, gateways: gateways.map((g) => g.provider) };
 }
@@ -192,8 +193,9 @@ export function csvCell(v: string | number | null | undefined): string {
  * regista o reembolso já efetuado no painel do gateway; em demonstração é simulado.
  * Soma dos reembolsos ≤ total do pedido; com o total atingido o pedido passa a REEMBOLSADO.
  */
-export async function recordRefund(input: { orderId: string; amountCents: number; reason?: string; confirmedAtGateway: boolean }, isDemo: boolean, actor: string) {
-  const order = await prisma.order.findFirst({ where: { id: input.orderId, isDemo }, select: { id: true, code: true, status: true, totalCents: true, approvedAt: true, currency: true } });
+export async function recordRefund(input: { orderId: string; amountCents: number; reason?: string; confirmedAtGateway: boolean }, scope: Scope, actor: string) {
+  const isDemo = scope.isDemo;
+  const order = await prisma.order.findFirst({ where: { id: input.orderId, ...own(scope) }, select: { id: true, code: true, status: true, totalCents: true, approvedAt: true, currency: true, ownerId: true } });
   if (!order) throw new NotFoundError("Pedido");
   if (!isDemo && !input.confirmedAtGateway) throw new DomainError("Confirme que o reembolso já foi feito no painel do gateway.");
   const result = await prisma.$transaction(async (tx) => {
@@ -204,7 +206,7 @@ export async function recordRefund(input: { orderId: string; amountCents: number
     const check = refundCheck(fresh, done._sum.amountCents ?? 0, input.amountCents);
     if (!check.ok) throw new DomainError(check.reason);
     const refund = await tx.refund.create({
-      data: { orderId: order.id, amountCents: input.amountCents, currency: order.currency, reason: input.reason?.trim().slice(0, 300) || null, actor, isDemo },
+      data: { orderId: order.id, amountCents: input.amountCents, currency: order.currency, reason: input.reason?.trim().slice(0, 300) || null, actor, ...own(scope) },
     });
     if (check.full) {
       await tx.order.update({ where: { id: order.id }, data: { status: "REFUNDED", refundedAt: new Date() } });
@@ -212,7 +214,7 @@ export async function recordRefund(input: { orderId: string; amountCents: number
     } else {
       await audit(tx, order.id, "APPROVED", "APPROVED", actor, `Reembolso parcial registado: ${input.amountCents} cêntimos`);
     }
-    const notified = isDemo ? 0 : await recordRefundEvent(tx, { id: refund.id, orderId: order.id, amountCents: refund.amountCents, currency: order.currency as CurrencyCode, full: check.full }, order.code);
+    const notified = isDemo ? 0 : await recordRefundEvent(tx, { id: refund.id, orderId: order.id, ownerId: order.ownerId, amountCents: refund.amountCents, currency: order.currency as CurrencyCode, full: check.full }, order.code);
     return { refund, full: check.full, notified };
   });
   if (result.notified) await schedulePushDispatch();

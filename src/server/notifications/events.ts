@@ -29,12 +29,14 @@ function prefsOf(p: Partial<NotificationPrefs> | null | undefined): Notification
 }
 
 /**
- * Cria a notificação para cada utilizador com a categoria ativa e põe na fila o envio push para os seus
- * dispositivos ativos. Devolve quantas notificações novas foram criadas (0 se o evento já tinha sido tratado).
+ * Cria a notificação para os utilizadores indicados (sempre a conta dona do evento) com a categoria ativa e põe na
+ * fila o envio push para os seus dispositivos ativos. Contas sem acesso (pendentes, rejeitadas, suspensas) não
+ * recebem alertas. Devolve quantas notificações novas foram criadas (0 se o evento já tinha sido tratado).
  */
-export async function notifyUsers(tx: Tx, draft: NotificationDraft, opts: { userIds?: string[] } = {}): Promise<number> {
+export async function notifyUsers(tx: Tx, draft: NotificationDraft, opts: { userIds: string[] }): Promise<number> {
+  if (!opts.userIds.length) return 0;
   const users = await tx.user.findMany({
-    where: opts.userIds ? { id: { in: opts.userIds } } : undefined,
+    where: { id: { in: opts.userIds }, status: "APPROVED", bannedAt: null },
     select: { id: true, notificationPreference: true },
   });
   const targets = users.filter((u) => isAllowed(prefsOf(u.notificationPreference), draft.type));
@@ -68,7 +70,7 @@ export type OrderEvent = "sale" | "pending" | "failed";
 async function orderSummary(tx: Tx, orderId: string) {
   return tx.order.findUnique({
     where: { id: orderId },
-    select: { id: true, code: true, isDemo: true, isTestPayment: true, totalCents: true, currency: true, status: true, items: { select: { product: { select: { name: true } } } } },
+    select: { id: true, code: true, ownerId: true, isDemo: true, isTestPayment: true, totalCents: true, currency: true, status: true, items: { select: { product: { select: { name: true } } } } },
   });
 }
 
@@ -85,6 +87,8 @@ export async function recordOrderEvent(tx: Tx, event: OrderEvent, orderId: strin
   const value = formatMoney(o.totalCents, o.currency as CurrencyCode);
   const test = o.isTestPayment ? " (teste)" : "";
   const url = `/pedidos/${o.id}`;
+  // Só a conta dona da venda é notificada
+  const to = { userIds: [o.ownerId] };
   if (event === "sale") {
     return notifyUsers(tx, {
       type: "SALE_CONFIRMED",
@@ -93,12 +97,12 @@ export async function recordOrderEvent(tx: Tx, event: OrderEvent, orderId: strin
       body: `Produto: ${product}\nValor: ${value}${test}`,
       url,
       orderId: o.id,
-    });
+    }, to);
   }
   if (event === "pending") {
-    return notifyUsers(tx, { type: "PAYMENT_PENDING", eventKey: `pending:${o.id}`, title: "Pagamento pendente.", body: `Pedido: ${o.code}${test}\nAinda não é uma venda: aguarda confirmação do gateway.`, url, orderId: o.id });
+    return notifyUsers(tx, { type: "PAYMENT_PENDING", eventKey: `pending:${o.id}`, title: "Pagamento pendente.", body: `Pedido: ${o.code}${test}\nAinda não é uma venda: aguarda confirmação do gateway.`, url, orderId: o.id }, to);
   }
-  return notifyUsers(tx, { type: "PAYMENT_FAILED", eventKey: `failed:${o.id}`, title: "Pagamento não concluído", body: `O pagamento do pedido ${o.code} não foi concluído.${test}`, url, orderId: o.id });
+  return notifyUsers(tx, { type: "PAYMENT_FAILED", eventKey: `failed:${o.id}`, title: "Pagamento não concluído", body: `O pagamento do pedido ${o.code} não foi concluído.${test}`, url, orderId: o.id }, to);
 }
 
 /** Igual a recordOrderEvent, fora de transação, sem nunca interromper o fluxo de pagamento. */
@@ -113,7 +117,7 @@ export async function recordOrderEventSafe(event: OrderEvent, orderId: string): 
   }
 }
 
-export async function recordRefundEvent(tx: Tx, refund: { id: string; orderId: string; amountCents: number; currency: CurrencyCode; full: boolean }, orderCode: string): Promise<number> {
+export async function recordRefundEvent(tx: Tx, refund: { id: string; orderId: string; ownerId: string; amountCents: number; currency: CurrencyCode; full: boolean }, orderCode: string): Promise<number> {
   return notifyUsers(tx, {
     type: "REFUND_CONFIRMED",
     eventKey: `refund:${refund.id}`,
@@ -121,5 +125,5 @@ export async function recordRefundEvent(tx: Tx, refund: { id: string; orderId: s
     body: `Valor: ${formatMoney(refund.amountCents, refund.currency)}\nPedido: ${orderCode}${refund.full ? " (total)" : " (parcial)"}`,
     url: `/pedidos/${refund.orderId}`,
     orderId: refund.orderId,
-  });
+  }, { userIds: [refund.ownerId] });
 }

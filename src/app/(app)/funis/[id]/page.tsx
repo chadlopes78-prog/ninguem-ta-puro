@@ -12,25 +12,26 @@ import { checkoutPath } from "@/server/services/primary-checkout";
 import { getSettings } from "@/server/services/settings";
 import { resolveAppBaseUrl } from "@/server/app-url";
 import { FunnelWizard } from "@/components/funnels/funnel-wizard";
+import { own } from "@/server/scope";
 
 export const metadata: Metadata = { title: "Editor de funil" };
 
 export default async function FunnelEditorPage({ params }: { params: Promise<{ id: string }> }) {
   await requireUser();
   const { id } = await params;
-  const { isDemo } = await getScope();
-  const f = await getFunnelRecord(id, isDemo).catch((e) => {
+  const { isDemo, scope } = await getScope();
+  const f = await getFunnelRecord(id, scope).catch((e) => {
     if (e instanceof NotFoundError) notFound();
     throw e;
   });
   // Funis do assistente (produto inicial → upsell → obrigado)
   if (f.productId) {
     const [w, settings, baseUrl, all] = await Promise.all([
-      getWizardFunnel(f.id, isDemo),
-      getSettings(),
+      getWizardFunnel(f.id, scope),
+      getSettings(scope.ownerId),
       resolveAppBaseUrl(),
       prisma.product.findMany({
-        where: { isDemo },
+        where: own(scope),
         orderBy: { name: "asc" },
         include: {
           offers: { orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }] },
@@ -67,11 +68,11 @@ export default async function FunnelEditorPage({ params }: { params: Promise<{ i
 
   const [products, checkouts] = await Promise.all([
     prisma.product.findMany({
-      where: { isDemo },
+      where: own(scope),
       orderBy: { name: "asc" },
       select: { id: true, name: true, status: true, offers: { select: { id: true, name: true, priceCents: true, currency: true, isActive: true }, orderBy: { isDefault: "desc" } } },
     }),
-    prisma.checkout.findMany({ where: { isDemo }, select: { id: true, name: true, isActive: true }, orderBy: { name: "asc" } }),
+    prisma.checkout.findMany({ where: own(scope), select: { id: true, name: true, isActive: true }, orderBy: { name: "asc" } }),
   ]);
   return (
     <FunnelBuilder

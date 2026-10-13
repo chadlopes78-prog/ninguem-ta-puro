@@ -2,6 +2,7 @@ import { Prisma, type ProductStatus, type ProductType } from "@prisma/client";
 import { prisma } from "@/server/db";
 import { createPrimaryCheckoutTx, ensurePrimaryCheckout } from "./primary-checkout";
 import type { OfferInput, ProductInput } from "@/server/validation/schemas";
+import { own, type Scope } from "@/server/scope";
 
 export class NotFoundError extends Error {
   constructor(what = "Registo") {
@@ -12,7 +13,7 @@ export class NotFoundError extends Error {
 export class DomainError extends Error {}
 
 export interface ProductListQuery {
-  isDemo: boolean;
+  scope: Scope;
   q?: string;
   status?: ProductStatus | "ALL" | "ACTIVE";
   type?: ProductType;
@@ -20,7 +21,7 @@ export interface ProductListQuery {
 }
 
 export async function listProducts(query: ProductListQuery) {
-  const where: Prisma.ProductWhereInput = { isDemo: query.isDemo };
+  const where: Prisma.ProductWhereInput = { ...own(query.scope) };
   if (query.q) where.OR = [{ name: { contains: query.q, mode: "insensitive" } }, { category: { contains: query.q, mode: "insensitive" } }];
   if (!query.status || query.status === "ACTIVE") where.status = { not: "ARCHIVED" };
   else if (query.status !== "ALL") where.status = query.status;
@@ -60,9 +61,9 @@ export async function listProducts(query: ProductListQuery) {
   return rows;
 }
 
-export async function getProduct(id: string, isDemo: boolean) {
+export async function getProduct(id: string, scope: Scope) {
   const product = await prisma.product.findFirst({
-    where: { id, isDemo },
+    where: { id, ...own(scope) },
     include: { offers: { orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }] }, _count: { select: { orderItems: true, checkouts: true } } },
   });
   if (!product) throw new NotFoundError("Produto");
@@ -88,14 +89,14 @@ function productData(input: ProductInput) {
  * ou fica tudo criado, ou nada fica criado. Se algo falhar depois (ex.: produto antigo sem checkout),
  * ensurePrimaryCheckout() recupera a associação de forma idempotente.
  */
-export async function createProduct(input: ProductInput, isDemo: boolean) {
+export async function createProduct(input: ProductInput, scope: Scope) {
   for (let attempt = 0; ; attempt++) {
     try {
       return await prisma.$transaction(async (tx) => {
         const product = await tx.product.create({
           data: {
             ...productData(input),
-            isDemo,
+            ...own(scope),
             offers: {
               create: {
                 name: "Preço principal",
@@ -119,8 +120,8 @@ export async function createProduct(input: ProductInput, isDemo: boolean) {
   }
 }
 
-export async function updateProduct(id: string, input: ProductInput, isDemo: boolean) {
-  const existing = await getProduct(id, isDemo);
+export async function updateProduct(id: string, input: ProductInput, scope: Scope) {
+  const existing = await getProduct(id, scope);
   if (existing.status === "ARCHIVED") throw new DomainError("Produtos arquivados não podem ser editados. Restaure-o primeiro.");
   const defaultOffer = existing.offers.find((o) => o.isDefault);
   return prisma.$transaction(async (tx) => {
@@ -145,8 +146,8 @@ export async function updateProduct(id: string, input: ProductInput, isDemo: boo
   });
 }
 
-export async function setProductStatus(id: string, status: ProductStatus, isDemo: boolean) {
-  const existing = await getProduct(id, isDemo);
+export async function setProductStatus(id: string, status: ProductStatus, scope: Scope) {
+  const existing = await getProduct(id, scope);
   if (status === "PUBLISHED" && !existing.offers.some((o) => o.isActive)) {
     throw new DomainError("Não é possível publicar um produto sem ofertas ativas.");
   }
@@ -156,8 +157,8 @@ export async function setProductStatus(id: string, status: ProductStatus, isDemo
   });
 }
 
-export async function duplicateProduct(id: string, isDemo: boolean) {
-  const p = await getProduct(id, isDemo);
+export async function duplicateProduct(id: string, scope: Scope) {
+  const p = await getProduct(id, scope);
   const copy = await prisma.product.create({
     data: {
       name: `${p.name} (cópia)`.slice(0, 120),
@@ -169,7 +170,7 @@ export async function duplicateProduct(id: string, isDemo: boolean) {
       salesPageUrl: p.salesPageUrl,
       supportEmail: p.supportEmail,
       deliveryUrl: p.deliveryUrl,
-      isDemo,
+      ...own(scope),
       offers: {
         create: p.offers.map((o) => ({
           name: o.name,
@@ -189,8 +190,8 @@ export async function duplicateProduct(id: string, isDemo: boolean) {
   return copy;
 }
 
-export async function addOffer(productId: string, input: OfferInput, isDemo: boolean) {
-  await getProduct(productId, isDemo);
+export async function addOffer(productId: string, input: OfferInput, scope: Scope) {
+  await getProduct(productId, scope);
   return prisma.offer.create({
     data: {
       productId,
@@ -204,17 +205,17 @@ export async function addOffer(productId: string, input: OfferInput, isDemo: boo
   });
 }
 
-export async function setOfferActive(offerId: string, active: boolean, isDemo: boolean) {
-  const offer = await prisma.offer.findFirst({ where: { id: offerId, product: { isDemo } } });
+export async function setOfferActive(offerId: string, active: boolean, scope: Scope) {
+  const offer = await prisma.offer.findFirst({ where: { id: offerId, product: own(scope) } });
   if (!offer) throw new NotFoundError("Oferta");
   if (offer.isDefault && !active) throw new DomainError("O preço principal não pode ser desativado.");
   return prisma.offer.update({ where: { id: offerId }, data: { isActive: active } });
 }
 
 /** Produtos e ofertas para seletores (checkouts, funis, cupões). */
-export async function listProductOptions(isDemo: boolean) {
+export async function listProductOptions(scope: Scope) {
   return prisma.product.findMany({
-    where: { isDemo, status: { not: "ARCHIVED" } },
+    where: { ...own(scope), status: { not: "ARCHIVED" } },
     orderBy: { name: "asc" },
     select: {
       id: true,

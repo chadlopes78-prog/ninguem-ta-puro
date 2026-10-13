@@ -16,20 +16,21 @@ import { ActionButton } from "@/components/ui/action-button";
 import { Alert } from "@/components/ui/alert";
 import { CheckoutForm } from "@/components/checkouts/checkout-form";
 import { saveCheckoutAction, setCheckoutActiveAction, duplicateCheckoutAction } from "../actions";
+import { own } from "@/server/scope";
 
 export const metadata: Metadata = { title: "Editar checkout" };
 
 export default async function CheckoutPage({ params }: { params: Promise<{ id: string }> }) {
   await requireUser();
   const { id } = await params;
-  const { isDemo, settings } = await getScope();
-  const c = await getCheckout(id, isDemo).catch((e) => {
+  const { isDemo, settings, scope } = await getScope();
+  const c = await getCheckout(id, scope).catch((e) => {
     if (e instanceof NotFoundError) notFound();
     throw e;
   });
   const [products, funnels] = await Promise.all([
-    listProductOptions(isDemo),
-    prisma.funnel.findMany({ where: { isDemo }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    listProductOptions(scope),
+    prisma.funnel.findMany({ where: own(scope), select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
   const path = checkoutPath(c);
   const publicOk = c.isActive && c.product.status === "PUBLISHED" && c.offer.isActive;

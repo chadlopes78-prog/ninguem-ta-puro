@@ -3,7 +3,7 @@
 import { createHmac } from "crypto";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/server/db";
-import { resetTestDb } from "../helpers/db";
+import { resetTestDb, testOwner } from "../helpers/db";
 import { checkoutSchema, couponSchema, productSchema } from "@/server/validation/schemas";
 import { createProduct } from "@/server/services/products";
 import { createCheckout } from "@/server/services/checkouts";
@@ -17,6 +17,8 @@ import { EPAY_API_BASE_URL, EPAY_SIGNATURE_HEADER, epayProvider } from "@/server
 import { getActivePaymentProviders } from "@/server/payments/registry";
 import { resolveRange } from "@/lib/dates";
 import { centsToDecimalString, decimalStringToCents } from "@/lib/money";
+import { scopeOf, type Scope } from "@/server/scope";
+import type { AuthUser } from "@/server/auth/service";
 
 const TEST_KEY = "sk_test_51abcDEF_fake_key_for_tests";
 const LIVE_KEY = "sk_live_51abcDEF_fake_key_for_tests";
@@ -62,8 +64,12 @@ beforeAll(() => {
 });
 afterAll(() => vi.unstubAllGlobals());
 
+let OWNER: AuthUser;
+let S: Scope; // âmbito real da conta proprietária de teste
 beforeEach(async () => {
   await resetTestDb();
+  OWNER = await testOwner();
+  S = scopeOf(OWNER.id, false);
   calls = [];
   handler = (c) => json(201, epayPayment({ external_reference: c.body?.external_reference, amount: centsToDecimalString(Math.round(Number(c.body?.amount) * 100)) }));
   delete process.env.NTP_ENABLE_TEST_PROVIDER;
@@ -81,11 +87,11 @@ const key = () => `idem${Date.now()}${seq++}abcdefgh`;
 async function setup(price = "1.500,00") {
   const p = await createProduct(
     productSchema.parse({ name: "Curso Digital", description: "Produto para testes EPay", type: "COURSE", priceCents: price, currency: "MZN", status: "PUBLISHED", deliveryUrl: "https://conteudo.exemplo/curso" }),
-    false,
+    S,
   );
   const c = await createCheckout(
     checkoutSchema.parse({ name: "Checkout EPay", productId: p.id, offerId: p.offers[0].id, title: "Curso", buttonText: "Pagar", primaryColor: "#C8F135", backgroundColor: "#0B0C0E", successTitle: "Ok", successMessage: "Ok", allowCoupons: "on", isActive: "on" }),
-    false,
+    S,
   );
   return { product: p, checkout: c };
 }
@@ -130,7 +136,7 @@ describe("configuração", () => {
   it("ativa com chave de teste; produção exige HTTPS; formato inválido é recusado; segredo nunca exposto", async () => {
     expect(epayProvider.isConfigured()).toBe(true);
     expect(epayProvider.environment()).toBe("test");
-    expect((await getActivePaymentProviders())[0]?.id).toBe("epay");
+    expect((await getActivePaymentProviders(OWNER.id))[0]?.id).toBe("epay");
 
     process.env.EPAY_SECRET_KEY = LIVE_KEY;
     process.env.APP_BASE_URL = "http://loja.local";
@@ -142,7 +148,7 @@ describe("configuração", () => {
     process.env.EPAY_SECRET_KEY = "chave-sem-prefixo";
     expect(epayProvider.isConfigured()).toBe(false);
     delete process.env.EPAY_SECRET_KEY;
-    expect(await getActivePaymentProviders()).toHaveLength(0);
+    expect(await getActivePaymentProviders(OWNER.id)).toHaveLength(0);
 
     process.env.EPAY_SECRET_KEY = LIVE_KEY;
     const checks = JSON.stringify(epayProvider.configChecks());
@@ -238,7 +244,7 @@ describe("criar pagamento (POST /v1/payments)", () => {
     [503, "Pagamentos suspensos"],
   ])("erro %i → pagamento não iniciado, encomenda cancelada, cupão libertado, mensagem segura", async (status, message) => {
     const { checkout } = await setup();
-    await createCoupon(couponSchema.parse({ code: "EPAY10", type: "PERCENT", percentOff: 10, appliesToAll: "on", isActive: "on", maxUses: "5" }), false, "Africa/Maputo");
+    await createCoupon(couponSchema.parse({ code: "EPAY10", type: "PERCENT", percentOff: 10, appliesToAll: "on", isActive: "on", maxUses: "5" }), S, "Africa/Maputo");
     handler = () => json(status, { message, ...(status === 422 ? { errors: { amount: [message] } } : {}) });
     const r = await buy(checkout.publicId, { coupon: "EPAY10" });
     expect(r.kind).toBe("payment_not_started");
@@ -381,7 +387,7 @@ describe("consulta de estado (GET /v1/payments/{id}) e cancelamento", () => {
   it("reconciliação consulta pendentes antigos", async () => {
     const token = await started();
     handler = () => json(200, epayPayment({ status: "paid", fee: "10.00" }));
-    expect(await reconcilePendingPayments()).toEqual({ checked: 1, changed: 1 });
+    expect(await reconcilePendingPayments(OWNER.id)).toEqual({ checked: 1, changed: 1 });
     expect((await order(token)).status).toBe("APPROVED");
   });
 
@@ -392,17 +398,19 @@ describe("consulta de estado (GET /v1/payments/{id}) e cancelamento", () => {
       return json(200, { id: "01j9x7a2c3d4e5f6g7h8j9k0", status: "cancelled", external_reference: "x", changed: true, credited: false, paid_at: null });
     };
     let o = await order(token);
-    await changeOrderStatus(o.id, "CANCELED", false, "admin:dono@exemplo.co.mz");
+    await changeOrderStatus(o.id, "CANCELED", S, "admin:dono@exemplo.co.mz");
     o = await order(token);
     expect(o.status).toBe("CANCELED");
     expect(o.payments[0].status).toBe("CANCELED");
 
     await resetTestDb();
+    OWNER = await testOwner();
+    S = scopeOf(OWNER.id, false);
     handler = (c) => json(201, epayPayment({ external_reference: c.body?.external_reference }));
     token = await started();
     handler = (c) => (c.url.endsWith("/cancel") ? json(422, { message: "O pagamento já está pago." }) : json(200, epayPayment({ status: "paid", fee: "0.00" })));
     o = await order(token);
-    await expect(changeOrderStatus(o.id, "CANCELED", false, "admin:x")).rejects.toThrow(/já foi pago/);
+    await expect(changeOrderStatus(o.id, "CANCELED", S, "admin:x")).rejects.toThrow(/já foi pago/);
     expect((await order(token)).status).toBe("APPROVED");
   });
 });
@@ -423,7 +431,7 @@ describe("receita", () => {
     const ref2 = (await order(r2.token)).payments[0].idempotencyKey;
     await callback(callbackBody({ id: "live_payment_000000000001", external_reference: ref2 }), LIVE_KEY);
 
-    const d = await getDashboardData({ isDemo: false, range: resolveRange({ preset: "today" }, tz), defaultCurrency: "MZN", tz });
+    const d = await getDashboardData({ scope: S, range: resolveRange({ preset: "today" }, tz), defaultCurrency: "MZN", tz });
     expect(d.kpis.approvedCount).toBe(1);
     expect(d.kpis.grossCents).toBe(150000);
     expect(d.kpis.feeCents).toBe(15000);

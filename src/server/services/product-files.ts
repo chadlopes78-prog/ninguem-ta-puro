@@ -4,12 +4,13 @@ import "server-only";
 import { createHash } from "crypto";
 import { prisma } from "@/server/db";
 import { DomainError, NotFoundError } from "./products";
+import { own, type Scope } from "@/server/scope";
 
 /** O alojamento (Vercel) limita o corpo dos pedidos a ~4,5 MB; fica-se abaixo disso. */
 export const MAX_PDF_BYTES = 4 * 1024 * 1024;
 
-export async function saveProductPdf(productId: string, isDemo: boolean, file: { name: string; type: string; bytes: Buffer }) {
-  const product = await prisma.product.findFirst({ where: { id: productId, isDemo }, select: { id: true } });
+export async function saveProductPdf(productId: string, scope: Scope, file: { name: string; type: string; bytes: Buffer }) {
+  const product = await prisma.product.findFirst({ where: { id: productId, ...own(scope) }, select: { id: true } });
   if (!product) throw new NotFoundError("Produto");
   if (file.bytes.length === 0) throw new DomainError("O ficheiro está vazio.");
   if (file.bytes.length > MAX_PDF_BYTES) throw new DomainError("O PDF tem mais de 4 MB. Reduza o tamanho e tente novamente.");
@@ -23,8 +24,8 @@ export async function saveProductPdf(productId: string, isDemo: boolean, file: {
   return created;
 }
 
-export async function deleteProductFile(fileId: string, isDemo: boolean) {
-  const f = await prisma.productFile.findFirst({ where: { id: fileId, product: { isDemo } }, include: { thankYouPages: { select: { id: true } } } });
+export async function deleteProductFile(fileId: string, scope: Scope) {
+  const f = await prisma.productFile.findFirst({ where: { id: fileId, product: own(scope) }, include: { thankYouPages: { select: { id: true } } } });
   if (!f) throw new NotFoundError("Ficheiro");
   if (f.thankYouPages.length) throw new DomainError("Este PDF está a ser entregue numa página de obrigado. Escolha outro destino antes de o eliminar.");
   await prisma.productFile.delete({ where: { id: fileId } });

@@ -21,9 +21,9 @@ export const metadata: Metadata = { title: "Todos os checkouts" };
 export default async function CheckoutsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   await requireUser();
   const sp = await searchParams;
-  const { isDemo } = await getScope();
+  const { isDemo, scope } = await getScope();
   const state = sp.state === "active" || sp.state === "inactive" ? sp.state : "all";
-  const rows = await listCheckouts({ isDemo, q: sp.q?.slice(0, 100), state });
+  const rows = await listCheckouts({ scope, q: sp.q?.slice(0, 100), state });
 
   return (
     <>

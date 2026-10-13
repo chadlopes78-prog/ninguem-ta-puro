@@ -15,12 +15,12 @@ export const metadata: Metadata = { title: "Editar cupão" };
 export default async function CouponPage({ params }: { params: Promise<{ id: string }> }) {
   await requireUser();
   const { id } = await params;
-  const { isDemo, settings } = await getScope();
-  const c = await getCoupon(id, isDemo).catch((e) => {
+  const { isDemo, settings, scope } = await getScope();
+  const c = await getCoupon(id, scope).catch((e) => {
     if (e instanceof NotFoundError) notFound();
     throw e;
   });
-  const products = await listProductOptions(isDemo);
+  const products = await listProductOptions(scope);
   const dates = couponDateKeys(c, settings.timezone);
   return (
     <>

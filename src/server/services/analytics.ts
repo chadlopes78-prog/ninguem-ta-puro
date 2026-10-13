@@ -14,6 +14,8 @@ export const EVENT_TYPES = {
 
 export async function trackEvent(data: {
   type: string;
+  /** Conta dona do checkout/funil/encomenda a que o evento pertence */
+  ownerId: string;
   isDemo: boolean;
   checkoutId?: string;
   funnelId?: string;

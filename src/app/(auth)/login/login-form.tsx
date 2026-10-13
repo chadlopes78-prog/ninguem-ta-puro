@@ -7,7 +7,7 @@ import { useFormAction } from "@/hooks/use-form-action";
 import { loginAction } from "../actions";
 
 export function LoginForm({ next }: { next?: string }) {
-  const { onSubmit, pending, error, fieldErrors } = useFormAction(loginAction, { redirectTo: (d) => d?.next });
+  const { onSubmit, pending, error, fieldErrors } = useFormAction(loginAction, { successMessage: "Sessão iniciada.", redirectTo: (d) => d?.next });
   return (
     <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
       {error && <Alert tone="danger">{error}</Alert>}

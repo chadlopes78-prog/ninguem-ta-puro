@@ -13,7 +13,8 @@ import { Alert } from "@/components/ui/alert";
 import { ActionButton } from "@/components/ui/action-button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { E2PaymentsForm } from "@/components/integrations/e2payments-form";
-import { checkIntegrationAction, reconcileAction, saveE2CredentialsAction, setGatewayEnabledAction, testGatewayConnectionAction } from "./actions";
+import { EPayForm } from "@/components/integrations/epay-form";
+import { checkIntegrationAction, reconcileAction, saveE2CredentialsAction, saveEPayCredentialsAction, setGatewayEnabledAction, testGatewayConnectionAction } from "./actions";
 
 export const metadata: Metadata = { title: "Integrações" };
 export const dynamic = "force-dynamic";
@@ -122,10 +123,19 @@ function GatewayCard({ g, tz }: { g: GatewayView; tz: string }) {
 function EPayNotes({ g }: { g: GatewayView }) {
   return (
     <div className="text-[12.5px] leading-relaxed text-muted">
-      <p className="mb-2 text-[12px] font-medium uppercase tracking-wider text-subtle">Credenciais</p>
-      <p>
-        A chave da EPay está guardada no servidor (<code className="text-fg">EPAY_SECRET_KEY</code>) e nunca é apresentada. Para a atualizar, altere a variável nas definições do alojamento (Vercel → Settings → Environment Variables) e volte a publicar. A API da EPay não documenta um teste de ligação.
-      </p>
+      <p className="mb-2 text-[12px] font-medium uppercase tracking-wider text-subtle">Credenciais desta conta</p>
+      {g.epay?.fromEnv ? (
+        <p>
+          A chave da EPay desta conta está guardada no servidor (<code className="text-fg">EPAY_SECRET_KEY</code>) e nunca é apresentada. Para a atualizar, altere a variável nas definições do alojamento (Vercel → Settings → Environment Variables) e volte a publicar. A API da EPay não documenta um teste de ligação.
+        </p>
+      ) : g.epay?.storageAvailable ? (
+        <div className="flex flex-col gap-2">
+          <p>A sua chave fica guardada cifrada e só é usada nos seus checkouts. Nunca é partilhada com outras contas nem volta a ser mostrada. A API da EPay não documenta um teste de ligação: a chave fica “configurada”, não “verificada”.</p>
+          <EPayForm key={g.epay.keyMasked ?? "none"} action={saveEPayCredentialsAction} initial={{ keyMasked: g.epay.keyMasked, keyEnvironment: g.epay.keyEnvironment }} />
+        </div>
+      ) : (
+        <KeySetup />
+      )}
       <p className="mb-2 mt-3 text-[12px] font-medium uppercase tracking-wider text-subtle">Como funciona</p>
       <ol className="flex list-decimal flex-col gap-1.5 pl-5">
         <li>O checkout cria o pagamento na EPay (valor sempre calculado no servidor, em MZN).</li>
@@ -187,8 +197,9 @@ function KeySetup() {
 }
 
 export default async function IntegrationsPage() {
-  await requireUser();
-  const [gateways, logs, settings] = await Promise.all([listGateways(), recentIntegrationLogs(), getSettings()]);
+  const user = await requireUser();
+  // integrações e registos apenas da conta autenticada
+  const [gateways, logs, settings] = await Promise.all([listGateways(user.id), recentIntegrationLogs(user.id), getSettings(user.id)]);
   const tz = settings.timezone;
   const active = gateways.filter((g) => g.status === "active");
   return (

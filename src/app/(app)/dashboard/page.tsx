@@ -28,11 +28,11 @@ type SP = Promise<Record<string, string | undefined>>;
 export default async function DashboardPage({ searchParams }: { searchParams: SP }) {
   await requireUser();
   const sp = await searchParams;
-  const { isDemo, settings } = await getScope();
+  const { isDemo, settings, scope } = await getScope();
   const tz = settings.timezone;
   const range = resolveRange({ preset: sp.range, from: sp.from, to: sp.to }, tz);
   const reqCurrency = CURRENCIES.includes(sp.currency as CurrencyCode) ? (sp.currency as CurrencyCode) : undefined;
-  const d = await getDashboardData({ isDemo, range, currency: reqCurrency, defaultCurrency: settings.defaultCurrency, tz });
+  const d = await getDashboardData({ scope, range, currency: reqCurrency, defaultCurrency: settings.defaultCurrency, tz });
   const k = d.kpis;
   const p = d.previousKpis;
   const m = (c: number) => formatMoney(c, d.currency);

@@ -14,7 +14,7 @@ export default async function AccessPage({ params }: { params: Promise<{ token: 
   // Só devolve dados quando a encomenda está paga (confirmada pelo processador).
   const view = await getDeliveryView(token);
   if (!view) return <Unavailable title="Acesso indisponível" message="Este acesso não existe ou a encomenda não está paga." />;
-  const [settings, files] = await Promise.all([getSettings(), filesForDelivery(token)]);
+  const [settings, files] = await Promise.all([getSettings(view.ownerId), filesForDelivery(token)]);
   return (
     <main className="grid min-h-dvh place-items-center px-4 py-10">
       <div className="w-full max-w-md">

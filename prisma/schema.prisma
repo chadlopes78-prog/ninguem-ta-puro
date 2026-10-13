@@ -20,11 +20,32 @@ enum Currency {
 
 // ───────────────────────── Autenticação ─────────────────────────
 
+enum UserRole {
+  OWNER
+  USER
+}
+
+enum AccountStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+}
+
 model User {
   id                     String                  @id @default(cuid())
   email                  String                  @unique
   name                   String
   passwordHash           String
+  /// OWNER só é atribuído por migração/script no servidor (índice único parcial: no máximo um OWNER). Nunca pela API.
+  role                   UserRole                @default(USER)
+  /// Estado de aprovação. Contas novas começam sempre pendentes (definido no servidor).
+  status                 AccountStatus           @default(PENDING_APPROVAL)
+  /// Suspensão separada da aprovação: desbanir devolve o acesso conforme o estado de aprovação.
+  bannedAt               DateTime?
+  banReason              String?
+  approvedAt             DateTime?
+  rejectedAt             DateTime?
+  lastLoginAt            DateTime?
   /// Preferência visual do painel: "system" | "light" | "dark" (não afeta checkouts públicos)
   themePreference        String                  @default("system")
   createdAt              DateTime                @default(now())
@@ -33,6 +54,38 @@ model User {
   notifications          Notification[]
   pushSubscriptions      PushSubscription[]
   notificationPreference NotificationPreference?
+  settings               Settings?
+  products               Product[]
+  checkouts              Checkout[]
+  checkoutSessions       CheckoutSession[]
+  funnels                Funnel[]
+  funnelRuns             FunnelRun[]
+  customers              Customer[]
+  orders                 Order[]
+  coupons                Coupon[]
+  analyticsEvents        AnalyticsEvent[]
+  integrations           IntegrationConfig[]
+  refunds                Refund[]
+  adminActions           AdminAuditLog[]         @relation("AdminActor")
+  adminTargets           AdminAuditLog[]         @relation("AdminTarget")
+}
+
+/// Registo das ações administrativas (aprovar, rejeitar, banir, desbanir).
+model AdminAuditLog {
+  id           String   @id @default(cuid())
+  actorId      String
+  actor        User     @relation("AdminActor", fields: [actorId], references: [id], onDelete: Restrict)
+  targetUserId String
+  target       User     @relation("AdminTarget", fields: [targetUserId], references: [id], onDelete: Restrict)
+  /// approve | reject | ban | unban
+  action       String
+  fromState    String?
+  toState      String?
+  reason       String?
+  createdAt    DateTime @default(now())
+
+  @@index([targetUserId, createdAt])
+  @@index([createdAt])
 }
 
 model Session {
@@ -86,6 +139,9 @@ model Product {
   salesPageUrl String?
   supportEmail String?
   deliveryUrl  String?
+  /// Conta dona deste registo (isolamento entre utilizadores)
+  ownerId      String
+  owner        User            @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   isDemo       Boolean         @default(false)
   archivedAt   DateTime?
   createdAt    DateTime        @default(now())
@@ -98,6 +154,7 @@ model Product {
   funnels      Funnel[]
 
   @@index([isDemo, status])
+  @@index([ownerId, isDemo, status])
   @@index([createdAt])
 }
 
@@ -162,6 +219,9 @@ model Checkout {
   isActive           Boolean           @default(true)
   funnelId           String?
   funnel             Funnel?           @relation(fields: [funnelId], references: [id], onDelete: SetNull)
+  /// Conta dona deste registo (isolamento entre utilizadores)
+  ownerId            String
+  owner              User              @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   isDemo             Boolean           @default(false)
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt
@@ -170,6 +230,7 @@ model Checkout {
   design             CheckoutDesign?
 
   @@index([isDemo])
+  @@index([ownerId, isDemo])
   @@index([productId])
 }
 
@@ -194,6 +255,9 @@ model CheckoutSession {
   id          String        @id @default(cuid())
   checkoutId  String
   checkout    Checkout      @relation(fields: [checkoutId], references: [id], onDelete: Cascade)
+  /// Conta dona deste registo (isolamento entre utilizadores)
+  ownerId     String
+  owner       User          @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   isDemo      Boolean       @default(false)
   status      SessionStatus @default(OPEN)
   utmSource   String?
@@ -203,6 +267,7 @@ model CheckoutSession {
   updatedAt   DateTime      @updatedAt
 
   @@index([checkoutId, createdAt])
+  @@index([ownerId, isDemo, createdAt])
   @@index([isDemo, createdAt])
 }
 
@@ -237,6 +302,9 @@ model Funnel {
   name         String
   description  String?
   status       FunnelStatus  @default(DRAFT)
+  /// Conta dona deste registo (isolamento entre utilizadores)
+  ownerId      String
+  owner        User          @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   isDemo       Boolean       @default(false)
   /// Produto inicial (funis criados pelo assistente). Null = funil avançado criado no editor visual.
   productId    String?
@@ -251,6 +319,7 @@ model Funnel {
   thankYouPage ThankYouPage?
 
   @@index([isDemo])
+  @@index([ownerId, isDemo])
   @@index([productId])
 }
 
@@ -326,6 +395,9 @@ model FunnelRun {
   orderId        String?   @unique
   order          Order?    @relation(fields: [orderId], references: [id], onDelete: SetNull)
   currentStepKey String
+  /// Conta dona deste registo (isolamento entre utilizadores)
+  ownerId        String
+  owner          User      @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   isDemo         Boolean   @default(true)
   history        Json      @default("[]")
   completedAt    DateTime?
@@ -343,12 +415,15 @@ model Customer {
   name      String
   phone     String?
   document  String?
+  /// Conta dona deste registo (isolamento entre utilizadores)
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   isDemo    Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   orders    Order[]
 
-  @@unique([email, isDemo])
+  @@unique([ownerId, email, isDemo])
   @@index([isDemo, createdAt])
 }
 
@@ -400,6 +475,9 @@ model Order {
   /// Pago com credenciais de teste do fornecedor (sandbox): nunca conta como receita
   isTestPayment  Boolean         @default(false)
   notes          String?
+  /// Conta dona deste registo (isolamento entre utilizadores)
+  ownerId        String
+  owner          User            @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   isDemo         Boolean         @default(false)
   /// Encomenda de upsell: aponta para a compra inicial (cada upsell é um pedido e pagamento próprios)
   parentOrderId  String?
@@ -421,6 +499,7 @@ model Order {
   refunds        Refund[]
 
   @@index([isDemo, status, createdAt])
+  @@index([ownerId, isDemo, status, createdAt])
   @@index([customerId])
   @@index([checkoutId])
   @@index([parentOrderId])
@@ -475,13 +554,16 @@ model Coupon {
   maxUses        Int?
   usesCount      Int             @default(0)
   isActive       Boolean         @default(true)
+  /// Conta dona deste registo (isolamento entre utilizadores)
+  ownerId        String
+  owner          User            @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   isDemo         Boolean         @default(false)
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   products       CouponProduct[]
   orders         Order[]
 
-  @@unique([code, isDemo])
+  @@unique([ownerId, code, isDemo])
 }
 
 model CouponProduct {
@@ -498,6 +580,9 @@ model CouponProduct {
 model AnalyticsEvent {
   id         String   @id @default(cuid())
   type       String
+  /// Conta dona deste registo (isolamento entre utilizadores)
+  ownerId    String
+  owner      User     @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   isDemo     Boolean  @default(false)
   checkoutId String?
   funnelId   String?
@@ -508,13 +593,18 @@ model AnalyticsEvent {
   createdAt  DateTime @default(now())
 
   @@index([isDemo, type, createdAt])
+  @@index([ownerId, isDemo, type, createdAt])
   @@index([funnelId])
 }
 
 // ───────────────────────── Configurações e integrações ─────────────────────────
 
+/// Configurações de cada conta (nome do negócio, moeda, fuso, modo de demonstração).
 model Settings {
-  id              String   @id @default("default")
+  id              String   @id @default(cuid())
+  /// Conta dona destas configurações (uma linha por utilizador)
+  ownerId         String?  @unique
+  owner           User?    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   businessName    String   @default("Ninguém Tá Puro")
   logoUrl         String?
   ownerName       String?
@@ -540,9 +630,12 @@ enum IntegrationEnvironment {
   PRODUCTION
 }
 
+/// Integração de pagamento de UMA conta (uma linha por conta e fornecedor). Nunca partilhada entre contas.
 model IntegrationConfig {
   id            String                 @id @default(cuid())
-  provider      String                 @unique
+  ownerId       String
+  owner         User                   @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  provider      String
   status        IntegrationStatus      @default(NOT_CONFIGURED)
   environment   IntegrationEnvironment @default(SANDBOX)
   /// Apenas configuração pública/não secreta (ex.: IDs de carteira).
@@ -557,16 +650,21 @@ model IntegrationConfig {
   lastError     String?
   createdAt     DateTime               @default(now())
   updatedAt     DateTime               @updatedAt
+
+  @@unique([ownerId, provider])
 }
 
 model IntegrationLog {
   id        String   @id @default(cuid())
+  /// Conta a que o registo diz respeito (null: evento sem conta identificável)
+  ownerId   String?
   provider  String
   level     String
   message   String
   createdAt DateTime @default(now())
 
   @@index([provider, createdAt])
+  @@index([ownerId, createdAt])
 }
 
 enum PaymentEventStatus {
@@ -588,6 +686,8 @@ model PaymentEvent {
   payload         Json
   orderId         String?
   order           Order?             @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  /// Conta dona da encomenda (definida depois de a assinatura ser validada com as credenciais dessa conta)
+  ownerId         String?
   error           String?
   receivedAt      DateTime           @default(now())
   processedAt     DateTime?
@@ -677,11 +777,15 @@ model Refund {
   reason      String?
   /// ex.: "admin:<userId>"
   actor       String
+  /// Conta dona deste registo (isolamento entre utilizadores)
+  ownerId     String
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   isDemo      Boolean  @default(false)
   createdAt   DateTime @default(now())
 
   @@index([orderId])
   @@index([isDemo, createdAt])
+  @@index([ownerId, isDemo, createdAt])
 }
 
 // ───────────────────────── Notificações ─────────────────────────

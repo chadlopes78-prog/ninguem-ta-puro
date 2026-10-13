@@ -40,7 +40,7 @@ async function ensureRun(root: Order, funnel: FunnelWithGraph) {
   if (!first) return null;
   try {
     return await prisma.funnelRun.create({
-      data: { id: newRunId(), funnelId: funnel.id, orderId: root.id, currentStepKey: first.key, isDemo: false, history: [], completedAt: OFFER_STEP_TYPES.includes(first.type) ? null : new Date() },
+      data: { id: newRunId(), funnelId: funnel.id, orderId: root.id, currentStepKey: first.key, ownerId: root.ownerId, isDemo: false, history: [], completedAt: OFFER_STEP_TYPES.includes(first.type) ? null : new Date() },
     });
   } catch (e) {
     // pedidos simultâneos: a restrição única garante um só percurso
@@ -126,10 +126,11 @@ export async function getRealOfferView(runId: string) {
   const active = Boolean(node && OFFER_STEP_TYPES.includes(node.type) && !run.completedAt);
   const offer =
     active && node?.config.offerId
-      ? await prisma.offer.findFirst({ where: { id: node.config.offerId, productId: node.config.productId, isActive: true, product: { isDemo: false, status: { not: "ARCHIVED" } } }, include: { product: true } })
+      ? await prisma.offer.findFirst({ where: { id: node.config.offerId, productId: node.config.productId, isActive: true, product: { ownerId: root.ownerId, isDemo: false, status: { not: "ARCHIVED" } } }, include: { product: true } })
       : null;
   const child = node ? await prisma.order.findFirst({ where: { parentOrderId: root.id, funnelStepKey: node.key }, orderBy: { createdAt: "desc" } }) : null;
-  const providers = (await getActivePaymentProviders()).filter((p) => !offer || p.supportedCurrencies.includes(offer.currency));
+  // Gateways da conta dona da venda inicial (o upsell é pago à mesma conta)
+  const providers = (await getActivePaymentProviders(root.ownerId)).filter((p) => !offer || p.supportedCurrencies.includes(offer.currency));
   const options: PaymentOptionView[] = listPaymentOptions(providers);
   return {
     run,
@@ -163,7 +164,7 @@ export async function acceptUpsell(runId: string, stepKey: string, input: { meth
   // Já existe um pagamento desta oferta em curso ou concluído: nunca se cobra duas vezes
   if (child && (child.status === "PENDING" || child.status === "APPROVED")) return { kind: "payment_started", token: child.publicToken!, redirectUrl: null };
 
-  const providers = (await getActivePaymentProviders()).filter((p) => p.supportedCurrencies.includes(offer.currency));
+  const providers = (await getActivePaymentProviders(root.ownerId)).filter((p) => p.supportedCurrencies.includes(offer.currency));
   if (providers.length === 0) return { kind: "unavailable", message: "Não existem métodos de pagamento disponíveis de momento. Nada foi cobrado." };
   const selected = resolvePaymentOption(providers, input.method);
   if (!selected) return { kind: "invalid", fieldErrors: { method: "Escolha um método de pagamento" } };
@@ -184,7 +185,7 @@ export async function acceptUpsell(runId: string, stepKey: string, input: { meth
 
   const environment = provider.environment();
   const description = `${offer.product.name} — ${offer.name}`;
-  let created: { orderId: string; orderCode: string; publicToken: string; paymentId: string; reference: string };
+  let created: { orderId: string; orderCode: string; publicToken: string; paymentId: string; reference: string; ownerId: string };
   try {
     created = await prisma.$transaction(async (tx) => {
       const publicToken = token();
@@ -207,6 +208,7 @@ export async function acceptUpsell(runId: string, stepKey: string, input: { meth
           paymentMethod: method?.id ?? null,
           publicToken,
           idempotencyKey: idem,
+          ownerId: root.ownerId,
           isDemo: false,
           isTestPayment: environment === "test",
           items: { create: { productId: offer.productId, offerId: offer.id, kind: "UPSELL", description, unitPriceCents: offer.priceCents, quantity: 1, totalCents: offer.priceCents } },
@@ -217,7 +219,7 @@ export async function acceptUpsell(runId: string, stepKey: string, input: { meth
         data: { orderId: order.id, provider: provider.id, method: method?.id ?? null, environment, phoneMasked: phone ? maskPhone(phone) : null, amountCents: offer.priceCents, currency: offer.currency, status: "CREATED", idempotencyKey: reference },
       });
       await audit(tx, order.id, null, "PENDING", "funnel-upsell", `Upsell aceite (compra inicial ${root.code}); pagamento iniciado`);
-      return { orderId: order.id, orderCode: order.code, publicToken, paymentId: payment.id, reference };
+      return { orderId: order.id, orderCode: order.code, publicToken, paymentId: payment.id, reference, ownerId: root.ownerId };
     });
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
@@ -237,7 +239,7 @@ export async function acceptUpsell(runId: string, stepKey: string, input: { meth
     description: description.slice(0, 255),
     imageUrl: offer.product.imageUrl ?? null,
   });
-  await trackEvent({ type: EVENT_TYPES.OFFER_ACCEPT, isDemo: false, funnelId: run.funnelId, orderId: created.orderId, stepKey: node.key, meta: { provider: provider.id } });
+  await trackEvent({ type: EVENT_TYPES.OFFER_ACCEPT, ownerId: root.ownerId, isDemo: false, funnelId: run.funnelId, orderId: created.orderId, stepKey: node.key, meta: { provider: provider.id } });
   if (charge.notStarted) return { kind: "payment_not_started", message: charge.notStarted };
   return { kind: "payment_started", token: created.publicToken, redirectUrl: charge.redirectUrl };
 }
@@ -254,7 +256,7 @@ export async function declineUpsell(runId: string, stepKey: string): Promise<Des
   if (view.child && (view.child.status === "APPROVED" || view.child.status === "PENDING")) return view.child.publicToken ? nextDestination(view.child.publicToken) : null;
   if (node?.key === stepKey && view.active) {
     await completeRun(run.id, stepKey, "decline", graph, "declined");
-    await trackEvent({ type: EVENT_TYPES.OFFER_DECLINE, isDemo: false, funnelId: run.funnelId, orderId: root.id, stepKey });
+    await trackEvent({ type: EVENT_TYPES.OFFER_DECLINE, ownerId: root.ownerId, isDemo: false, funnelId: run.funnelId, orderId: root.id, stepKey });
   }
   if (step.config.afterDecline === "url" && step.config.afterDeclineUrl) return { kind: "external", url: step.config.afterDeclineUrl };
   return { kind: "thank_you", url: thankYouUrl(root) };
@@ -313,6 +315,8 @@ export async function getThankYouView(publicToken: string, opts: { refresh?: boo
   return {
     state,
     code: root.code,
+    /** Conta dona da venda (para mostrar o nome do negócio dessa conta) */
+    ownerId: root.ownerId,
     customerFirstName: root.customer.name.split(/\s+/)[0] ?? "",
     items: root.items.map((i) => ({ description: i.description, totalCents: i.totalCents })),
     totalCents: root.totalCents,

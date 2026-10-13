@@ -37,11 +37,11 @@ export default async function OfferPage({ params, searchParams }: { params: Prom
       if (dest && dest.kind !== "upsell") redirect(dest.url);
       return <Unavailable title="Oferta indisponível" message="Esta oferta já não está disponível. A sua compra principal está confirmada." />;
     }
-    const s = await getSettings();
+    const s = await getSettings(run.ownerId);
     const bg = root.checkout?.backgroundColor ?? "#0B0C0E";
     const primary = root.checkout?.primaryColor ?? "#C8F135";
-    const seen = await prisma.analyticsEvent.count({ where: { type: EVENT_TYPES.FUNNEL_STEP_VIEW, stepKey: node.key, meta: { path: ["runId"], equals: run.id } } });
-    if (!seen) await trackRunView(run.id, node.key, run.funnelId, false);
+    const seen = await prisma.analyticsEvent.count({ where: { ownerId: run.ownerId, type: EVENT_TYPES.FUNNEL_STEP_VIEW, stepKey: node.key, meta: { path: ["runId"], equals: run.id } } });
+    if (!seen) await trackRunView(run.id, node.key, run.funnelId, false, run.ownerId);
     return (
       <main className="min-h-dvh">
         <UpsellContent
@@ -79,15 +79,15 @@ export default async function OfferPage({ params, searchParams }: { params: Prom
   const view = await getRunView(runId);
   if (!view) return <Unavailable title="Oferta indisponível" message="Esta página já não está disponível." />;
   const { run, node, offer, order } = view;
-  const settings = await getSettings();
+  const settings = await getSettings(run.ownerId);
   const bg = order.checkout?.backgroundColor ?? "#0B0C0E";
   const primary = order.checkout?.primaryColor ?? "#C8F135";
   const fg = readableOn(bg);
 
   const isOffer = node && OFFER_STEP_TYPES.includes(node.type) && !run.completedAt;
   if (isOffer && node) {
-    const seen = await prisma.analyticsEvent.count({ where: { type: EVENT_TYPES.FUNNEL_STEP_VIEW, stepKey: node.key, meta: { path: ["runId"], equals: run.id } } });
-    if (!seen) await trackRunView(run.id, node.key, run.funnelId, run.isDemo);
+    const seen = await prisma.analyticsEvent.count({ where: { ownerId: run.ownerId, type: EVENT_TYPES.FUNNEL_STEP_VIEW, stepKey: node.key, meta: { path: ["runId"], equals: run.id } } });
+    if (!seen) await trackRunView(run.id, node.key, run.funnelId, run.isDemo, run.ownerId);
   }
 
   return (

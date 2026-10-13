@@ -17,6 +17,7 @@ import { prisma } from "@/server/db";
 import { ArrowRight } from "lucide-react";
 import { STEP_ICON, STEP_TINT } from "@/components/funnels/step-visuals";
 import { createFunnelAction, createWizardFunnelAction, deactivateFunnelAction, deleteFunnelAction, duplicateFunnelAction, activateFunnelAction } from "./actions";
+import { own } from "@/server/scope";
 
 export const metadata: Metadata = { title: "Funis de vendas" };
 
@@ -25,10 +26,10 @@ const STATUS = { DRAFT: <Badge>Rascunho</Badge>, ACTIVE: <Badge tone="success" d
 export default async function FunnelsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   await requireUser();
   const sp = await searchParams;
-  const { isDemo, settings } = await getScope();
+  const { isDemo, settings, scope } = await getScope();
   const [funnels, products] = await Promise.all([
-    listFunnels({ isDemo, q: sp.q?.slice(0, 100), status: sp.status }),
-    prisma.product.findMany({ where: { isDemo, status: { not: "ARCHIVED" } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    listFunnels({ scope, q: sp.q?.slice(0, 100), status: sp.status }),
+    prisma.product.findMany({ where: { ...own(scope), status: { not: "ARCHIVED" } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
 
   return (

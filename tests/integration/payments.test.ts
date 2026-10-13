@@ -3,7 +3,7 @@
 import { createHmac } from "crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/server/db";
-import { resetTestDb } from "../helpers/db";
+import { resetTestDb, testOwner } from "../helpers/db";
 import { productSchema, checkoutSchema, couponSchema } from "@/server/validation/schemas";
 import { createProduct, setProductStatus } from "@/server/services/products";
 import { createCheckout } from "@/server/services/checkouts";
@@ -14,6 +14,8 @@ import { changeOrderStatus } from "@/server/services/orders";
 import { handleWebhook } from "@/server/payments/webhooks";
 import { testLocalProvider } from "@/server/payments/providers/test-local";
 import { getActivePaymentProviders, getProvider } from "@/server/payments/registry";
+import { scopeOf, type Scope } from "@/server/scope";
+import type { AuthUser } from "@/server/auth/service";
 
 const SECRET = "segredo-apenas-para-testes";
 
@@ -25,7 +27,13 @@ afterAll(() => {
   delete process.env.NTP_ENABLE_TEST_PROVIDER;
   delete process.env.TEST_PROVIDER_SECRET;
 });
-beforeEach(resetTestDb);
+let OWNER: AuthUser;
+let S: Scope; // âmbito real da conta proprietária de teste
+beforeEach(async () => {
+  await resetTestDb();
+  OWNER = await testOwner();
+  S = scopeOf(OWNER.id, false);
+});
 
 let seq = 0;
 const key = () => `idem${Date.now()}${seq++}abcdefgh`;
@@ -33,11 +41,11 @@ const key = () => `idem${Date.now()}${seq++}abcdefgh`;
 async function setup(price = "1.500,00") {
   const p = await createProduct(
     productSchema.parse({ name: "Curso Digital", description: "Produto para testes de pagamento", type: "COURSE", priceCents: price, currency: "MZN", status: "PUBLISHED", deliveryUrl: "https://conteudo.exemplo/curso" }),
-    false,
+    S,
   );
   const c = await createCheckout(
     checkoutSchema.parse({ name: "Checkout MZN", productId: p.id, offerId: p.offers[0].id, title: "Curso", buttonText: "Pagar", primaryColor: "#C8F135", backgroundColor: "#0B0C0E", successTitle: "Ok", successMessage: "Ok", allowCoupons: "on", isActive: "on" }),
-    false,
+    S,
   );
   return { product: p, checkout: c };
 }
@@ -156,7 +164,7 @@ describe("confirmação por notificação (webhook)", () => {
 
   it("pagamento falhado e cancelado por notificação; cupão é libertado", async () => {
     const { checkout, product } = await setup();
-    await createCoupon(couponSchema.parse({ code: "MZ10", type: "PERCENT", percentOff: 10, appliesToAll: "on", isActive: "on", maxUses: "1" }), false, "Africa/Maputo");
+    await createCoupon(couponSchema.parse({ code: "MZ10", type: "PERCENT", percentOff: 10, appliesToAll: "on", isActive: "on", maxUses: "1" }), S, "Africa/Maputo");
     const r = await buy(checkout.publicId, "841234567", { coupon: "MZ10" });
     if (r.kind !== "payment_started") throw new Error(JSON.stringify(r));
     let o = await orderByToken(r.token);
@@ -269,7 +277,7 @@ describe("entrega do produto digital", () => {
     const r = await buy(checkout.publicId, "841234567");
     if (r.kind !== "payment_started") throw new Error();
     const o = await orderByToken(r.token);
-    await changeOrderStatus(o.id, "CANCELED", false, "admin:dono@exemplo.co.mz");
+    await changeOrderStatus(o.id, "CANCELED", S, "admin:dono@exemplo.co.mz");
     const after = await orderByToken(r.token);
     expect(after.auditLogs.find((a) => a.toStatus === "CANCELED")).toMatchObject({ fromStatus: "PENDING", actor: "admin:dono@exemplo.co.mz" });
   });
@@ -279,20 +287,20 @@ describe("restrições de configuração", () => {
   it("produtos noutra moeda não são cobrados (apenas MZN)", async () => {
     const { checkout, product } = await setup();
     await prisma.offer.update({ where: { id: product.offers[0].id }, data: { currency: "USD" } });
-    await setProductStatus(product.id, "PUBLISHED", false);
+    await setProductStatus(product.id, "PUBLISHED", S);
     const r = await buy(checkout.publicId, "841234567");
     expect(r).toMatchObject({ kind: "payments_unavailable" });
     expect(await prisma.order.count()).toBe(0);
   });
 
   it("fornecedor de teste só existe na base de dados de testes e com a variável explícita", async () => {
-    expect((await getActivePaymentProviders())[0]?.id).toBe("teste-local");
+    expect((await getActivePaymentProviders(OWNER.id))[0]?.id).toBe("teste-local");
     process.env.NTP_ENABLE_TEST_PROVIDER = "false";
-    expect(await getActivePaymentProviders()).toHaveLength(0);
+    expect(await getActivePaymentProviders(OWNER.id)).toHaveLength(0);
     process.env.NTP_ENABLE_TEST_PROVIDER = "true";
     const url = process.env.DATABASE_URL;
     process.env.DATABASE_URL = "postgresql://x@localhost/producao";
-    expect(await getProvider("teste-local")).toBeNull();
+    expect(await getProvider("teste-local", OWNER.id)).toBeNull();
     process.env.DATABASE_URL = url;
   });
 });

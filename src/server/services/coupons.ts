@@ -5,6 +5,7 @@ import type { CouponInput } from "@/server/validation/schemas";
 import { evaluateCoupon, type CouponEvaluation } from "./coupon-logic";
 import { DomainError, NotFoundError } from "./products";
 import type { CurrencyCode } from "@/lib/money";
+import { own, type Scope } from "@/server/scope";
 
 export class DuplicateCodeError extends DomainError {
   constructor() {
@@ -12,8 +13,8 @@ export class DuplicateCodeError extends DomainError {
   }
 }
 
-export async function listCoupons(params: { isDemo: boolean; q?: string; state?: string }) {
-  const where: Prisma.CouponWhereInput = { isDemo: params.isDemo };
+export async function listCoupons(params: { scope: Scope; q?: string; state?: string }) {
+  const where: Prisma.CouponWhereInput = { ...own(params.scope) };
   if (params.q) where.code = { contains: params.q.toUpperCase() };
   if (params.state === "active") where.isActive = true;
   if (params.state === "inactive") where.isActive = false;
@@ -24,8 +25,8 @@ export async function listCoupons(params: { isDemo: boolean; q?: string; state?:
   });
 }
 
-export async function getCoupon(id: string, isDemo: boolean) {
-  const c = await prisma.coupon.findFirst({ where: { id, isDemo }, include: { products: true } });
+export async function getCoupon(id: string, scope: Scope) {
+  const c = await prisma.coupon.findFirst({ where: { id, ...own(scope) }, include: { products: true } });
   if (!c) throw new NotFoundError("Cupão");
   return c;
 }
@@ -47,17 +48,17 @@ function toData(input: CouponInput, tz: string) {
   };
 }
 
-async function assertProducts(ids: string[], isDemo: boolean) {
+async function assertProducts(ids: string[], scope: Scope) {
   if (!ids.length) return;
-  const count = await prisma.product.count({ where: { id: { in: ids }, isDemo } });
+  const count = await prisma.product.count({ where: { id: { in: ids }, ...own(scope) } });
   if (count !== new Set(ids).size) throw new DomainError("Produto elegível inexistente.");
 }
 
-export async function createCoupon(input: CouponInput, isDemo: boolean, tz: string) {
-  await assertProducts(input.productIds, isDemo);
+export async function createCoupon(input: CouponInput, scope: Scope, tz: string) {
+  await assertProducts(input.productIds, scope);
   try {
     return await prisma.coupon.create({
-      data: { ...toData(input, tz), isDemo, products: { create: input.productIds.map((productId) => ({ productId })) } },
+      data: { ...toData(input, tz), ...own(scope), products: { create: input.productIds.map((productId) => ({ productId })) } },
     });
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") throw new DuplicateCodeError();
@@ -65,9 +66,9 @@ export async function createCoupon(input: CouponInput, isDemo: boolean, tz: stri
   }
 }
 
-export async function updateCoupon(id: string, input: CouponInput, isDemo: boolean, tz: string) {
-  await getCoupon(id, isDemo);
-  await assertProducts(input.productIds, isDemo);
+export async function updateCoupon(id: string, input: CouponInput, scope: Scope, tz: string) {
+  await getCoupon(id, scope);
+  await assertProducts(input.productIds, scope);
   try {
     return await prisma.$transaction(async (tx) => {
       await tx.couponProduct.deleteMany({ where: { couponId: id } });
@@ -82,13 +83,13 @@ export async function updateCoupon(id: string, input: CouponInput, isDemo: boole
   }
 }
 
-export async function setCouponActive(id: string, active: boolean, isDemo: boolean) {
-  await getCoupon(id, isDemo);
+export async function setCouponActive(id: string, active: boolean, scope: Scope) {
+  await getCoupon(id, scope);
   return prisma.coupon.update({ where: { id }, data: { isActive: active } });
 }
 
-export async function deleteCoupon(id: string, isDemo: boolean) {
-  const c = await prisma.coupon.findFirst({ where: { id, isDemo }, include: { _count: { select: { orders: true } } } });
+export async function deleteCoupon(id: string, scope: Scope) {
+  const c = await prisma.coupon.findFirst({ where: { id, ...own(scope) }, include: { _count: { select: { orders: true } } } });
   if (!c) throw new NotFoundError("Cupão");
   if (c._count.orders > 0) throw new DomainError("Cupão já utilizado em pedidos. Desative-o em vez de o eliminar.");
   await prisma.coupon.delete({ where: { id } });
@@ -97,11 +98,11 @@ export async function deleteCoupon(id: string, isDemo: boolean) {
 /** Avalia um código de cupão para um produto/moeda/subtotal. */
 export async function evaluateCouponCode(
   code: string,
-  ctx: { isDemo: boolean; productId: string; currency: CurrencyCode; subtotalCents: number; now?: Date },
+  ctx: { scope: Scope; productId: string; currency: CurrencyCode; subtotalCents: number; now?: Date },
 ): Promise<{ evaluation: CouponEvaluation; coupon: Coupon | null }> {
   const normalized = code.trim().toUpperCase();
   const coupon = normalized
-    ? await prisma.coupon.findUnique({ where: { code_isDemo: { code: normalized, isDemo: ctx.isDemo } }, include: { products: true } })
+    ? await prisma.coupon.findUnique({ where: { ownerId_code_isDemo: { ownerId: ctx.scope.ownerId, code: normalized, isDemo: ctx.scope.isDemo } }, include: { products: true } })
     : null;
   const evaluation = evaluateCoupon(
     coupon

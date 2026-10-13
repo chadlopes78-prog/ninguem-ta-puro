@@ -6,29 +6,35 @@ import { newCheckoutPublicId, newOrderCode } from "@/lib/ids";
 import type { FunnelGraph } from "@/lib/funnels/types";
 import { createFunnel } from "./funnels";
 import { ensurePrimaryCheckout } from "./primary-checkout";
+import { scopeOf } from "@/server/scope";
 
-export async function clearDemoData() {
+/** Dados de demonstração de UMA conta: { ownerId, isDemo: true }. */
+const demoOf = (ownerId: string) => ({ ownerId, isDemo: true as const });
+
+export async function clearDemoData(ownerId: string) {
+  const D = demoOf(ownerId);
   await prisma.$transaction([
-    prisma.funnelRun.deleteMany({ where: { isDemo: true } }),
-    prisma.order.deleteMany({ where: { isDemo: true } }),
-    prisma.customer.deleteMany({ where: { isDemo: true } }),
-    prisma.coupon.deleteMany({ where: { isDemo: true } }),
-    prisma.checkoutSession.deleteMany({ where: { isDemo: true } }),
-    prisma.checkout.deleteMany({ where: { isDemo: true } }),
-    prisma.funnel.deleteMany({ where: { isDemo: true } }),
-    prisma.product.deleteMany({ where: { isDemo: true } }),
-    prisma.analyticsEvent.deleteMany({ where: { isDemo: true } }),
+    prisma.funnelRun.deleteMany({ where: D }),
+    prisma.order.deleteMany({ where: D }),
+    prisma.customer.deleteMany({ where: D }),
+    prisma.coupon.deleteMany({ where: D }),
+    prisma.checkoutSession.deleteMany({ where: D }),
+    prisma.checkout.deleteMany({ where: D }),
+    prisma.funnel.deleteMany({ where: D }),
+    prisma.product.deleteMany({ where: D }),
+    prisma.analyticsEvent.deleteMany({ where: D }),
   ]);
 }
 
-export async function demoDataCounts() {
+export async function demoDataCounts(ownerId: string) {
+  const D = demoOf(ownerId);
   const [products, orders, customers, coupons, funnels, checkouts] = await Promise.all([
-    prisma.product.count({ where: { isDemo: true } }),
-    prisma.order.count({ where: { isDemo: true } }),
-    prisma.customer.count({ where: { isDemo: true } }),
-    prisma.coupon.count({ where: { isDemo: true } }),
-    prisma.funnel.count({ where: { isDemo: true } }),
-    prisma.checkout.count({ where: { isDemo: true } }),
+    prisma.product.count({ where: D }),
+    prisma.order.count({ where: D }),
+    prisma.customer.count({ where: D }),
+    prisma.coupon.count({ where: D }),
+    prisma.funnel.count({ where: D }),
+    prisma.checkout.count({ where: D }),
   ]);
   return { products, orders, customers, coupons, funnels, checkouts };
 }
@@ -45,8 +51,9 @@ function rng(seed: number) {
 const FIRST = ["Ana", "Bruno", "Carla", "Diego", "Eva", "Fábio", "Gabriela", "Hugo", "Inês", "João", "Larissa", "Marco", "Nádia", "Otávio", "Paula", "Rui", "Sofia", "Tiago"];
 const LAST = ["Silva", "Santos", "Oliveira", "Costa", "Pereira", "Almeida", "Ferreira", "Rodrigues", "Martins", "Gomes"];
 
-export async function seedDemoData(now = new Date(), currency: Currency = "MZN") {
-  await clearDemoData();
+export async function seedDemoData(ownerId: string, now = new Date(), currency: Currency = "MZN") {
+  const D = demoOf(ownerId);
+  await clearDemoData(ownerId);
   const rand = rng(42);
   const dayMs = 86_400_000;
 
@@ -59,7 +66,7 @@ export async function seedDemoData(now = new Date(), currency: Currency = "MZN")
         category: "Demonstração",
         status: "PUBLISHED",
         imageUrl,
-        isDemo: true,
+        ...D,
         offers: { create: { name: "Preço principal", priceCents, currency, isDefault: true } },
       },
       include: { offers: true },
@@ -75,7 +82,7 @@ export async function seedDemoData(now = new Date(), currency: Currency = "MZN")
       description: "Produto fictício em rascunho para testar estados.",
       type: "PDF",
       status: "DRAFT",
-      isDemo: true,
+      ...D,
       offers: { create: { name: "Preço principal", priceCents: 29_00, currency, isDefault: true } },
     },
   });
@@ -89,7 +96,7 @@ export async function seedDemoData(now = new Date(), currency: Currency = "MZN")
       title: "Guia Digital de Exemplo",
       description: "Acesso imediato ao guia completo em PDF. Produto fictício de demonstração.",
       buttonText: "Comprar agora",
-      isDemo: true,
+      ...D,
     },
   });
   const checkoutCourse = await prisma.checkout.create({
@@ -101,7 +108,7 @@ export async function seedDemoData(now = new Date(), currency: Currency = "MZN")
       title: "Curso Premium de Demonstração",
       description: "Curso fictício com módulos de exemplo.",
       collectPhone: true,
-      isDemo: true,
+      ...D,
     },
   });
 
@@ -152,22 +159,22 @@ export async function seedDemoData(now = new Date(), currency: Currency = "MZN")
       { key: "e8", source: "downsell", target: "thanks", sourceHandle: "decline" },
     ],
   };
-  const funnel = await createFunnel({ name: "Funil de Demonstração — Guia", description: "Checkout → upsell → downsell → obrigado" }, true, graph);
+  const funnel = await createFunnel({ name: "Funil de Demonstração — Guia", description: "Checkout → upsell → downsell → obrigado" }, scopeOf(ownerId, true), graph);
   await prisma.funnel.update({ where: { id: funnel.id }, data: { status: "ACTIVE" } });
   await prisma.checkout.update({ where: { id: checkoutGuide.id }, data: { funnelId: funnel.id } });
 
   // Cupões de teste
   const coupon = await prisma.coupon.create({
-    data: { code: "TESTE10", description: "10% de desconto (demonstração)", type: "PERCENT", percentOff: 10, maxUses: 100, isDemo: true },
+    data: { code: "TESTE10", description: "10% de desconto (demonstração)", type: "PERCENT", percentOff: 10, maxUses: 100, ...D },
   });
   await prisma.coupon.createMany({
     data: [
-      { code: "EXPIRADO", description: "Cupão expirado (demonstração)", type: "PERCENT", percentOff: 20, endsAt: new Date(now.getTime() - 5 * dayMs), isDemo: true },
-      { code: "ESGOTADO", description: "Limite atingido (demonstração)", type: "PERCENT", percentOff: 15, maxUses: 1, usesCount: 1, isDemo: true },
-      { code: "CURSO50", description: "50,00 de desconto só no curso (demonstração)", type: "FIXED", amountOffCents: 50_00, currency, appliesToAll: false, isDemo: true },
+      { code: "EXPIRADO", description: "Cupão expirado (demonstração)", type: "PERCENT", percentOff: 20, endsAt: new Date(now.getTime() - 5 * dayMs), ...D },
+      { code: "ESGOTADO", description: "Limite atingido (demonstração)", type: "PERCENT", percentOff: 15, maxUses: 1, usesCount: 1, ...D },
+      { code: "CURSO50", description: "50,00 de desconto só no curso (demonstração)", type: "FIXED", amountOffCents: 50_00, currency, appliesToAll: false, ...D },
     ],
   });
-  const curso50 = await prisma.coupon.findUniqueOrThrow({ where: { code_isDemo: { code: "CURSO50", isDemo: true } } });
+  const curso50 = await prisma.coupon.findUniqueOrThrow({ where: { ownerId_code_isDemo: { ownerId, code: "CURSO50", isDemo: true } } });
   await prisma.couponProduct.create({ data: { couponId: curso50.id, productId: course.id } });
 
   // Clientes
@@ -180,7 +187,7 @@ export async function seedDemoData(now = new Date(), currency: Currency = "MZN")
         data: {
           name: `${first} ${last}`,
           email: `${first.toLowerCase().normalize("NFD").replace(/[^a-z]/g, "")}.${last.toLowerCase()}${i}@exemplo.invalid`,
-          isDemo: true,
+          ...D,
           createdAt: new Date(now.getTime() - 31 * dayMs),
         },
       }),
@@ -224,7 +231,7 @@ export async function seedDemoData(now = new Date(), currency: Currency = "MZN")
       totalCents: subtotal,
       feeCents: 0,
       netCents: subtotal,
-      isDemo: true,
+      ...D,
       notes: "Pedido fictício de demonstração.",
       createdAt,
       approvedAt: s.status === "APPROVED" || s.status === "REFUNDED" ? createdAt : null,
@@ -235,7 +242,7 @@ export async function seedDemoData(now = new Date(), currency: Currency = "MZN")
     const created = await prisma.order.create({ data });
     // Reembolso fictício registado (relatórios contam reembolsos pela data de registo)
     if (s.status === "REFUNDED") {
-      await prisma.refund.create({ data: { orderId: created.id, amountCents: subtotal, currency, reason: "Reembolso de demonstração", actor: "demo", isDemo: true, createdAt: new Date(createdAt.getTime() + dayMs) } });
+      await prisma.refund.create({ data: { orderId: created.id, amountCents: subtotal, currency, reason: "Reembolso de demonstração", actor: "demo", ...D, createdAt: new Date(createdAt.getTime() + dayMs) } });
     }
   }
 
@@ -246,7 +253,7 @@ export async function seedDemoData(now = new Date(), currency: Currency = "MZN")
     for (let k = 0; k < n; k++) {
       sessions.push({
         checkoutId: k % 3 === 0 ? checkoutCourse.id : checkoutGuide.id,
-        isDemo: true,
+        ...D,
         status: "OPEN",
         createdAt: new Date(now.getTime() - d * dayMs - Math.floor(rand() * 10 * 3_600_000)),
       });
@@ -255,7 +262,7 @@ export async function seedDemoData(now = new Date(), currency: Currency = "MZN")
   await prisma.checkoutSession.createMany({ data: sessions });
 
   // cada produto de demonstração fica com o seu checkout principal (os dois checkouts criados acima passam a principais)
-  for (const p of await prisma.product.findMany({ where: { isDemo: true }, select: { id: true } })) await ensurePrimaryCheckout(p.id);
+  for (const p of await prisma.product.findMany({ where: { ...D }, select: { id: true } })) await ensurePrimaryCheckout(p.id);
 
   return { products: 5, checkouts: 2, funnelId: funnel.id, couponId: coupon.id, orders: specs.length };
 }

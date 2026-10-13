@@ -1,27 +1,36 @@
 import { prisma } from "@/server/db";
 import { Prisma, type Settings } from "@prisma/client";
 import type { SettingsInput } from "@/server/validation/schemas";
+import type { AuthUser } from "@/server/auth/service";
+import { scopeOf, type Scope } from "@/server/scope";
 
-export async function getSettings(): Promise<Settings> {
+/** Configurações de UMA conta (criadas na primeira utilização). Nunca partilhadas entre contas. */
+export async function getSettings(ownerId: string): Promise<Settings> {
   try {
-    return await prisma.settings.upsert({ where: { id: "default" }, create: { id: "default" }, update: {} });
+    return await prisma.settings.upsert({ where: { ownerId }, create: { ownerId }, update: {} });
   } catch (e) {
-    // Dois pedidos em simultâneo numa base de dados nova: o outro já criou a linha
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return prisma.settings.findUniqueOrThrow({ where: { id: "default" } });
+    // Dois pedidos em simultâneo: o outro já criou a linha
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return prisma.settings.findUniqueOrThrow({ where: { ownerId } });
     throw e;
   }
 }
 
-/** Âmbito de dados atual: modo de demonstração ou dados reais. Nunca misturados. */
-export async function getScope(): Promise<{ isDemo: boolean; settings: Settings }> {
-  const settings = await getSettings();
-  return { isDemo: settings.demoMode, settings };
+/**
+ * Âmbito de dados do pedido atual: a conta autenticada (aprovada e não suspensa) e o modo real/demonstração
+ * dessa conta. Contas sem acesso são redirecionadas antes de qualquer leitura de dados.
+ */
+export async function getScope(): Promise<{ user: AuthUser; isDemo: boolean; settings: Settings; scope: Scope }> {
+  // import dinâmico: este módulo também é usado por scripts de linha de comandos (sem contexto de pedido)
+  const { requireUser } = await import("@/server/auth/session");
+  const user = await requireUser();
+  const settings = await getSettings(user.id);
+  return { user, isDemo: settings.demoMode, settings, scope: scopeOf(user.id, settings.demoMode) };
 }
 
-export async function updateSettings(input: SettingsInput): Promise<Settings> {
-  await getSettings();
+export async function updateSettings(ownerId: string, input: SettingsInput): Promise<Settings> {
+  await getSettings(ownerId);
   return prisma.settings.update({
-    where: { id: "default" },
+    where: { ownerId },
     data: {
       businessName: input.businessName,
       logoUrl: input.logoUrl ?? null,
@@ -35,9 +44,9 @@ export async function updateSettings(input: SettingsInput): Promise<Settings> {
   });
 }
 
-export async function setDemoMode(enabled: boolean): Promise<Settings> {
-  await getSettings();
-  return prisma.settings.update({ where: { id: "default" }, data: { demoMode: enabled } });
+export async function setDemoMode(ownerId: string, enabled: boolean): Promise<Settings> {
+  await getSettings(ownerId);
+  return prisma.settings.update({ where: { ownerId }, data: { demoMode: enabled } });
 }
 
 export function demoToolsEnabled(): boolean {

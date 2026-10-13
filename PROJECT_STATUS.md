@@ -1,6 +1,6 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-13 · Sessão 9 (notificações push PWA, central de notificações, relatórios de faturamento, reembolsos)
+Última atualização: 2026-10-14 · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
 
 ## Estado geral
 
@@ -10,8 +10,8 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 |---|---|---|
 | Lint | `npm run lint` | ✅ 0 erros, 0 avisos |
 | Tipos TypeScript | `npm run typecheck` | ✅ sem erros |
-| Testes unitários + integração | `npm test` | ✅ 206/206 (16 de notificações/push/reembolsos/relatórios; 10 de funis; 18 de gateways EPay + E2Payments) |
-| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 63/63 (10 de notificações/PWA/relatórios, 8 de funis, 9 de pagamentos, 4 de personalização, 3 de gateways) |
+| Testes unitários + integração | `npm test` | ✅ 221/221 (12 de multiutilizador A–G + 3 da política de acesso; 16 de notificações/relatórios; 10 de funis; 18 de gateways) |
+| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 68/68 (5 de várias contas/aprovação/Administração, 10 de notificações/PWA/relatórios, 8 de funis, 9 de pagamentos, 4 de personalização, 3 de gateways) |
 | Build de produção | `npm run build` | ✅ sem erros |
 | Fuga de segredos | build com `EPAY_SECRET_KEY`, `E2PAYMENTS_CLIENT_ID/SECRET` e `INTEGRATIONS_ENCRYPTION_KEY` fictícias + `grep` em `.next/` e log | ✅ valor ausente do bundle do browser, do output do servidor e do log; nenhuma variável `NEXT_PUBLIC_`; `.env` com segredos fora do Git |
 
@@ -26,6 +26,106 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | 5 — Operação | ✅ Concluída | Pedidos (filtros, detalhe, transições), clientes, cupões (com testador), relatórios |
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
+
+## Multiutilizador, aprovação de contas e Administração da Plataforma (sessão 10)
+
+### Análise (antes de alterar)
+
+A plataforma era de um só dono: nenhuma tabela tinha dono, as consultas filtravam só por `isDemo`, `Settings` era uma linha única (`id = "default"`), as credenciais EPay vinham de `EPAY_SECRET_KEY` e as da E2Payments de uma configuração global, e o aviso da EPay era verificado com essa chave global. Não foi reconstruído nada: acrescentou-se o dono a cada entidade e passou-se o âmbito da conta por todas as camadas existentes.
+
+### O que foi implementado (funcional e testado)
+
+- **Registo** (`/registo`): nome, email, password e confirmação. A conta é criada sempre como `USER` + `PENDING_APPROVAL` no servidor; campos `role`/`status` enviados no pedido são ignorados. Limite de 5 registos por hora por IP. Um email rejeitado não pode registar-se de novo (o proprietário pode aprová-lo mais tarde).
+- **Estados**: `PENDING_APPROVAL`, `APPROVED`, `REJECTED` e, à parte, a suspensão (`bannedAt`). Desbanir devolve exatamente o estado de aprovação anterior. Política central e pura em `src/server/auth/policy.ts`: `canUseApp`, `canAdminister`, `canApplyAdminAction`.
+- **Página `/conta`** com os textos pedidos para pendente ("A sua conta está pendente de aprovação", estado "Em análise"), rejeitada e suspensa, mais o email, "Verificar novamente" (relê o estado da base de dados) e "Sair da conta".
+- **Bloqueio real**: todas as páginas do painel (`requireUser`), todas as server actions (`guarded`) e todas as APIs privadas (`getActiveUser`) recusam contas não aprovadas ou suspensas. Banir apaga as sessões ativas. Os checkouts públicos de uma conta suspensa ou não aprovada deixam de vender. Os dados são sempre preservados.
+- **Administração da Plataforma** (`/admin`, só OWNER; outros recebem 404):
+  - visão geral com contagens reais (total, pendentes, aprovadas, rejeitadas, suspensas, ativas em 30 dias), registos recentes e estado da plataforma;
+  - lista de utilizadores com filtros (Todos/Pendentes/Aprovados/Rejeitados/Banidos), pesquisa e paginação;
+  - detalhe com dados da conta, contagens de atividade, estado das integrações (sem segredos) e histórico administrativo;
+  - ações aprovar, rejeitar, banir e desbanir, com confirmação para rejeitar e banir. Cada ação é validada no servidor (estado esperado + `role = USER` num `updateMany` condicional) e registada em `AdminAuditLog`.
+- **Navegação**: o grupo "Plataforma › Administração", com contador de pendentes, só aparece ao proprietário.
+- **Isolamento total por conta**: produtos, ofertas, checkouts, sessões, funis, execuções, clientes, pedidos, cupões, eventos analíticos, reembolsos, configurações, integrações, registos de integração, notificações, relatórios, exportação CSV, dados de demonstração e resumo diário.
+- **Credenciais de pagamento por conta**: cada conta guarda a sua chave EPay e as suas credenciais E2Payments na aba Integrações.
+  - Ficam cifradas (`IntegrationConfig.secretConfig`, único por `(ownerId, provider)`) e nunca são devolvidas; a página mostra só um fragmento mascarado.
+  - Cada gateway tem guardar, ativar/desativar, testar ligação (E2Payments) e estado.
+  - As variáveis de ambiente `EPAY_SECRET_KEY` / `E2PAYMENTS_*` aplicam-se **só à conta proprietária** (compatibilidade com a configuração atual). Nunca há fallback para elas noutras contas: sem integração própria, o checkout dessa conta mostra "pagamentos indisponíveis" e nenhum pedido é feito ao gateway.
+- **Pagamentos e avisos encaminhados para a conta certa**:
+  - a cobrança usa as credenciais da conta dona do checkout;
+  - o aviso EPay (`/api/webhooks/epay`) lê o id de pagamento (ainda não confiável), encontra a encomenda e a conta dona e só então verifica a assinatura HMAC com a chave **dessa** conta;
+  - assinatura de outra conta ou inválida → 401; pagamento desconhecido → 404;
+  - `applyPaymentStatus` confirma ainda que o pagamento pertence à conta esperada;
+  - a idempotência mantém-se.
+- **Dashboard e relatórios por conta**: o proprietário vê os seus dados pessoais, não estatísticas globais misturadas; o que é global está só em Administração.
+- **Notificações**: as vendas notificam só a conta dona; o resumo diário é calculado por conta, no fuso horário dessa conta.
+
+### Modelo de dados e migração
+
+- **`User`**:
+  - novos campos `role` (`OWNER`/`USER`), `status` (`AccountStatus`), `bannedAt`, `banReason`, `approvedAt`, `rejectedAt`, `lastLoginAt`;
+  - índice único parcial `User_single_owner_key` (no máximo um `OWNER`, garantido pela BD).
+- **`AdminAuditLog`** (novo): ator, conta alvo, ação, estado anterior/novo, motivo, data.
+- **`ownerId` obrigatório** (FK `Restrict`, com índice) em `Product`, `Checkout`, `CheckoutSession`, `Funnel`, `FunnelRun`, `Customer`, `Order`, `Coupon`, `AnalyticsEvent`, `Refund` e `IntegrationConfig`; **opcional** em `IntegrationLog` e `PaymentEvent`.
+- **`Settings`**: uma linha por conta (`ownerId` único).
+- **Chaves únicas por conta**: `Customer (ownerId, email, isDemo)`, `Coupon (ownerId, code, isDemo)`, `IntegrationConfig (ownerId, provider)`.
+- **Migração `20261016090000_multi_tenant_accounts`** (escrita à mão, aplicada por `prisma migrate deploy`, que já corre no build da Vercel):
+  1. todas as contas existentes ficam `APPROVED`;
+  2. a conta proprietária é a de email `chadlopesff@gmail.com` (sem distinguir maiúsculas); se não existir, a conta mais antiga;
+  3. todos os dados existentes, a linha `Settings` e as configurações de integração (incluindo as credenciais E2Payments cifradas, sem as decifrar nem alterar) passam para essa conta;
+  4. uma guarda aborta a migração se ficar alguma linha sem dono, antes de tornar `ownerId` obrigatório.
+- Validada em cópias da base de dados: o hash das credenciais ficou inalterado e um segundo `OWNER` é recusado.
+- **Atenção**: o índice parcial `User_single_owner_key` é SQL manual, que o `prisma migrate dev` não conhece. Ao gerar migrações futuras, confirmar que não incluem `DROP INDEX "User_single_owner_key"`.
+
+### Identificação do proprietário
+
+- O papel `OWNER` nunca vem do frontend nem da API.
+- É definido pela migração, pelo `/setup` (só com a BD vazia) ou no servidor com `npm run user:set-owner -- email` (`scripts/set-owner.ts`). Este comando passa a conta anterior a `USER` e não move dados.
+- O proprietário não pode ser banido, rejeitado nem alterado por ninguém (política + condição na BD).
+
+### Isolamento: regras
+
+- A identidade vem sempre da sessão no servidor (`getScope()` → `{ ownerId, isDemo }`), nunca de parâmetros do pedido.
+- Todas as leituras e escritas usam `own(scope)` / `ownerId`. Um id de outra conta devolve "não encontrado", sem revelar que existe.
+- Os fluxos públicos (checkout, pagamento, obrigado, upsell, avisos) obtêm a conta a partir do recurso (checkout → `ownerId`) e usam só os dados e credenciais dessa conta.
+- `ownerId` é obrigatório no esquema, por isso o TypeScript recusa qualquer `create` sem dono.
+- **Sem RLS do PostgreSQL**: o Prisma usa um pool de ligações partilhado e não definiria o utilizador por pedido de forma fiável. O isolamento é aplicado na camada de serviços e coberto pelos testes D/E/G.
+
+### Testes (cenários A–G pedidos)
+
+`tests/integration/multi-tenant.test.ts` (12) + `tests/unit/policy.test.ts` (3) + `e2e/10-multi-user.spec.ts` (5):
+
+- **A**: registo → pendente; sem acesso a páginas, ações ou APIs; aprovado → entra sem novo registo.
+- **B**: rejeição → sem acesso, conta não apagada; o mesmo email não se regista de novo.
+- **C**: banir termina as sessões, bloqueia e preserva os dados; desbanir devolve o estado anterior; um utilizador comum não executa ações administrativas.
+- **D**: isolamento de produtos, checkouts, funis, cupões, clientes, pedidos, reembolsos, relatórios, configurações e modo demo; leitura, edição e eliminação com ids de outra conta → não encontrado; uma conta não usa produtos de outra.
+- **E**: credenciais separadas; alterar as de uma conta nunca muda as de outra nem as do proprietário; nada é revelado; sem fallback para as variáveis do proprietário.
+- **F**: o proprietário mantém o acesso e a sua chave; o registo nunca cria `OWNER`; a BD recusa um segundo `OWNER`; ciclo aprovar/banir/desbanir/rejeitar auditado.
+- **G**: a cobrança usa a chave da conta dona; um aviso válido confirma só essa venda; a repetição não duplica; um aviso assinado com a chave de outra conta ou do proprietário → 401; pagamento desconhecido → 404; a conta proprietária continua a vender com a EPay das variáveis de ambiente.
+- **E2E**: registo → `/conta`; o proprietário aprova em Administração; a conta entra e não vê `/admin` (404) nem os produtos do proprietário; banir termina a sessão; desbanir; rejeitar com confirmação; telemóvel sem deslocamento horizontal.
+- **Regressão**: todos os testes anteriores continuam a passar (EPay, E2Payments, checkout, funis, upsell, notificações, relatórios).
+- Nenhum pagamento real foi feito; a EPay e a E2Payments foram simuladas com respostas controladas.
+
+### Configuração em produção
+
+1. Fazer deploy: o `vercel-build` aplica a migração. Abrir o painel com `chadlopesff@gmail.com`; o menu mostra "Administração".
+2. Se a conta proprietária usar outro email, correr `npm run user:set-owner -- email` com a `DATABASE_URL` de produção.
+3. As variáveis `EPAY_SECRET_KEY` / `E2PAYMENTS_*` existentes continuam a servir a conta proprietária, sem alterações. As outras contas configuram as suas credenciais na aba Integrações.
+
+### Riscos e pendências
+
+- Sem envio de email: o utilizador não é avisado quando é aprovado (vê-o em "Verificar novamente" ou ao entrar).
+- O limite de registos por IP está em memória (por instância). Com várias instâncias, mover para armazenamento partilhado.
+- O índice parcial do `OWNER` não é gerido pelo diff do Prisma (ver acima).
+- A E2Payments não tem aviso de pagamento (webhook) nesta plataforma: a confirmação faz-se por consulta oficial, por conta.
+- Falta uma compra real de valor baixo com a EPay de uma conta não proprietária para validar o fluxo com chaves reais.
+
+### Ficheiros principais
+
+- Âmbito e política: `src/server/scope.ts`, `src/server/auth/policy.ts`.
+- Autenticação e Administração: `src/server/auth/session.ts`, `src/server/services/admin.ts`, `src/app/(auth)/registo`, `src/app/(auth)/conta`, `src/app/(app)/admin`.
+- Gateways e avisos: `src/server/payments/gateways.ts`, `src/server/payments/webhooks.ts`.
+- Migração: `prisma/migrations/20261016090000_multi_tenant_accounts`.
+- Script do proprietário: `scripts/set-owner.ts`.
 
 ## Notificações push, alertas de vendas e relatórios de faturamento (sessão 9)
 
@@ -410,7 +510,7 @@ Cada item abaixo tem verificação automática (unitária, integração ou E2E) 
 
 ## Modelo de dados (resumo)
 
-`User`, `Session`, `LoginAttempt` · `Product`, `Offer` · `Checkout`, `CheckoutSession` · `Funnel`, `FunnelStep`, `FunnelEdge`, `FunnelRun` · `Customer`, `Order`, `OrderItem` · `Coupon`, `CouponProduct` · `AnalyticsEvent` · `Settings` · `IntegrationConfig`, `IntegrationLog` · `PaymentEvent`. Esquema completo em `prisma/schema.prisma`; migração inicial em `prisma/migrations/`.
+`User` (papel OWNER/USER, estado de aprovação, suspensão), `AdminAuditLog`, `Session`, `LoginAttempt` · `Product`, `Offer` · `Checkout`, `CheckoutSession` · `Funnel`, `FunnelStep`, `FunnelEdge`, `FunnelRun` · `Customer`, `Order`, `OrderItem` · `Coupon`, `CouponProduct` · `AnalyticsEvent` · `Settings` · `IntegrationConfig`, `IntegrationLog` · `PaymentEvent`. Todas as entidades comerciais têm `ownerId` (conta dona). Esquema completo em `prisma/schema.prisma`; migração inicial em `prisma/migrations/`.
 
 ## Como continuar (instruções exatas)
 
@@ -425,12 +525,13 @@ npm install
 cp .env.example .env            # ajustar DATABASE_URL (e, quando houver, as variáveis EPAY_*)
 npx prisma migrate deploy        # ou: npm run db:migrate (desenvolvimento)
 
-# 3. Utilizador proprietário (ou abrir /setup no browser)
-npm run user:create -- dono@exemplo.com "Nome" "password-com-10+-caracteres"
+# 3. Conta proprietária: abrir /setup no browser (BD vazia) ou, numa conta existente:
+npm run user:set-owner -- dono@exemplo.com
+#    contas comuns já aprovadas (opcional): npm run user:create -- email "Nome" "password-com-10+-caracteres"
 
 # 4. (opcional) Dados de demonstração
-npm run db:seed-demo             # requer DEMO_TOOLS_ENABLED=true
-npm run db:clear-demo
+npm run db:seed-demo -- dono@exemplo.com    # requer DEMO_TOOLS_ENABLED=true
+npm run db:clear-demo -- dono@exemplo.com
 
 # 5. Desenvolvimento
 npm run dev                      # http://localhost:3000
@@ -464,6 +565,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 10 (2026-10-14)**: sistema multiutilizador com registo pendente, aprovação/rejeição/suspensão pelo proprietário, Administração da Plataforma, isolamento total por conta (`ownerId` em todas as entidades), credenciais EPay/E2Payments por conta (cifradas, sem fallback) e avisos de pagamento verificados com a chave da conta dona. A migração atribui os dados existentes e as credenciais ao proprietário sem as alterar. 221 testes unitários/integração e 68 E2E a passar.
 - **Sessão 9 (2026-10-13)**: notificações push via PWA/Web Push (VAPID + aes128gcm, sem Pushcut), fila persistente com tentativas e confirmação de receção, central de notificações, preferências e dispositivos, resumo diário (cron + execução oportunista), relatórios de faturamento (indicadores, gráficos, transações, CSV) e registo de reembolsos parciais/totais. EPay/E2Payments intactas; migração aditiva. 206 testes unitários/integração e 63 E2E a passar; entrega em dispositivos reais por comprovar.
 - **Sessão 8 (2026-10-13)**: funis por produto com upsell pago a sério (nova encomenda + novo pagamento pelos gateways existentes, entrega só após confirmação, sem duplicados), página de obrigado editável (WhatsApp, link ou PDF protegido), encaminhamento pós-pagamento decidido no servidor, tema claro/escuro por checkout e tema do painel por utilizador. Migração só aditiva; EPay/E2Payments intactas. 190 testes unitários/integração e 53 E2E a passar; build OK.
 - **Sessão 7e (2026-10-13)**: causa provável do `invalid_client` encontrada na integração anterior do dono (Lovable/NEXAPAY): a E2Payments serve a API em dois domínios, `e2payments.explicador.co.mz` (original) e `mpesaemolatech.com` (novo), e algumas contas só autenticam num deles. A plataforma passa a tentar os dois, memoriza o que aceita as credenciais (aparece no cartão como "Servidor") e paga nesse domínio; o valor passa a ser enviado em texto. 180 testes a passar.

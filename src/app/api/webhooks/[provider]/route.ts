@@ -1,21 +1,19 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getProvider } from "@/server/payments/registry";
-import { handleWebhook } from "@/server/payments/webhooks";
+import { handleProviderWebhook } from "@/server/payments/webhooks";
 
-// Endpoint preparado para webhooks de pagamento. Sem fornecedor implementado e configurado responde 404,
-// por isso nenhum evento externo pode alterar pedidos nesta fase.
+// Avisos de pagamento dos fornecedores. Cada aviso é verificado com as credenciais da conta dona da venda
+// (handleProviderWebhook); fornecedores sem avisos documentados (E2Payments) ou desconhecidos respondem 404.
+// Um gateway desativado continua a receber confirmações de pagamentos já iniciados.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ provider: string }> }) {
   const { provider: id } = await params;
-  // Um gateway desativado continua a receber confirmações de pagamentos já iniciados.
-  const provider = /^[a-z0-9-]{2,30}$/.test(id) ? await getProvider(id) : null;
-  if (!provider || !provider.isConfigured() || provider.acceptsWebhooks === false) return NextResponse.json({ error: "provider not configured" }, { status: 404 });
+  if (!/^[a-z0-9-]{2,30}$/.test(id)) return NextResponse.json({ error: "provider not configured" }, { status: 404 });
   const raw = await req.text();
   if (raw.length > 512_000) return NextResponse.json({ error: "payload too large" }, { status: 413 });
   try {
-    const out = await handleWebhook(provider, raw, req.headers);
+    const out = await handleProviderWebhook(id, raw, req.headers);
     return NextResponse.json(out.body, { status: out.status });
   } catch (e) {
-    console.error("[webhook]", e);
+    console.error("[webhook]", e instanceof Error ? e.message : "erro");
     return NextResponse.json({ error: "processing error" }, { status: 500 });
   }
 }

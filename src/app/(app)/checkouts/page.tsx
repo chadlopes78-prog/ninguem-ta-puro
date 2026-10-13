@@ -26,8 +26,8 @@ function sellable(status: ProductStatus, isActive: boolean) {
 export default async function CheckoutPersonalizationPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   await requireUser();
   const sp = await searchParams;
-  const { isDemo } = await getScope();
-  const products = await listCheckoutPersonalization(isDemo, sp.q?.slice(0, 100));
+  const { isDemo, scope } = await getScope();
+  const products = await listCheckoutPersonalization(scope, sp.q?.slice(0, 100));
 
   return (
     <>

@@ -35,7 +35,7 @@ async function availableSlug(tx: Tx, base: string): Promise<string> {
 /** Cria o checkout principal dentro da mesma transação que cria o produto. */
 export async function createPrimaryCheckoutTx(
   tx: Tx,
-  product: { id: string; name: string; description: string; supportEmail: string | null; isDemo: boolean },
+  product: { id: string; name: string; description: string; supportEmail: string | null; isDemo: boolean; ownerId: string },
   offerId: string,
 ) {
   return tx.checkout.create({
@@ -50,6 +50,8 @@ export async function createPrimaryCheckoutTx(
       description: product.description,
       supportEmail: product.supportEmail,
       isActive: true,
+      // o checkout pertence sempre à mesma conta que o produto
+      ownerId: product.ownerId,
       isDemo: product.isDemo,
     },
   });

@@ -23,8 +23,8 @@ export const metadata: Metadata = { title: "Cupons" };
 export default async function CouponsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   await requireUser();
   const sp = await searchParams;
-  const { isDemo, settings } = await getScope();
-  const [coupons, products] = await Promise.all([listCoupons({ isDemo, q: sp.q?.slice(0, 32), state: sp.state }), listProductOptions(isDemo)]);
+  const { isDemo, settings, scope } = await getScope();
+  const [coupons, products] = await Promise.all([listCoupons({ scope, q: sp.q?.slice(0, 32), state: sp.state }), listProductOptions(scope)]);
   const now = new Date();
   const stateOf = (c: (typeof coupons)[number]) =>
     !c.isActive ? <Badge>Inativo</Badge> : c.endsAt && c.endsAt <= now ? <Badge tone="danger">Expirado</Badge> : c.startsAt && c.startsAt > now ? <Badge tone="info">Agendado</Badge> : c.maxUses !== null && c.usesCount >= c.maxUses ? <Badge tone="warning">Esgotado</Badge> : <Badge tone="success" dot>Ativo</Badge>;

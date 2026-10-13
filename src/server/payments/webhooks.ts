@@ -21,9 +21,10 @@ export type WebhookOutcome = { status: number; body: unknown; result: string };
  * - evento registado mas não concluído (ex.: falha a meio): é reprocessado com segurança;
  * - erro interno: 500 para o fornecedor voltar a tentar.
  */
-export async function handleWebhook(provider: PaymentProvider, rawBody: string, headers: Headers): Promise<WebhookOutcome> {
+export async function handleWebhook(provider: PaymentProvider, rawBody: string, headers: Headers, opts: { ownerId?: string } = {}): Promise<WebhookOutcome> {
+  const ownerId = opts.ownerId ?? null;
   if (!provider.verifySignature(rawBody, headers)) {
-    await prisma.integrationLog.create({ data: { provider: provider.id, level: "warn", message: "Notificação com assinatura inválida rejeitada" } });
+    await prisma.integrationLog.create({ data: { ownerId, provider: provider.id, level: "warn", message: "Notificação com assinatura inválida rejeitada" } });
     return { status: 401, body: { error: "invalid signature" }, result: "invalid_signature" };
   }
 
@@ -31,7 +32,7 @@ export async function handleWebhook(provider: PaymentProvider, rawBody: string, 
   try {
     event = provider.parseEvent(rawBody, headers);
   } catch {
-    await prisma.integrationLog.create({ data: { provider: provider.id, level: "warn", message: "Notificação com formato inválido" } });
+    await prisma.integrationLog.create({ data: { ownerId, provider: provider.id, level: "warn", message: "Notificação com formato inválido" } });
     return { status: 400, body: { error: "invalid payload" }, result: "invalid_payload" };
   }
 
@@ -49,7 +50,7 @@ export async function handleWebhook(provider: PaymentProvider, rawBody: string, 
   if (!stored) {
     try {
       stored = await prisma.paymentEvent.create({
-        data: { provider: provider.id, externalEventId: event.eventId, type: event.state, signatureValid: true, payload },
+        data: { provider: provider.id, externalEventId: event.eventId, type: event.state, signatureValid: true, payload, ownerId },
       });
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return { ...provider.webhookAck(), result: "duplicate" };
@@ -58,7 +59,7 @@ export async function handleWebhook(provider: PaymentProvider, rawBody: string, 
   }
 
   try {
-    const r = await applyPaymentStatus(provider.id, event, "webhook");
+    const r = await applyPaymentStatus(provider.id, event, "webhook", { ownerId: opts.ownerId });
     const status = r.result === "rejected" ? "REJECTED" : r.result === "ignored" ? "IGNORED" : "PROCESSED";
     await prisma.paymentEvent.update({ where: { id: stored.id }, data: { status, error: r.reason ?? null, orderId: r.orderId ?? null, processedAt: new Date() } });
     return { ...provider.webhookAck(), result: r.result };
@@ -66,4 +67,34 @@ export async function handleWebhook(provider: PaymentProvider, rawBody: string, 
     await prisma.paymentEvent.update({ where: { id: stored.id }, data: { status: "FAILED", error: "Erro interno ao processar" } }).catch(() => undefined);
     throw e;
   }
+}
+
+/**
+ * Encaminhamento de um aviso de pagamento para a conta certa:
+ * 1. identifica, SEM confiar nos dados, o pagamento referido pelo aviso;
+ * 2. carrega as credenciais da conta dona dessa encomenda;
+ * 3. só depois verifica a assinatura com essa chave (HMAC) e aplica o estado.
+ * Um aviso assinado com a chave de outra conta falha a verificação; um pagamento desconhecido não é processado.
+ */
+export async function handleProviderWebhook(providerId: string, rawBody: string, headers: Headers): Promise<WebhookOutcome> {
+  const { testLocalProvider, testProviderAllowed } = await import("./providers/test-local");
+  const { getProvider } = await import("./registry");
+  if (providerId === testLocalProvider.id) {
+    if (!testProviderAllowed() || !testLocalProvider.isConfigured()) return { status: 404, body: { error: "provider not configured" }, result: "not_configured" };
+    return handleWebhook(testLocalProvider, rawBody, headers);
+  }
+  if (providerId !== "epay") return { status: 404, body: { error: "provider not configured" }, result: "not_configured" };
+  const { epayUnverifiedPaymentId } = await import("./providers/epay");
+  const externalId = epayUnverifiedPaymentId(rawBody);
+  const payment = externalId
+    ? await prisma.payment.findUnique({ where: { provider_externalId: { provider: "epay", externalId } }, select: { order: { select: { ownerId: true } } } })
+    : null;
+  if (!payment) {
+    await prisma.integrationLog.create({ data: { provider: "epay", level: "warn", message: "Aviso de pagamento para uma transação desconhecida: ignorado (não verificável)." } });
+    return { status: 404, body: { error: "unknown payment" }, result: "unknown_payment" };
+  }
+  const ownerId = payment.order.ownerId;
+  const provider = await getProvider("epay", ownerId);
+  if (!provider || !provider.isConfigured()) return { status: 404, body: { error: "provider not configured" }, result: "not_configured" };
+  return handleWebhook(provider, rawBody, headers, { ownerId });
 }

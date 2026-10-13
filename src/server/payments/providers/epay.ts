@@ -5,7 +5,9 @@
 // a EPay envia um aviso assinado (X-EducavelPay-Signature) para o callback_url → a plataforma confirma.
 // A consulta GET /payments/{id} é usada quando o comprador regressa e para reconciliação.
 //
-// Segredos: EPAY_SECRET_KEY só é lida no servidor (nunca NEXT_PUBLIC_*), nunca é registada em logs nem guardada na BD.
+// Segredos: a chave secreta de cada conta (variável EPAY_SECRET_KEY — só para a conta proprietária — ou a chave
+// guardada cifrada na aba Integrações de cada conta) só é lida no servidor, nunca é registada em logs nem enviada ao browser.
+// Cada conta tem a sua instância (createEPayProvider): pagamentos e avisos usam sempre a chave da conta dona da venda.
 import "server-only";
 import { centsToDecimalString, decimalStringToCents } from "@/lib/money";
 import { verifyHmacSha256 } from "../webhooks";
@@ -28,19 +30,13 @@ const STATUS_MAP: Record<string, NormalizedState> = {
   cancelled: "canceled",
 };
 
-function secretKey(): string | null {
-  const k = process.env.EPAY_SECRET_KEY?.trim();
-  return k ? k : null;
+export function epayKeyEnvironment(k: string | null | undefined): "test" | "live" | null {
+  const m = k ? KEY_RE.exec(k.trim()) : null;
+  return m ? (m[1] as "test" | "live") : null;
 }
 
 function appBaseUrl(): string | null {
   return staticAppBaseUrl().url;
-}
-
-function keyEnvironment(): "test" | "live" | null {
-  const k = secretKey();
-  const m = k ? KEY_RE.exec(k) : null;
-  return m ? (m[1] as "test" | "live") : null;
 }
 
 const isHttps = (u: string | null) => Boolean(u && /^https:\/\//i.test(u));
@@ -67,9 +63,8 @@ interface EPayPayment {
   payment_url?: string;
 }
 
-async function request<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
-  const key = secretKey();
-  if (!key) throw new Error("EPAY_SECRET_KEY não definida");
+async function request<T>(key: string | null, method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+  if (!key) throw new Error("Chave secreta da EPay não definida");
   const res = await fetch(`${EPAY_API_BASE_URL}${path}`, {
     method,
     headers: {
@@ -115,7 +110,21 @@ function userMessageFor(status: number): string {
   return "Não foi possível iniciar o pagamento. Nada foi cobrado. Tente novamente ou contacte o suporte.";
 }
 
-export const epayProvider: PaymentProvider = {
+export interface EPayKeySource {
+  /** Lê a chave no momento de cada operação (nunca guardada noutro sítio) */
+  key: () => string | null;
+  source: "env" | "panel";
+}
+
+/** Instância da EPay para UMA conta. */
+export function createEPayProvider(cfg: EPayKeySource): PaymentProvider {
+  const secretKey = () => {
+    const k = cfg.key()?.trim();
+    return k ? k : null;
+  };
+  const keyEnvironment = () => epayKeyEnvironment(secretKey());
+  const label = cfg.source === "env" ? "EPAY_SECRET_KEY" : "Chave secreta (sk_…)";
+  const provider: PaymentProvider = {
   id: "epay",
   displayName: "EPay",
   supportedCurrencies: ["MZN"],
@@ -141,15 +150,15 @@ export const epayProvider: PaymentProvider = {
     const onVercel = runningOnVercel();
     return [
       {
-        label: "EPAY_SECRET_KEY",
+        label,
         ok: Boolean(env),
         detail: !key
           ? "Não definida"
           : !env
             ? "Definida, mas com formato inesperado (deve começar por sk_test_ ou sk_live_)"
             : env === "test"
-              ? "Definida — chave de TESTE (sandbox, sem dinheiro real). Valor nunca apresentado."
-              : "Definida — chave de PRODUÇÃO (dinheiro real). Valor nunca apresentado.",
+              ? `Definida${cfg.source === "env" ? " no servidor" : " (cifrada)"} — chave de TESTE (sandbox, sem dinheiro real). Valor nunca apresentado.`
+              : `Definida${cfg.source === "env" ? " no servidor" : " (cifrada)"} — chave de PRODUÇÃO (dinheiro real). Valor nunca apresentado.`,
       },
       {
         label: "Endereço do site",
@@ -190,7 +199,7 @@ export const epayProvider: PaymentProvider = {
 
     let p: EPayPayment;
     try {
-      p = await request<EPayPayment>("POST", "/payments", body);
+      p = await request<EPayPayment>(secretKey(), "POST", "/payments", body);
     } catch (e) {
       if (e instanceof EPayHttpError) return { kind: "not_created", reason: e.message, userMessage: userMessageFor(e.status) };
       return { kind: "not_created", reason: `Falha de comunicação com a EPay: ${e instanceof Error ? e.name : "erro"}`, userMessage: userMessageFor(0) };
@@ -200,7 +209,7 @@ export const epayProvider: PaymentProvider = {
     }
     if (decimalStringToCents(p.amount) !== req.amountCents || p.currency !== "MZN") {
       // Nunca enviar o comprador para pagar um valor diferente do da encomenda
-      await epayProvider.cancel?.(p.id, "Valor divergente da encomenda").catch(() => undefined);
+      await provider.cancel?.(p.id, "Valor divergente da encomenda").catch(() => undefined);
       return { kind: "not_created", reason: "Valor ou moeda devolvidos pela EPay não correspondem à encomenda", userMessage: userMessageFor(0) };
     }
     return { kind: "redirect", url: p.payment_url, externalId: p.id };
@@ -208,7 +217,7 @@ export const epayProvider: PaymentProvider = {
 
   async cancel(externalId: string, reason: string) {
     try {
-      await request("POST", `/payments/${encodeURIComponent(externalId)}/cancel`, { reason: reason.slice(0, 255) });
+      await request(secretKey(), "POST", `/payments/${encodeURIComponent(externalId)}/cancel`, { reason: reason.slice(0, 255) });
       return { ok: true as const };
     } catch (e) {
       if (e instanceof EPayHttpError) return { ok: false as const, alreadyPaid: e.status === 422, reason: e.message };
@@ -218,7 +227,7 @@ export const epayProvider: PaymentProvider = {
 
   async getStatus(externalId: string | null): Promise<NormalizedStatus> {
     if (!externalId) throw new Error("Pagamento sem identificador EPay: não é possível consultar");
-    const p = await request<EPayPayment>("GET", `/payments/${encodeURIComponent(externalId)}`);
+    const p = await request<EPayPayment>(secretKey(), "GET", `/payments/${encodeURIComponent(externalId)}`);
     return toStatus(p);
   },
 
@@ -239,4 +248,19 @@ export const epayProvider: PaymentProvider = {
     // "Responde com um código 2xx logo que recebas o aviso"
     return { status: 200, body: { received: true } };
   },
-};
+  };
+  return provider;
+}
+
+/** EPay com a chave da variável EPAY_SECRET_KEY (configuração anterior; usada apenas pela conta proprietária). */
+export const epayProvider: PaymentProvider = createEPayProvider({ key: () => process.env.EPAY_SECRET_KEY ?? null, source: "env" });
+
+/** Extrai o identificador do pagamento de um aviso ainda NÃO verificado (só para saber que chave usar na verificação). */
+export function epayUnverifiedPaymentId(rawBody: string): string | null {
+  try {
+    const j = JSON.parse(rawBody) as { id?: unknown };
+    return typeof j?.id === "string" && j.id.length <= 100 ? j.id : null;
+  } catch {
+    return null;
+  }
+}

@@ -18,8 +18,8 @@ const PAYMENT_STATUS: Record<NormalizedStatus["state"], PaymentStatus> = {
   expired: "EXPIRED",
 };
 
-async function log(provider: string, level: "info" | "warn" | "error", message: string) {
-  await prisma.integrationLog.create({ data: { provider, level, message: message.slice(0, 500) } });
+async function log(provider: string, level: "info" | "warn" | "error", message: string, ownerId: string | null = null) {
+  await prisma.integrationLog.create({ data: { ownerId, provider, level, message: message.slice(0, 500) } });
 }
 
 export function newDeliveryToken(): string {
@@ -44,7 +44,13 @@ export async function audit(
  *  - transições condicionais (updateMany com o estado anterior) evitam corridas;
  *  - repetições não duplicam vendas, entregas nem utilizações de cupões.
  */
-export async function applyPaymentStatus(provider: string, status: NormalizedStatus, source: ConfirmSource): Promise<{ result: ConfirmResult; reason?: string; orderId?: string }> {
+export async function applyPaymentStatus(
+  provider: string,
+  status: NormalizedStatus,
+  source: ConfirmSource,
+  /** Conta cujas credenciais validaram este estado: o pagamento tem de pertencer a essa conta */
+  opts: { ownerId?: string } = {},
+): Promise<{ result: ConfirmResult; reason?: string; orderId?: string }> {
   const payment =
     (status.externalId ? await prisma.payment.findUnique({ where: { provider_externalId: { provider, externalId: status.externalId } } }) : null) ??
     (status.reference ? await prisma.payment.findFirst({ where: { provider, idempotencyKey: status.reference } }) : null);
@@ -55,25 +61,31 @@ export async function applyPaymentStatus(provider: string, status: NormalizedSta
   }
   const order = await prisma.order.findUniqueOrThrow({ where: { id: payment.orderId } });
   if (order.isDemo) return { result: "rejected", reason: "Encomenda de demonstração", orderId: order.id };
+  // Um aviso validado com as credenciais da conta A nunca altera uma venda da conta B
+  if (opts.ownerId && order.ownerId !== opts.ownerId) {
+    await log(provider, "warn", `Estado de pagamento recebido com credenciais de outra conta para ${order.code}: ignorado.`, opts.ownerId);
+    return { result: "rejected", reason: "Pagamento de outra conta" };
+  }
+  const ownerLog = (level: "info" | "warn" | "error", message: string) => log(provider, level, message, order.ownerId);
 
   // Referência cruzada: o externalId recebido não pode pertencer a outro pagamento
   if (payment.externalId && status.externalId && payment.externalId !== status.externalId) {
-    await log(provider, "warn", `Referência externa não corresponde ao pagamento ${payment.id}.`);
+    await ownerLog("warn", `Referência externa não corresponde ao pagamento ${payment.id}.`);
     return { result: "rejected", reason: "Referência não corresponde", orderId: order.id };
   }
 
   if (status.state === "paid") {
     if (status.amountCents === null) {
       // Sem montante não é possível validar: não se assume sucesso
-      await log(provider, "warn", `Confirmação sem montante para ${order.code}; requer consulta oficial.`);
+      await ownerLog("warn", `Confirmação sem montante para ${order.code}; requer consulta oficial.`);
       return { result: "ignored", reason: "Montante em falta", orderId: order.id };
     }
     if (status.amountCents !== payment.amountCents || status.amountCents !== order.totalCents) {
-      await log(provider, "error", `Montante divergente em ${order.code}: recebido ${status.amountCents}, esperado ${payment.amountCents}.`);
+      await ownerLog("error", `Montante divergente em ${order.code}: recebido ${status.amountCents}, esperado ${payment.amountCents}.`);
       return { result: "rejected", reason: "Montante não corresponde", orderId: order.id };
     }
     if ((status.currency ?? null) !== payment.currency) {
-      await log(provider, "error", `Moeda divergente em ${order.code}: recebido ${status.currency ?? "—"}, esperado ${payment.currency}.`);
+      await ownerLog("error", `Moeda divergente em ${order.code}: recebido ${status.currency ?? "—"}, esperado ${payment.currency}.`);
       return { result: "rejected", reason: "Moeda não corresponde", orderId: order.id };
     }
   }
@@ -102,7 +114,7 @@ export async function applyPaymentStatus(provider: string, status: NormalizedSta
       // Aceita encomendas pendentes, ou falhadas/canceladas por expiração cujo dinheiro chegou depois
       const from = order.status;
       if (from === "APPROVED") {
-        await log(provider, "error", `Pagamento adicional confirmado para ${order.code}, já paga. Requer reembolso manual.`);
+        await ownerLog("error", `Pagamento adicional confirmado para ${order.code}, já paga. Requer reembolso manual.`);
         return { result: "processed" as const, reason: "Encomenda já paga (pagamento em duplicado)" };
       }
       if (from === "REFUNDED") return { result: "ignored" as const, reason: "Encomenda reembolsada" };
@@ -154,7 +166,7 @@ export async function applyPaymentStatus(provider: string, status: NormalizedSta
     return { result: "processed" as const }; // pending: apenas atualização do pagamento
   });
 
-  if (outcome.result === "processed" && target === "PAID") await log(provider, "info", `Pagamento confirmado: ${order.code} (${source}).`);
+  if (outcome.result === "processed" && target === "PAID") await ownerLog("info", `Pagamento confirmado: ${order.code} (${source}).`);
   // Envio push depois da resposta; se falhar, a fila persistente volta a tentar
   if ("notified" in outcome && outcome.notified) await schedulePushDispatch();
   const { notified: _n, ...rest } = outcome as typeof outcome & { notified?: boolean };

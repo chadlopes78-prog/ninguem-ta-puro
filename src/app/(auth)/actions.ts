@@ -1,11 +1,12 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { createUser, hasAnyUser, login, revokeSession } from "@/server/auth/service";
+import { createUser, EmailTakenError, hasAnyUser, login, registerUser, revokeSession } from "@/server/auth/service";
+import { canUseApp } from "@/server/auth/policy";
 import { clearSessionCookie, requestMeta, setSessionCookie } from "@/server/auth/session";
 import { loginSchema, setupSchema } from "@/server/validation/schemas";
 import { flattenErrors, type ActionResult } from "@/server/validation/common";
-import { hit, isLimited } from "@/server/rate-limit";
+import { hit, isLimited, rateLimit } from "@/server/rate-limit";
 
 function safeNext(next: unknown): string {
   return typeof next === "string" && /^\/(?!\/)[\w\-/?=&%.]*$/.test(next) ? next : "/dashboard";
@@ -27,6 +28,8 @@ export async function loginAction(fd: FormData): Promise<ActionResult<{ next: st
     };
   }
   await setSessionCookie(r.token, r.expiresAt);
+  // Contas pendentes, rejeitadas ou suspensas só veem a página de estado da conta
+  if (!canUseApp(r.user)) return { ok: true, data: { next: "/conta" } };
   return { ok: true, data: { next: safeNext(fd.get("next")) }, message: `Bem-vindo, ${r.user.name}.` };
 }
 
@@ -34,10 +37,37 @@ export async function setupAction(fd: FormData): Promise<ActionResult<{ next: st
   if (await hasAnyUser()) return { ok: false, error: "A conta de proprietário já foi criada. Inicie sessão." };
   const parsed = setupSchema.safeParse(Object.fromEntries(fd));
   if (!parsed.success) return { ok: false, error: "Corrija os campos assinalados.", fieldErrors: flattenErrors(parsed.error) };
-  await createUser(parsed.data);
+  // Primeira conta da instalação: conta proprietária (OWNER), aprovada. Só possível com a base de dados vazia
+  // (o índice único da base de dados impede um segundo OWNER, mesmo com pedidos simultâneos).
+  try {
+    await createUser(parsed.data, { role: "OWNER", status: "APPROVED" });
+  } catch {
+    return { ok: false, error: "A conta de proprietário já foi criada. Inicie sessão." };
+  }
   const r = await login(parsed.data.email, parsed.data.password, await requestMeta());
   if (r.ok) await setSessionCookie(r.token, r.expiresAt);
   return { ok: true, data: { next: "/dashboard" }, message: "Conta criada." };
+}
+
+/**
+ * Registo público. A conta é SEMPRE criada pendente de aprovação e com papel USER — decidido aqui, no servidor;
+ * nada do formulário define papel ou estado. Não dá acesso ao painel até o proprietário aprovar.
+ */
+export async function registerAction(fd: FormData): Promise<ActionResult<{ next: string }>> {
+  const meta = await requestMeta();
+  if (!rateLimit(`register:${meta.ip ?? "?"}`, 5, 60 * 60_000)) return { ok: false, error: "Demasiados registos a partir desta ligação. Tente mais tarde." };
+  if (!(await hasAnyUser())) return { ok: false, error: "A plataforma ainda não foi configurada." };
+  const parsed = setupSchema.safeParse({ name: fd.get("name"), email: fd.get("email"), password: fd.get("password"), confirm: fd.get("confirm") });
+  if (!parsed.success) return { ok: false, error: "Corrija os campos assinalados.", fieldErrors: flattenErrors(parsed.error) };
+  try {
+    await registerUser(parsed.data);
+  } catch (e) {
+    if (e instanceof EmailTakenError) return { ok: false, error: "Já existe uma conta com este email. Inicie sessão.", fieldErrors: { email: "Email já registado" } };
+    throw e;
+  }
+  const r = await login(parsed.data.email, parsed.data.password, meta);
+  if (r.ok) await setSessionCookie(r.token, r.expiresAt);
+  return { ok: true, data: { next: "/conta" }, message: "Pedido de acesso enviado." };
 }
 
 export async function logoutAction() {

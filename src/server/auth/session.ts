@@ -1,6 +1,7 @@
 import "server-only";
 import { cookies, headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { canAdminister, canUseApp } from "./policy";
 import { cache } from "react";
 import { getUserBySessionToken, type AuthUser } from "./service";
 import { SESSION_COOKIE } from "./tokens";
@@ -10,10 +11,27 @@ export const getCurrentUser = cache(async (): Promise<AuthUser | null> => {
   return getUserBySessionToken(store.get(SESSION_COOKIE)?.value);
 });
 
-/** Garante sessão válida no servidor. Usar em todas as páginas privadas e server actions. */
+/**
+ * Garante sessão válida E conta aprovada e não suspensa. Usar em todas as páginas privadas e server actions.
+ * Contas pendentes, rejeitadas ou suspensas vão para /conta (página de estado), sem acesso a dados.
+ */
 export async function requireUser(): Promise<AuthUser> {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+  if (!canUseApp(user)) redirect("/conta");
+  return user;
+}
+
+/** Para rotas de API: utilizador com acesso ao painel, ou null (a rota responde 401/403). */
+export async function getActiveUser(): Promise<AuthUser | null> {
+  const user = await getCurrentUser();
+  return user && canUseApp(user) ? user : null;
+}
+
+/** Administração da Plataforma: só a conta OWNER aprovada. Qualquer outra conta recebe 404 (não revela a área). */
+export async function requireOwner(): Promise<AuthUser> {
+  const user = await requireUser();
+  if (!canAdminister(user)) notFound();
   return user;
 }
 

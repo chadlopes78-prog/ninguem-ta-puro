@@ -47,12 +47,12 @@ function when(d: Date) {
 export default async function NotificationsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const user = await requireUser();
   const sp = await searchParams;
-  const { isDemo, settings } = await getScope();
+  const { isDemo, settings, scope } = await getScope();
   const tab = sp.tab === "historico" ? "historico" : sp.tab === "nao-lidas" ? "nao-lidas" : "todas";
   const type = TYPES.includes(sp.tipo as NotificationType) ? (sp.tipo as NotificationType) : undefined;
   const page = Math.max(1, Number(sp.page) || 1);
   const list = tab === "historico" ? null : await listNotifications(user.id, { unreadOnly: tab === "nao-lidas", type, page });
-  const history = tab === "historico" ? await eventHistory(isDemo, 50) : null;
+  const history = tab === "historico" ? await eventHistory(scope, 50) : null;
   const href = (p: Record<string, string | undefined>) => {
     const q = new URLSearchParams(Object.entries({ tab: tab === "todas" ? undefined : tab, tipo: type, ...p }).filter(([, v]) => v) as [string, string][]);
     return `/notificacoes${q.size ? `?${q}` : ""}`;

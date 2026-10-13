@@ -3,7 +3,7 @@
 import { createHmac } from "crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/server/db";
-import { resetTestDb } from "../helpers/db";
+import { resetTestDb, testOwner } from "../helpers/db";
 import { productSchema } from "@/server/validation/schemas";
 import { createProduct } from "@/server/services/products";
 import { submitCheckout } from "@/server/services/purchase";
@@ -13,6 +13,8 @@ import { activateWizardFunnel, createWizardFunnel, deactivateWizardFunnel, getWi
 import { acceptUpsell, declineUpsell, getRealOfferView, getThankYouView, nextDestination } from "@/server/services/post-purchase";
 import { fileForBuyer, saveProductPdf } from "@/server/services/product-files";
 import { defaultThankYouDesign } from "@/lib/thank-you";
+import { scopeOf, type Scope } from "@/server/scope";
+import type { AuthUser } from "@/server/auth/service";
 
 const SECRET = "segredo-apenas-para-testes";
 beforeAll(() => {
@@ -23,14 +25,20 @@ afterAll(() => {
   delete process.env.NTP_ENABLE_TEST_PROVIDER;
   delete process.env.TEST_PROVIDER_SECRET;
 });
-beforeEach(resetTestDb);
+let OWNER: AuthUser;
+let S: Scope; // âmbito real da conta proprietária de teste
+beforeEach(async () => {
+  await resetTestDb();
+  OWNER = await testOwner();
+  S = scopeOf(OWNER.id, false);
+});
 
 let seq = 0;
 const key = () => `idem${Date.now()}${seq++}abcdefgh`;
 const PDF = Buffer.from("%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF");
 
 async function product(name: string, price: string) {
-  return createProduct(productSchema.parse({ name, description: `${name} para testes`, type: "EBOOK", priceCents: price, currency: "MZN", status: "PUBLISHED", deliveryUrl: "https://conteudo.exemplo/x" }), false);
+  return createProduct(productSchema.parse({ name, description: `${name} para testes`, type: "EBOOK", priceCents: price, currency: "MZN", status: "PUBLISHED", deliveryUrl: "https://conteudo.exemplo/x" }), S);
 }
 
 async function payByWebhook(token: string, state: "paid" | "failed" = "paid") {
@@ -46,7 +54,7 @@ const thankYou = (action: object, fileId: string | null = null) => ({ design: de
 async function funnelFor(mainName = "Ebook Principal", opts: { upsell?: boolean; action?: object; fileId?: (mainId: string) => Promise<string> } = {}) {
   const main = await product(mainName, "500,00");
   const extra = await product("Curso Extra", "250,00");
-  const f = await createWizardFunnel(main.id, false);
+  const f = await createWizardFunnel(main.id, S);
   const fileId = opts.fileId ? await opts.fileId(main.id) : null;
   const r = await saveWizardFunnel(
     f.id,
@@ -57,10 +65,10 @@ async function funnelFor(mainName = "Ebook Principal", opts: { upsell?: boolean;
       upsell: opts.upsell ? { productId: extra.id, offerId: extra.offers[0].id, headline: "Leve também o Curso Extra", afterFail: "thank_you" } : undefined,
       thankYou: thankYou(opts.action ?? { type: "product", delivery: "link", url: "https://area.exemplo.co.mz/membros" }, fileId),
     },
-    false,
+    S,
   );
   expect(r).toMatchObject({ ok: true });
-  const v = await activateWizardFunnel(f.id, false);
+  const v = await activateWizardFunnel(f.id, S);
   expect(v.valid).toBe(true);
   return { main, extra, funnel: f, slug: main.primaryCheckout.slug! };
 }
@@ -70,7 +78,7 @@ const buy = (slug: string, phone = "841234567") => submitCheckout(slug, { name: 
 describe("1–3. configuração do funil pelo assistente", () => {
   it("cria funil com produto inicial e página de obrigado; ativar associa o checkout já existente do produto", async () => {
     const { main, funnel } = await funnelFor();
-    const w = (await getWizardFunnel(funnel.id, false))!;
+    const w = (await getWizardFunnel(funnel.id, S))!;
     expect(w.state).toMatchObject({ productId: main.id, afterPayment: "thank_you", upsell: null, status: "ACTIVE" });
     expect(w.checkout.path).toBe(`/checkout/${main.primaryCheckout.slug}`);
     expect(await prisma.checkout.count({ where: { productId: main.id } })).toBe(1); // nenhum checkout novo
@@ -79,20 +87,20 @@ describe("1–3. configuração do funil pelo assistente", () => {
 
   it("cria funil com upsell; valida produto/preço do upsell e o PDF", async () => {
     const { funnel, extra, main } = await funnelFor("Ebook A", { upsell: true });
-    const w = (await getWizardFunnel(funnel.id, false))!;
+    const w = (await getWizardFunnel(funnel.id, S))!;
     expect(w.state.afterPayment).toBe("upsell");
     expect(w.state.upsell).toMatchObject({ productId: extra.id, offerId: extra.offers[0].id, headline: "Leve também o Curso Extra" });
 
     const base = { name: "X", productId: main.id, afterPayment: "upsell", thankYou: thankYou({ type: "product", delivery: "link", url: "https://a.exemplo.co.mz" }) };
-    const same = await saveWizardFunnel(funnel.id, { ...base, upsell: { productId: main.id, offerId: main.offers[0].id, headline: "Mesmo produto" } }, false);
+    const same = await saveWizardFunnel(funnel.id, { ...base, upsell: { productId: main.id, offerId: main.offers[0].id, headline: "Mesmo produto" } }, S);
     expect(same.ok).toBe(false);
-    const wrongOffer = await saveWizardFunnel(funnel.id, { ...base, upsell: { productId: extra.id, offerId: main.offers[0].id, headline: "Preço de outro produto" } }, false);
+    const wrongOffer = await saveWizardFunnel(funnel.id, { ...base, upsell: { productId: extra.id, offerId: main.offers[0].id, headline: "Preço de outro produto" } }, S);
     expect(wrongOffer.ok).toBe(false);
-    const pdfMissing = await saveWizardFunnel(funnel.id, { ...base, afterPayment: "thank_you", thankYou: thankYou({ type: "product", delivery: "pdf" }) }, false);
+    const pdfMissing = await saveWizardFunnel(funnel.id, { ...base, afterPayment: "thank_you", thankYou: thankYou({ type: "product", delivery: "pdf" }) }, S);
     expect(pdfMissing.ok).toBe(false);
     const other = await product("Outro", "10,00");
-    const foreignPdf = await saveProductPdf(other.id, false, { name: "x.pdf", type: "application/pdf", bytes: PDF });
-    const pdfForeign = await saveWizardFunnel(funnel.id, { ...base, afterPayment: "thank_you", thankYou: thankYou({ type: "product", delivery: "pdf" }, foreignPdf.id) }, false);
+    const foreignPdf = await saveProductPdf(other.id, S, { name: "x.pdf", type: "application/pdf", bytes: PDF });
+    const pdfForeign = await saveWizardFunnel(funnel.id, { ...base, afterPayment: "thank_you", thankYou: thankYou({ type: "product", delivery: "pdf" }, foreignPdf.id) }, S);
     expect(pdfForeign.ok).toBe(false);
   });
 });
@@ -191,7 +199,7 @@ describe("4–7. pós-pagamento e upsell real", () => {
     if (r.kind !== "payment_started") throw new Error(r.kind);
     const root = await prisma.order.findUniqueOrThrow({ where: { publicToken: r.token } });
     // percurso forjado para uma compra ainda pendente
-    await prisma.funnelRun.create({ data: { id: "forjadoabcdef1234", funnelId: root.funnelId!, orderId: root.id, currentStepKey: "upsell", isDemo: false } });
+    await prisma.funnelRun.create({ data: { id: "forjadoabcdef1234", funnelId: root.funnelId!, orderId: root.id, currentStepKey: "upsell", ownerId: root.ownerId, isDemo: false } });
     const v = (await getRealOfferView("forjadoabcdef1234"))!;
     expect(v.blocked).toBe(true);
     expect((await acceptUpsell("forjadoabcdef1234", "upsell", { method: "mpesa", phone: "841234567", idempotencyKey: key() })).kind).toBe("unavailable");
@@ -205,7 +213,7 @@ describe("4–7. pós-pagamento e upsell real", () => {
     if (r.kind !== "payment_started") throw new Error(r.kind);
     await payByWebhook(r.token);
     expect(await nextDestination(r.token)).toEqual({ kind: "thank_you", url: `/obrigado/${r.token}` });
-    await deactivateWizardFunnel(funnel.id, false);
+    await deactivateWizardFunnel(funnel.id, S);
     const r2 = await buy(slug);
     if (r2.kind !== "payment_started") throw new Error(r2.kind);
     await payByWebhook(r2.token);
@@ -237,9 +245,9 @@ describe("8–11. página de obrigado e entrega", () => {
     let pdfId = "";
     const { slug } = await funnelFor("Ebook PDF", {
       action: { type: "product", delivery: "pdf" },
-      fileId: async (mainId) => (pdfId = (await saveProductPdf(mainId, false, { name: "Guia completo.pdf", type: "application/pdf", bytes: PDF })).id),
+      fileId: async (mainId) => (pdfId = (await saveProductPdf(mainId, S, { name: "Guia completo.pdf", type: "application/pdf", bytes: PDF })).id),
     });
-    await expect(saveProductPdf((await prisma.product.findFirstOrThrow()).id, false, { name: "falso.pdf", type: "application/pdf", bytes: Buffer.from("<html>") })).rejects.toThrow("PDF válido");
+    await expect(saveProductPdf((await prisma.product.findFirstOrThrow()).id, S, { name: "falso.pdf", type: "application/pdf", bytes: Buffer.from("<html>") })).rejects.toThrow("PDF válido");
 
     const r = await buy(slug);
     if (r.kind !== "payment_started") throw new Error(r.kind);

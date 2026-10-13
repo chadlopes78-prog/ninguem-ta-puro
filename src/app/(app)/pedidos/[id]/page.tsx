@@ -42,14 +42,14 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 export default async function OrderPage({ params }: { params: Promise<{ id: string }> }) {
   await requireUser();
   const { id } = await params;
-  const { isDemo, settings } = await getScope();
-  const o = await getOrder(id, isDemo).catch((e) => {
+  const { isDemo, settings, scope } = await getScope();
+  const o = await getOrder(id, scope).catch((e) => {
     if (e instanceof NotFoundError) notFound();
     throw e;
   });
   const tz = settings.timezone;
   const manualIds = new Set<string>();
-  if (!isDemo && o.status === "PENDING") for (const p of o.payments) if (await needsManualVerification(p)) manualIds.add(p.id);
+  if (!isDemo && o.status === "PENDING") for (const p of o.payments) if (await needsManualVerification(p, o.ownerId)) manualIds.add(p.id);
   const m = (c: number) => formatMoney(c, o.currency);
   const can = (to: "APPROVED" | "DECLINED" | "REFUNDED" | "CANCELED") => canTransition(o.status, to, { isDemo }).ok;
   const refundedCents = o.refunds.reduce((a, r) => a + r.amountCents, 0);

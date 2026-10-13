@@ -28,14 +28,14 @@ const PERIODS = ["today", "7d", "30d", "90d", "month", "prevmonth"] as const;
 export default async function OrdersPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   await requireUser();
   const sp = await searchParams;
-  const { isDemo, settings } = await getScope();
+  const { isDemo, settings, scope } = await getScope();
   const status = ORDER_STATUSES.includes(sp.status as OrderStatus) ? (sp.status as OrderStatus) : undefined;
   const period = PERIODS.includes(sp.periodo as (typeof PERIODS)[number]) ? sp.periodo : undefined;
   const range = period ? resolveRange({ preset: period }, settings.timezone) : null;
   const page = Math.max(1, Number.parseInt(sp.page ?? "1", 10) || 1);
   const [result, products] = await Promise.all([
-    listOrders({ isDemo, status, q: sp.q?.slice(0, 100), from: range?.from, to: range?.to, productId: sp.produto || undefined, page }),
-    listProductOptions(isDemo),
+    listOrders({ scope, status, q: sp.q?.slice(0, 100), from: range?.from, to: range?.to, productId: sp.produto || undefined, page }),
+    listProductOptions(scope),
   ]);
   const hrefFor = (p: number) => {
     const u = new URLSearchParams(Object.entries(sp).filter(([, v]) => v) as [string, string][]);

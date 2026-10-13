@@ -24,8 +24,8 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
   await requireUser();
   const { id } = await params;
   const { criado } = await searchParams;
-  const { isDemo, settings } = await getScope();
-  const product = await getProduct(id, isDemo).catch((e) => {
+  const { isDemo, settings, scope } = await getScope();
+  const product = await getProduct(id, scope).catch((e) => {
     if (e instanceof NotFoundError) notFound();
     throw e;
   });

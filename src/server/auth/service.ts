@@ -1,4 +1,5 @@
 // Lógica de autenticação independente do Next (testável).
+import type { AccountStatus, UserRole } from "@prisma/client";
 import { prisma } from "@/server/db";
 import { hashPassword, verifyPassword } from "./password";
 import { hashToken, newSessionToken, SESSION_TTL_MS } from "./tokens";
@@ -6,17 +7,51 @@ import { hashToken, newSessionToken, SESSION_TTL_MS } from "./tokens";
 export const LOGIN_MAX_FAILURES = 5;
 export const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 
-export type AuthUser = { id: string; email: string; name: string };
+/** Utilizador da sessão. role/status/bannedAt vêm SEMPRE da base de dados, nunca do browser. */
+export type AuthUser = { id: string; email: string; name: string; role: UserRole; status: AccountStatus; bannedAt: Date | null };
+
+function toAuthUser(u: { id: string; email: string; name: string; role: UserRole; status: AccountStatus; bannedAt: Date | null }): AuthUser {
+  return { id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, bannedAt: u.bannedAt };
+}
 
 export async function hasAnyUser(): Promise<boolean> {
   return (await prisma.user.count()) > 0;
 }
 
-export async function createUser(input: { email: string; name: string; password: string }): Promise<AuthUser> {
+/**
+ * Cria uma conta. Por omissão fica PENDENTE e com papel USER — o estado é sempre decidido aqui, no servidor.
+ * `privileged` só é usado por código do servidor (primeira conta em /setup, scripts administrativos e testes).
+ */
+export async function createUser(
+  input: { email: string; name: string; password: string },
+  privileged?: { role?: UserRole; status?: AccountStatus },
+): Promise<AuthUser> {
+  const status = privileged?.status ?? "PENDING_APPROVAL";
   const user = await prisma.user.create({
-    data: { email: input.email.toLowerCase().trim(), name: input.name.trim(), passwordHash: await hashPassword(input.password) },
+    data: {
+      email: input.email.toLowerCase().trim(),
+      name: input.name.trim(),
+      passwordHash: await hashPassword(input.password),
+      role: privileged?.role ?? "USER",
+      status,
+      approvedAt: status === "APPROVED" ? new Date() : null,
+    },
   });
-  return { id: user.id, email: user.email, name: user.name };
+  return toAuthUser(user);
+}
+
+export class EmailTakenError extends Error {}
+
+/** Registo público: conta nova, sempre pendente de aprovação e com papel USER (nada vem do browser). */
+export async function registerUser(input: { email: string; name: string; password: string }): Promise<AuthUser> {
+  const email = input.email.toLowerCase().trim();
+  if (await prisma.user.findUnique({ where: { email }, select: { id: true } })) throw new EmailTakenError();
+  try {
+    return await createUser({ ...input, email });
+  } catch (e) {
+    if (e && typeof e === "object" && "code" in e && (e as { code?: string }).code === "P2002") throw new EmailTakenError();
+    throw e;
+  }
 }
 
 export async function isRateLimited(key: string, now = new Date()): Promise<boolean> {
@@ -44,12 +79,14 @@ export async function login(email: string, password: string, meta: { ip?: string
   await prisma.loginAttempt.create({ data: { key, success: valid } });
   if (!user || !valid) return { ok: false, reason: "invalid" };
 
+  // Contas pendentes, rejeitadas ou suspensas também iniciam sessão, mas só veem a página de estado da conta
   const token = newSessionToken();
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
-  await prisma.session.create({
-    data: { tokenHash: hashToken(token), userId: user.id, expiresAt, userAgent: meta.userAgent?.slice(0, 255) },
-  });
-  return { ok: true, token, expiresAt, user: { id: user.id, email: user.email, name: user.name } };
+  await prisma.$transaction([
+    prisma.session.create({ data: { tokenHash: hashToken(token), userId: user.id, expiresAt, userAgent: meta.userAgent?.slice(0, 255) } }),
+    prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }),
+  ]);
+  return { ok: true, token, expiresAt, user: toAuthUser(user) };
 }
 
 export async function getUserBySessionToken(token: string | undefined | null): Promise<AuthUser | null> {
@@ -63,7 +100,7 @@ export async function getUserBySessionToken(token: string | undefined | null): P
     await prisma.session.delete({ where: { id: session.id } }).catch(() => undefined);
     return null;
   }
-  return { id: session.user.id, email: session.user.email, name: session.user.name };
+  return toAuthUser(session.user);
 }
 
 export async function revokeSession(token: string): Promise<void> {

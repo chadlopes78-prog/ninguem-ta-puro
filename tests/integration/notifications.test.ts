@@ -7,7 +7,7 @@ import webpush from "web-push";
 // @ts-ignore — biblioteca sem tipos (dependência da web-push)
 import ece from "http_ece";
 import { prisma } from "@/server/db";
-import { resetTestDb } from "../helpers/db";
+import { resetTestDb, testOwner } from "../helpers/db";
 import { createUser } from "@/server/auth/service";
 import { productSchema } from "@/server/validation/schemas";
 import { createProduct } from "@/server/services/products";
@@ -34,6 +34,8 @@ import { financeKpis } from "@/server/services/finance-logic";
 import { changeOrderStatus } from "@/server/services/orders";
 import { isAllowedPushEndpoint } from "@/lib/notifications";
 import { resolveRange } from "@/lib/dates";
+import { scopeOf, type Scope } from "@/server/scope";
+import type { AuthUser } from "@/server/auth/service";
 
 const SECRET = "segredo-apenas-para-testes";
 const TZ = "Africa/Maputo";
@@ -53,8 +55,14 @@ afterAll(() => {
   delete process.env.TEST_PROVIDER_SECRET;
   setPushSender(null);
 });
+let OWNER: AuthUser;
+let S: Scope; // âmbito real da conta proprietária de teste
+let D: Scope; // âmbito de demonstração da mesma conta
 beforeEach(async () => {
   await resetTestDb();
+  OWNER = await testOwner();
+  S = scopeOf(OWNER.id, false);
+  D = scopeOf(OWNER.id, true);
   resetVapidCache();
   sent = [];
   nextResult = { ok: true, statusCode: 201 };
@@ -73,14 +81,15 @@ function browserSubscription(host = "fcm.googleapis.com") {
   return { ecdh, auth, json: { endpoint: `https://${host}/fcm/send/${b64(24)}`, keys: { p256dh: ecdh.getPublicKey().toString("base64url"), auth: auth.toString("base64url") } } };
 }
 
+/** a = conta dona das vendas criadas nos testes (OWNER); b = outra conta aprovada (não pode receber alertas de a). */
 async function users() {
-  const a = await createUser({ email: "dono@ntp.local", name: "Dono", password: "password-123456" });
-  const b = await createUser({ email: "socio@ntp.local", name: "Sócio", password: "password-123456" });
+  const a = OWNER;
+  const b = await createUser({ email: "socio@ntp.local", name: "Outro vendedor", password: "password-123456" }, { role: "USER", status: "APPROVED" });
   return { a, b };
 }
 
 async function product(name = "Ebook Vendas", price = "500,00") {
-  return createProduct(productSchema.parse({ name, description: `${name} para testes`, type: "EBOOK", priceCents: price, currency: "MZN", status: "PUBLISHED", deliveryUrl: "https://conteudo.exemplo/x" }), false);
+  return createProduct(productSchema.parse({ name, description: `${name} para testes`, type: "EBOOK", priceCents: price, currency: "MZN", status: "PUBLISHED", deliveryUrl: "https://conteudo.exemplo/x" }), S);
 }
 
 async function startPurchase(phone = "841234567") {
@@ -105,12 +114,14 @@ describe("1–2. venda confirmada: uma única notificação, sem duplicados", ()
     const { order, payment } = await startPurchase();
     // pagamento pendente não é venda
     expect(await prisma.notification.count({ where: { type: "SALE_CONFIRMED" } })).toBe(0);
-    expect(await prisma.notification.count({ where: { type: "PAYMENT_PENDING", orderId: order.id } })).toBe(2);
+    // só a conta dona da venda é notificada (nunca outra conta)
+    expect(await prisma.notification.count({ where: { type: "PAYMENT_PENDING", orderId: order.id } })).toBe(1);
 
     expect((await webhookFor(payment, "paid")).status).toBe(200);
     const sales = await prisma.notification.findMany({ where: { type: "SALE_CONFIRMED" } });
-    expect(sales).toHaveLength(2);
-    expect(new Set(sales.map((s) => s.userId))).toEqual(new Set([a.id, b.id]));
+    expect(sales).toHaveLength(1);
+    expect(sales[0].userId).toBe(a.id);
+    expect(await prisma.notification.count({ where: { userId: b.id } })).toBe(0);
     expect(sales[0].body).toContain("Produto: Ebook Vendas");
     expect(sales[0].body).toContain("500,00");
     expect(sales[0].body).toContain("MZN");
@@ -136,7 +147,7 @@ describe("1–2. venda confirmada: uma única notificação, sem duplicados", ()
     await webhookFor(payment, "paid", "outro-id-do-mesmo-pagamento"); // outro evento, mesmo pagamento
     const fresh = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
     await applyPaymentStatus("teste-local", { externalId: fresh.externalId, reference: fresh.idempotencyKey, state: "paid", amountCents: fresh.amountCents, currency: "MZN", feeCents: 0, rawStatus: "paid" }, "status-check");
-    expect(await prisma.notification.count({ where: { type: "SALE_CONFIRMED", orderId: order.id } })).toBe(2); // 2 utilizadores
+    expect(await prisma.notification.count({ where: { type: "SALE_CONFIRMED", orderId: order.id } })).toBe(1);
     expect(await prisma.pushDelivery.count({ where: { notification: { type: "SALE_CONFIRMED" } } })).toBe(1);
     expect(await prisma.orderAuditLog.count({ where: { orderId: order.id, toStatus: "APPROVED" } })).toBe(1);
     await processPushOutbox();
@@ -151,7 +162,7 @@ describe("3. pendentes e falhados não contam como vendas", () => {
     const pend = await startPurchase("841234563");
     const fail = await startPurchase("841234564");
     await webhookFor(fail.payment, "failed");
-    expect(await prisma.notification.count({ where: { type: "PAYMENT_FAILED", orderId: fail.order.id } })).toBe(2);
+    expect(await prisma.notification.count({ where: { type: "PAYMENT_FAILED", orderId: fail.order.id } })).toBe(1);
     const n = await prisma.notification.findFirstOrThrow({ where: { type: "PAYMENT_FAILED" } });
     expect(n.body).toBe(`O pagamento do pedido ${fail.order.code} não foi concluído. (teste)`);
     expect(await prisma.notification.count({ where: { type: "SALE_CONFIRMED" } })).toBe(0);
@@ -182,35 +193,35 @@ describe("3. pendentes e falhados não contam como vendas", () => {
 describe("4. reembolsos", () => {
   async function paidOrder(provider = "epay", total = 100000) {
     const p = await product("Curso Reembolso", "1000,00");
-    const c = await prisma.customer.create({ data: { email: `c${seq++}@ex.co.mz`, name: "Cliente" } });
+    const c = await prisma.customer.create({ data: { email: `c${seq++}@ex.co.mz`, name: "Cliente", ownerId: OWNER.id } });
     return prisma.order.create({
-      data: { code: `NTP-T${seq++}X${Date.now() % 100000}`, customerId: c.id, status: "APPROVED", source: "CHECKOUT", currency: "MZN", subtotalCents: total, totalCents: total, netCents: total, provider, externalRef: `ext_${seq}`, approvedAt: new Date(), items: { create: { productId: p.id, kind: "MAIN", description: "x", unitPriceCents: total, totalCents: total } } },
+      data: { code: `NTP-T${seq++}X${Date.now() % 100000}`, customerId: c.id, status: "APPROVED", source: "CHECKOUT", currency: "MZN", subtotalCents: total, totalCents: total, netCents: total, provider, externalRef: `ext_${seq}`, ownerId: OWNER.id, approvedAt: new Date(), items: { create: { productId: p.id, kind: "MAIN", description: "x", unitPriceCents: total, totalCents: total } } },
     });
   }
 
   it("parcial e total atualizam relatório e notificam; nunca ultrapassam o total; exige confirmação no gateway", async () => {
     await users();
     const o = await paidOrder();
-    await expect(recordRefund({ orderId: o.id, amountCents: 30000, confirmedAtGateway: false }, false, "admin:x")).rejects.toThrow(/painel do gateway/);
-    const r1 = await recordRefund({ orderId: o.id, amountCents: 30000, reason: "Pedido do cliente", confirmedAtGateway: true }, false, "admin:x");
+    await expect(recordRefund({ orderId: o.id, amountCents: 30000, confirmedAtGateway: false }, S, "admin:x")).rejects.toThrow(/painel do gateway/);
+    const r1 = await recordRefund({ orderId: o.id, amountCents: 30000, reason: "Pedido do cliente", confirmedAtGateway: true }, S, "admin:x");
     expect(r1.full).toBe(false);
     expect((await prisma.order.findUniqueOrThrow({ where: { id: o.id } })).status).toBe("APPROVED");
-    await expect(recordRefund({ orderId: o.id, amountCents: 80000, confirmedAtGateway: true }, false, "admin:x")).rejects.toThrow(/excede/);
-    const r2 = await recordRefund({ orderId: o.id, amountCents: 70000, confirmedAtGateway: true }, false, "admin:x");
+    await expect(recordRefund({ orderId: o.id, amountCents: 80000, confirmedAtGateway: true }, S, "admin:x")).rejects.toThrow(/excede/);
+    const r2 = await recordRefund({ orderId: o.id, amountCents: 70000, confirmedAtGateway: true }, S, "admin:x");
     expect(r2.full).toBe(true);
     expect((await prisma.order.findUniqueOrThrow({ where: { id: o.id } })).status).toBe("REFUNDED");
-    await expect(recordRefund({ orderId: o.id, amountCents: 1, confirmedAtGateway: true }, false, "admin:x")).rejects.toThrow(/pagos/);
+    await expect(recordRefund({ orderId: o.id, amountCents: 1, confirmedAtGateway: true }, S, "admin:x")).rejects.toThrow(/pagos/);
 
     const refundNotes = await prisma.notification.findMany({ where: { type: "REFUND_CONFIRMED" }, orderBy: { createdAt: "asc" } });
-    expect(refundNotes).toHaveLength(4); // 2 reembolsos × 2 utilizadores
+    expect(refundNotes).toHaveLength(2); // 2 reembolsos, só para a conta dona
     expect(refundNotes[0].title).toBe("Reembolso confirmado.");
     expect(refundNotes.map((n) => n.body.replace(/\s/g, " ")).join("\n")).toContain("Valor: 300,00 MZN");
 
     const range = resolveRange({ preset: "today" }, TZ);
-    const rep = await getFinanceReport({ isDemo: false, range, defaultCurrency: "MZN", tz: TZ });
+    const rep = await getFinanceReport({ scope: S, range, defaultCurrency: "MZN", tz: TZ });
     expect(rep.kpis).toMatchObject({ grossCents: 100000, refundCents: 100000, refundCount: 2, netAfterRefundsCents: 0, salesCount: 1 });
     expect(rep.daily.at(-1)).toMatchObject({ grossCents: 100000, sales: 1, refundCents: 100000, refunds: 2 });
-    const tx = await listTransactions(false, range, {});
+    const tx = await listTransactions(S, range, {});
     expect(tx.rows[0]).toMatchObject({ refundState: "full", refundedCents: 100000 });
   });
 
@@ -218,9 +229,9 @@ describe("4. reembolsos", () => {
     await users();
     const p = await product("Demo", "100,00");
     await prisma.product.update({ where: { id: p.id }, data: { isDemo: true } });
-    const c = await prisma.customer.create({ data: { email: "d@ex.co.mz", name: "Demo", isDemo: true } });
-    const o = await prisma.order.create({ data: { code: "NTP-DEMO1234", customerId: c.id, status: "APPROVED", source: "DEMO", currency: "MZN", subtotalCents: 10000, totalCents: 10000, netCents: 10000, isDemo: true, approvedAt: new Date(), items: { create: { productId: p.id, kind: "MAIN", description: "x", unitPriceCents: 10000, totalCents: 10000 } } } });
-    await changeOrderStatus(o.id, "REFUNDED", true, "admin:x");
+    const c = await prisma.customer.create({ data: { email: "d@ex.co.mz", name: "Demo", isDemo: true, ownerId: OWNER.id } });
+    const o = await prisma.order.create({ data: { code: "NTP-DEMO1234", customerId: c.id, status: "APPROVED", source: "DEMO", currency: "MZN", subtotalCents: 10000, totalCents: 10000, netCents: 10000, isDemo: true, ownerId: OWNER.id, approvedAt: new Date(), items: { create: { productId: p.id, kind: "MAIN", description: "x", unitPriceCents: 10000, totalCents: 10000 } } } });
+    await changeOrderStatus(o.id, "REFUNDED", D, "admin:x");
     expect(await prisma.refund.findMany({ where: { orderId: o.id } })).toMatchObject([{ amountCents: 10000, isDemo: true }]);
     expect(await prisma.notification.count()).toBe(0);
   });
@@ -230,20 +241,20 @@ describe("4. reembolsos", () => {
     await paidOrder("epay", 20000);
     await paidOrder("e2payments", 30000);
     const range = resolveRange({ preset: "today" }, TZ);
-    const rep = await getFinanceReport({ isDemo: false, range, defaultCurrency: "MZN", tz: TZ });
+    const rep = await getFinanceReport({ scope: S, range, defaultCurrency: "MZN", tz: TZ });
     expect(rep.gateways).toEqual([
       { gateway: "epay", revenueCents: 70000, sales: 2 },
       { gateway: "e2payments", revenueCents: 30000, sales: 1 },
     ]);
-    expect((await listTransactions(false, range, { gateway: "e2payments" })).rows).toHaveLength(1);
-    expect((await listTransactions(false, range, { status: "PENDING" })).total).toBe(0);
-    const byAmount = await listTransactions(false, range, { sort: "amount", dir: "asc" });
+    expect((await listTransactions(S, range, { gateway: "e2payments" })).rows).toHaveLength(1);
+    expect((await listTransactions(S, range, { status: "PENDING" })).total).toBe(0);
+    const byAmount = await listTransactions(S, range, { sort: "amount", dir: "asc" });
     expect(byAmount.rows.map((r) => r.totalCents)).toEqual([20000, 30000, 50000]);
-    expect((await listTransactions(false, range, { pageSize: 2, page: 2 })).rows).toHaveLength(1);
+    expect((await listTransactions(S, range, { pageSize: 2, page: 2 })).rows).toHaveLength(1);
     const one = byAmount.rows[0];
-    expect((await listTransactions(false, range, { q: one.code })).rows.map((r) => r.id)).toEqual([one.id]);
+    expect((await listTransactions(S, range, { q: one.code })).rows.map((r) => r.id)).toEqual([one.id]);
     // período sem dados
-    expect((await listTransactions(false, resolveRange({ preset: "custom", from: "2020-01-01", to: "2020-01-02" }, TZ), {})).total).toBe(0);
+    expect((await listTransactions(S, resolveRange({ preset: "custom", from: "2020-01-01", to: "2020-01-02" }, TZ), {})).total).toBe(0);
     // CSV: fórmulas neutralizadas e separadores escapados
     expect(csvCell("=HYPERLINK(\"x\")")).toBe("\"'=HYPERLINK(\"\"x\"\")\"");
     expect(csvCell("a;b")).toBe('"a;b"');
@@ -365,10 +376,10 @@ describe("14. resumo diário", () => {
     const { a, b } = await users();
     await savePrefs(a.id, { pushEnabled: true, sales: true, pending: true, failed: true, refunds: true, dailySummary: true });
     const p = await product("Ebook Resumo", "250,00");
-    const c = await prisma.customer.create({ data: { email: "r@ex.co.mz", name: "R" } });
+    const c = await prisma.customer.create({ data: { email: "r@ex.co.mz", name: "R", ownerId: OWNER.id } });
     // 2026-10-12 22:30 em Maputo = 20:30 UTC
     for (const at of ["2026-10-12T20:30:00Z", "2026-10-12T08:00:00Z", "2026-10-12T22:30:00Z"]) {
-      await prisma.order.create({ data: { code: `NTP-R${seq++}ABC`, customerId: c.id, status: "APPROVED", source: "CHECKOUT", currency: "MZN", subtotalCents: 25000, totalCents: 25000, netCents: 25000, provider: "epay", approvedAt: new Date(at), createdAt: new Date(at), items: { create: { productId: p.id, kind: "MAIN", description: "x", unitPriceCents: 25000, totalCents: 25000 } } } });
+      await prisma.order.create({ data: { code: `NTP-R${seq++}ABC`, customerId: c.id, status: "APPROVED", source: "CHECKOUT", currency: "MZN", subtotalCents: 25000, totalCents: 25000, netCents: 25000, provider: "epay", ownerId: OWNER.id, approvedAt: new Date(at), createdAt: new Date(at), items: { create: { productId: p.id, kind: "MAIN", description: "x", unitPriceCents: 25000, totalCents: 25000 } } } });
     }
     const early = await runDailySummary(new Date("2026-10-13T03:00:00Z")); // 05:00 em Maputo: ainda cedo
     expect(early.ran).toBe(false);

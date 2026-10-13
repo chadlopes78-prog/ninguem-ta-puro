@@ -26,11 +26,11 @@ export const metadata: Metadata = { title: "Produtos" };
 export default async function ProductsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   await requireUser();
   const sp = await searchParams;
-  const { isDemo, settings } = await getScope();
+  const { isDemo, settings, scope } = await getScope();
   const status = (["ALL", "ACTIVE", "DRAFT", "PUBLISHED", "UNPUBLISHED", "ARCHIVED"].includes(sp.status ?? "") ? sp.status : "ACTIVE") as ProductListQuery["status"];
   const type = Object.keys(PRODUCT_TYPE_LABELS).includes(sp.type ?? "") ? (sp.type as ProductType) : undefined;
   const sort = (["newest", "oldest", "name", "price_desc", "price_asc", "orders"].includes(sp.sort ?? "") ? sp.sort : "newest") as ProductListQuery["sort"];
-  const products = await listProducts({ isDemo, q: sp.q?.slice(0, 100), status, type, sort });
+  const products = await listProducts({ scope, q: sp.q?.slice(0, 100), status, type, sort });
   const filtered = Boolean(sp.q || sp.type || (sp.status && sp.status !== "ACTIVE"));
 
   return (

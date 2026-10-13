@@ -19,12 +19,16 @@ interface Props {
   saveTheme: (t: string) => Promise<{ ok: boolean }>;
   /** Notificações por ler (canal interno) */
   unread?: number;
+  /** Conta proprietária: mostra a entrada "Administração" (a autorização real é feita no servidor) */
+  isOwner?: boolean;
+  /** Contas à espera de aprovação (só para o proprietário) */
+  pendingApprovals?: number;
   children: React.ReactNode;
 }
 
 const STORAGE_KEY = "ntp:sidebar-collapsed";
 
-export function AppShell({ user, businessName, demoMode, logoutAction, theme, saveTheme, unread = 0, children }: Props) {
+export function AppShell({ user, businessName, demoMode, logoutAction, theme, saveTheme, unread = 0, isOwner = false, pendingApprovals = 0, children }: Props) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -51,11 +55,11 @@ export function AppShell({ user, businessName, demoMode, logoutAction, theme, sa
 
   const nav = (isCollapsed: boolean) => (
     <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-3 py-4 scrollbar-thin" aria-label="Navegação principal">
-      {(Object.keys(GROUP_LABELS) as (keyof typeof GROUP_LABELS)[]).map((g) => (
+      {(Object.keys(GROUP_LABELS) as (keyof typeof GROUP_LABELS)[]).filter((g) => g !== "platform" || isOwner).map((g) => (
         <div key={g}>
           {!isCollapsed && <p className="mb-1.5 px-2.5 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-subtle">{GROUP_LABELS[g]}</p>}
           <ul className="flex flex-col gap-0.5">
-            {NAV.filter((n) => n.group === g).map((item) => {
+            {NAV.filter((n) => n.group === g && (!n.ownerOnly || isOwner)).map((item) => {
               const active = item === current;
               const Icon = item.icon;
               return (
@@ -73,6 +77,11 @@ export function AppShell({ user, businessName, demoMode, logoutAction, theme, sa
                     {active && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r-full bg-accent" aria-hidden="true" />}
                     <Icon className={cn("h-[18px] w-[18px] shrink-0", active ? "text-accent" : "text-subtle group-hover:text-fg")} aria-hidden="true" />
                     {!isCollapsed && <span className="truncate">{item.label}</span>}
+                    {item.href === "/admin" && pendingApprovals > 0 && (
+                      <span className={cn("grid h-5 min-w-5 place-items-center rounded-full bg-warning px-1.5 text-[10.5px] font-bold text-black tabular", isCollapsed ? "absolute right-1.5 top-1 h-4 min-w-4 px-1 text-[9.5px]" : "ml-auto")} aria-label={`${pendingApprovals} pendente(s)`} data-testid="pending-approvals-badge">
+                        {pendingApprovals > 99 ? "99+" : pendingApprovals}
+                      </span>
+                    )}
                     {item.href === "/notificacoes" && unread > 0 && (
                       <span
                         className={cn("grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1.5 text-[10.5px] font-bold text-accent-ink tabular", isCollapsed ? "absolute right-1.5 top-1 h-4 min-w-4 px-1 text-[9.5px]" : "ml-auto")}

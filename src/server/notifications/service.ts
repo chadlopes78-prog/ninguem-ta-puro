@@ -11,6 +11,7 @@ import { getVapidKeys, newReceiptToken, processPushOutbox, hasDuePushDeliveries,
 import { notifyUsers } from "./events";
 import { loadFinanceData } from "@/server/services/finance";
 import { financeKpis, salesByProduct } from "@/server/services/finance-logic";
+import { own, scopeOf, type Scope } from "@/server/scope";
 
 // ───────────── Lista ─────────────
 
@@ -56,9 +57,9 @@ export async function markAllRead(userId: string): Promise<number> {
 }
 
 /** Histórico de eventos relevantes: alterações de estado dos pedidos (auditoria), mais recentes primeiro. */
-export async function eventHistory(isDemo: boolean, take = 30) {
+export async function eventHistory(scope: Scope, take = 30) {
   return prisma.orderAuditLog.findMany({
-    where: { order: { isDemo } },
+    where: { order: own(scope) },
     orderBy: { createdAt: "desc" },
     take,
     select: { id: true, fromStatus: true, toStatus: true, actor: true, reason: true, createdAt: true, order: { select: { id: true, code: true, totalCents: true, currency: true } } },
@@ -185,19 +186,19 @@ function localHour(now: Date, tz: string): number {
 }
 
 /**
- * Resumo do dia anterior (no fuso da plataforma), uma única vez por dia: a tarefa é reservada em JobRun
- * na mesma transação que cria as notificações.
+ * Resumo do dia anterior para UMA conta (no fuso das configurações dessa conta), uma única vez por dia: a tarefa é
+ * reservada em JobRun na mesma transação que cria a notificação. Só usa os dados dessa conta.
  */
-export async function runDailySummary(now = new Date(), opts: { force?: boolean } = {}): Promise<{ ran: boolean; day: string; created: number }> {
-  const settings = await prisma.settings.findUnique({ where: { id: "default" } });
+export async function runDailySummaryFor(ownerId: string, now = new Date(), opts: { force?: boolean } = {}): Promise<{ ran: boolean; day: string; created: number }> {
+  const settings = await prisma.settings.findUnique({ where: { ownerId } });
   const tz = settings?.timezone ?? "Africa/Maputo";
   const day = addDays(zonedDayKey(now, tz), -1);
   if (!opts.force && localHour(now, tz) < SUMMARY_HOUR) return { ran: false, day, created: 0 };
-  const key = `daily-summary:${day}`;
+  const key = `daily-summary:${ownerId}:${day}`;
   if (await prisma.jobRun.findUnique({ where: { key } })) return { ran: false, day, created: 0 };
 
   const w = { from: startOfZonedDay(day, tz), to: startOfZonedDay(addDays(day, 1), tz) };
-  const data = await loadFinanceData({ isDemo: false, from: w.from, to: w.to });
+  const data = await loadFinanceData({ scope: scopeOf(ownerId, false), from: w.from, to: w.to });
   const currency = (settings?.defaultCurrency ?? "MZN") as CurrencyCode;
   const currencies = data.currencies.length ? data.currencies : [currency];
   const lines: string[] = [];
@@ -214,12 +215,32 @@ export async function runDailySummary(now = new Date(), opts: { force?: boolean 
   try {
     await prisma.$transaction(async (tx) => {
       await tx.jobRun.create({ data: { key } });
-      created = await notifyUsers(tx, { type: "DAILY_SUMMARY", eventKey: `daily:${day}`, title: `Resumo de ${day.split("-").reverse().join("/")}`, body: lines.join("\n"), url: `/relatorios?range=custom&from=${day}&to=${day}` });
+      created = await notifyUsers(tx, { type: "DAILY_SUMMARY", eventKey: `daily:${day}`, title: `Resumo de ${day.split("-").reverse().join("/")}`, body: lines.join("\n"), url: `/relatorios?range=custom&from=${day}&to=${day}` }, { userIds: [ownerId] });
     });
   } catch {
     return { ran: false, day, created: 0 }; // outra execução já tratou este dia
   }
   return { ran: true, day, created };
+}
+
+/** Resumo diário de todas as contas aprovadas que o ativaram (cada uma com os seus próprios dados). */
+export async function runDailySummary(now = new Date(), opts: { force?: boolean } = {}): Promise<{ ran: boolean; day: string; created: number }> {
+  const users = await prisma.user.findMany({
+    where: { status: "APPROVED", bannedAt: null, notificationPreference: { dailySummary: true } },
+    select: { id: true },
+    take: 500,
+  });
+  let ran = false;
+  let created = 0;
+  let day = addDays(zonedDayKey(now, "Africa/Maputo"), -1);
+  for (const u of users) {
+    const r = await runDailySummaryFor(u.id, now, opts).catch(() => null);
+    if (!r) continue;
+    day = r.day;
+    ran ||= r.ran;
+    created += r.created;
+  }
+  return { ran, day, created };
 }
 
 /**

@@ -1,32 +1,33 @@
 import type { PaymentProvider } from "./types";
 import { testLocalProvider, testProviderAllowed } from "./providers/test-local";
-import { acceptsNewPayments, gatewayRows, providerFor } from "./gateways";
+import { acceptsNewPayments, gatewayContext, providerFor } from "./gateways";
 
 /**
- * Gateways que aceitam NOVOS pagamentos neste momento (ativados, configurados e, na E2Payments, com ligação verificada).
+ * Gateways da conta `ownerId` que aceitam NOVOS pagamentos (ativados, configurados e, na E2Payments, verificados).
+ * Usa exclusivamente as credenciais dessa conta: nunca as de outra conta nem as da conta proprietária como recurso.
  * Ordem estável: EPay primeiro (comportamento anterior), depois E2Payments.
  */
-export async function getActivePaymentProviders(): Promise<PaymentProvider[]> {
+export async function getActivePaymentProviders(ownerId: string): Promise<PaymentProvider[]> {
   if (testProviderAllowed() && testLocalProvider.isConfigured()) return [testLocalProvider];
-  const rows = await gatewayRows();
+  const ctx = await gatewayContext(ownerId);
   const out: PaymentProvider[] = [];
   for (const id of ["epay", "e2payments"] as const) {
-    const p = providerFor(id, rows);
-    if (acceptsNewPayments(id, p, rows.get(id))) out.push(p);
+    const p = providerFor(id, ctx);
+    if (acceptsNewPayments(id, p, ctx)) out.push(p);
   }
   return out;
 }
 
 /**
- * Instância de um fornecedor pelo id, esteja ou não ativado. Usado para confirmar pagamentos já iniciados
- * (consultas de estado, notificações, cancelamentos): desativar um gateway não bloqueia estas operações.
+ * Instância de um fornecedor com as credenciais da conta `ownerId`, esteja ou não ativado. Usado para confirmar
+ * pagamentos já iniciados (consultas, avisos, cancelamentos): desativar um gateway não bloqueia estas operações.
  */
-export async function getProvider(id: string): Promise<PaymentProvider | null> {
+export async function getProvider(id: string, ownerId: string): Promise<PaymentProvider | null> {
   if (id === testLocalProvider.id) return testProviderAllowed() ? testLocalProvider : null;
   if (id !== "epay" && id !== "e2payments") return null;
-  return providerFor(id, await gatewayRows());
+  return providerFor(id, await gatewayContext(ownerId));
 }
 
-export async function paymentsEnabled(): Promise<boolean> {
-  return (await getActivePaymentProviders()).length > 0;
+export async function paymentsEnabled(ownerId: string): Promise<boolean> {
+  return (await getActivePaymentProviders(ownerId)).length > 0;
 }

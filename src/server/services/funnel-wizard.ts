@@ -9,20 +9,21 @@ import { ensurePrimaryCheckout, checkoutPath } from "./primary-checkout";
 import { activateFunnel, createFunnel, getFunnelRecord, saveFunnel, toGraph } from "./funnels";
 import { DomainError, NotFoundError } from "./products";
 import type { FunnelValidation } from "@/lib/funnels/validate";
+import { own, type Scope } from "@/server/scope";
 
-async function productInScope(productId: string, isDemo: boolean) {
-  const p = await prisma.product.findFirst({ where: { id: productId, isDemo }, include: { offers: { where: { isDefault: true }, take: 1 } } });
+async function productInScope(productId: string, scope: Scope) {
+  const p = await prisma.product.findFirst({ where: { id: productId, ...own(scope) }, include: { offers: { where: { isDefault: true }, take: 1 } } });
   if (!p) throw new NotFoundError("Produto");
   return p;
 }
 
 /** Cria um funil do assistente para um produto, com a página de obrigado no modelo padrão. */
-export async function createWizardFunnel(productId: string, isDemo: boolean) {
-  const product = await productInScope(productId, isDemo);
+export async function createWizardFunnel(productId: string, scope: Scope) {
+  const product = await productInScope(productId, scope);
   if (product.status === "ARCHIVED") throw new DomainError("Este produto está arquivado.");
   const checkout = await ensurePrimaryCheckout(product.id);
   const graph = buildWizardGraph({ checkoutId: checkout.id, productName: product.name, afterPayment: "thank_you", thankYouTitle: defaultThankYouDesign().title });
-  const funnel = await createFunnel({ name: `Funil — ${product.name}`.slice(0, 100) }, isDemo, graph);
+  const funnel = await createFunnel({ name: `Funil — ${product.name}`.slice(0, 100) }, scope, graph);
   await prisma.$transaction([
     prisma.funnel.update({ where: { id: funnel.id }, data: { productId: product.id } }),
     prisma.thankYouPage.create({ data: { funnelId: funnel.id, design: defaultThankYouDesign(), action: defaultThankYouAction() } }),
@@ -40,12 +41,12 @@ export interface WizardState {
   thankYou: { design: ThankYouDesign; action: ThankYouAction | null; fileId: string | null };
 }
 
-export async function getWizardFunnel(id: string, isDemo: boolean) {
-  const f = await getFunnelRecord(id, isDemo);
+export async function getWizardFunnel(id: string, scope: Scope) {
+  const f = await getFunnelRecord(id, scope);
   if (!f.productId) return null; // funil avançado: usa o editor visual
   const [page, product] = await Promise.all([
     prisma.thankYouPage.findUnique({ where: { funnelId: f.id } }),
-    prisma.product.findFirst({ where: { id: f.productId, isDemo }, include: { offers: { where: { isDefault: true }, take: 1 }, files: { select: { id: true, filename: true, sizeBytes: true, createdAt: true }, orderBy: { createdAt: "desc" } } } }),
+    prisma.product.findFirst({ where: { id: f.productId, ...own(scope) }, include: { offers: { where: { isDefault: true }, take: 1 }, files: { select: { id: true, filename: true, sizeBytes: true, createdAt: true }, orderBy: { createdAt: "desc" } } } }),
   ]);
   if (!product) throw new NotFoundError("Produto");
   const checkout = await ensurePrimaryCheckout(product.id);
@@ -69,19 +70,19 @@ export type SaveWizardResult = { ok: true; validation: FunnelValidation; deactiv
  * Guarda a configuração do assistente: valida tudo no servidor (produtos e ofertas do âmbito, PDF do produto),
  * gera o grafo e atualiza a página de obrigado. Mudar o produto inicial de um funil ativo volta a associar o checkout.
  */
-export async function saveWizardFunnel(id: string, raw: unknown, isDemo: boolean): Promise<SaveWizardResult> {
-  const f = await getFunnelRecord(id, isDemo);
+export async function saveWizardFunnel(id: string, raw: unknown, scope: Scope): Promise<SaveWizardResult> {
+  const f = await getFunnelRecord(id, scope);
   if (!f.productId) return { ok: false, error: "Este funil usa o editor avançado." };
   const parsed = wizardSchema.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Corrija os campos assinalados.", fieldErrors: flattenErrors(parsed.error) };
   const input: WizardInput = parsed.data;
 
-  const product = await prisma.product.findFirst({ where: { id: input.productId, isDemo } });
+  const product = await prisma.product.findFirst({ where: { id: input.productId, ...own(scope) } });
   if (!product) return { ok: false, error: "Produto inicial inválido.", fieldErrors: { productId: "Selecione um produto" } };
   if (product.status === "ARCHIVED") return { ok: false, error: "O produto inicial está arquivado.", fieldErrors: { productId: "Produto arquivado" } };
 
   if (input.afterPayment === "upsell" && input.upsell) {
-    const offer = await prisma.offer.findFirst({ where: { id: input.upsell.offerId, productId: input.upsell.productId, product: { isDemo } }, include: { product: true } });
+    const offer = await prisma.offer.findFirst({ where: { id: input.upsell.offerId, productId: input.upsell.productId, product: own(scope) }, include: { product: true } });
     if (!offer || offer.product.status === "ARCHIVED") return { ok: false, error: "Produto ou preço do upsell inválido.", fieldErrors: { "upsell.offerId": "Selecione um preço do produto" } };
     if (!offer.isActive) return { ok: false, error: "O preço escolhido para o upsell está inativo.", fieldErrors: { "upsell.offerId": "Preço inativo" } };
   }
@@ -93,7 +94,7 @@ export async function saveWizardFunnel(id: string, raw: unknown, isDemo: boolean
   const checkout = await ensurePrimaryCheckout(product.id);
   const graph = buildWizardGraph({ checkoutId: checkout.id, productName: product.name, afterPayment: input.afterPayment, upsell: input.upsell, thankYouTitle: input.thankYou.design.title });
   const productChanged = f.productId !== product.id;
-  const { validation, deactivated } = await saveFunnel(id, { name: input.name, graph }, isDemo);
+  const { validation, deactivated } = await saveFunnel(id, { name: input.name, graph }, scope);
 
   const usesPdf = input.thankYou.action.type === "product" && input.thankYou.action.delivery === "pdf";
   await prisma.$transaction(async (tx) => {
@@ -108,15 +109,15 @@ export async function saveWizardFunnel(id: string, raw: unknown, isDemo: boolean
   });
   // Funil ativo com novo produto: liga o novo checkout (com verificação de conflitos)
   if (productChanged && f.status === "ACTIVE" && !deactivated) {
-    const v = await activateWizardFunnel(id, isDemo);
+    const v = await activateWizardFunnel(id, scope);
     if (!v.valid) return { ok: false, error: v.errors[0]?.message ?? "Não foi possível ativar o funil com o novo produto." };
   }
   return { ok: true, validation, deactivated };
 }
 
 /** Ativa: valida e associa o checkout do produto inicial (um único funil ativo por checkout). */
-export async function activateWizardFunnel(id: string, isDemo: boolean): Promise<FunnelValidation> {
-  const f = await getFunnelRecord(id, isDemo);
+export async function activateWizardFunnel(id: string, scope: Scope): Promise<FunnelValidation> {
+  const f = await getFunnelRecord(id, scope);
   if (f.productId) {
     const page = await prisma.thankYouPage.findUnique({ where: { funnelId: id } });
     const action = parseThankYouAction(page?.action);
@@ -125,14 +126,14 @@ export async function activateWizardFunnel(id: string, isDemo: boolean): Promise
       return { valid: false, errors: [{ level: "error", message: "Carregue o PDF do produto na página de obrigado." }], warnings: [] };
     }
   }
-  return activateFunnel(id, isDemo);
+  return activateFunnel(id, scope);
 }
 
 /** Desativa e desliga o checkout: novas compras deixam de seguir este funil (compras já feitas mantêm o percurso). */
-export async function deactivateWizardFunnel(id: string, isDemo: boolean) {
-  await getFunnelRecord(id, isDemo);
+export async function deactivateWizardFunnel(id: string, scope: Scope) {
+  await getFunnelRecord(id, scope);
   await prisma.$transaction([
     prisma.funnel.update({ where: { id }, data: { status: "INACTIVE" } }),
-    prisma.checkout.updateMany({ where: { funnelId: id, isDemo }, data: { funnelId: null } }),
+    prisma.checkout.updateMany({ where: { funnelId: id, ...own(scope) }, data: { funnelId: null } }),
   ]);
 }

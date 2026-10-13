@@ -14,6 +14,7 @@ import { computeOrderTotals } from "./order-logic";
 import { upsertCustomer } from "./orders";
 import { EVENT_TYPES, trackEvent } from "./analytics";
 import type { getPublicCheckout } from "./checkouts";
+import { scopeOf } from "@/server/scope";
 
 type PublicCheckout = Extract<Awaited<ReturnType<typeof getPublicCheckout>>, { state: "ok" }>["checkout"];
 
@@ -90,7 +91,8 @@ export async function startRealPayment(
   coupon: { couponId: string | null; discountCents: number },
   sessionId: string | null,
 ): Promise<StartPaymentOutcome> {
-  const active = await getActivePaymentProviders();
+  // Só os gateways (e credenciais) da conta dona do checkout
+  const active = await getActivePaymentProviders(c.ownerId);
   if (active.length === 0) return { kind: "payments_unavailable", message: "Não existem métodos de pagamento disponíveis neste momento. Nenhum valor foi cobrado e nenhum dado de pagamento foi recolhido." };
   const supported = active.filter((p) => p.supportedCurrencies.includes(c.offer.currency));
   if (supported.length === 0) {
@@ -118,11 +120,11 @@ export async function startRealPayment(
   const totals = computeOrderTotals([{ unitPriceCents: c.offer.priceCents, quantity: 1 }], coupon.discountCents);
   if (totals.totalCents <= 0) return { kind: "invalid", fieldErrors: { _form: "O total da encomenda tem de ser superior a zero." } };
 
-  let created: { orderId: string; orderCode: string; publicToken: string; paymentId: string; reference: string };
+  let created: { orderId: string; orderCode: string; publicToken: string; paymentId: string; reference: string; ownerId: string };
   try {
     created = await prisma.$transaction(async (tx) => {
       if (coupon.couponId && !(await consumeCouponUse(tx, coupon.couponId))) throw new CouponExhausted();
-      const customer = await upsertCustomer(tx, { email: input.email, name: input.name, phone: phone ?? input.phone, document: input.document }, false);
+      const customer = await upsertCustomer(tx, { email: input.email, name: input.name, phone: phone ?? input.phone, document: input.document }, scopeOf(c.ownerId, false));
       const publicToken = token();
       const order = await tx.order.create({
         data: {
@@ -140,6 +142,8 @@ export async function startRealPayment(
           paymentMethod: method?.id ?? null,
           publicToken,
           idempotencyKey: idem,
+          // a venda pertence à conta dona do checkout
+          ownerId: c.ownerId,
           isDemo: false,
           // pagamentos com credenciais de teste nunca contam como receita
           isTestPayment: environment === "test",
@@ -172,7 +176,7 @@ export async function startRealPayment(
       });
       await audit(tx, order.id, null, "PENDING", "checkout", "Encomenda criada; pagamento iniciado");
       if (sessionId) await tx.checkoutSession.updateMany({ where: { id: sessionId, checkoutId: c.id }, data: { status: "SUBMITTED" } });
-      return { orderId: order.id, orderCode: order.code, publicToken, paymentId: payment.id, reference };
+      return { orderId: order.id, orderCode: order.code, publicToken, paymentId: payment.id, reference, ownerId: c.ownerId };
     });
   } catch (e) {
     if (e instanceof CouponExhausted) return { kind: "coupon_error", message: "Este cupão atingiu o limite de utilizações." };
@@ -192,7 +196,7 @@ export async function startRealPayment(
     description: `${c.product.name} — ${c.offer.name}`.slice(0, 255),
     imageUrl: c.imageUrl ?? c.product.imageUrl ?? null,
   });
-  await trackEvent({ type: EVENT_TYPES.CHECKOUT_SUBMIT, isDemo: false, checkoutId: c.id, orderId: created.orderId, meta: { provider: provider.id, method: method?.id ?? null } });
+  await trackEvent({ type: EVENT_TYPES.CHECKOUT_SUBMIT, ownerId: c.ownerId, isDemo: false, checkoutId: c.id, orderId: created.orderId, meta: { provider: provider.id, method: method?.id ?? null } });
   if (charge.notStarted) return { kind: "payment_not_started", message: charge.notStarted };
   return { kind: "payment_started", token: created.publicToken, redirectUrl: charge.redirectUrl };
 }
@@ -201,7 +205,7 @@ class CouponExhausted extends Error {}
 
 export async function chargeWithProvider(
   provider: PaymentProvider,
-  created: { orderId: string; orderCode: string; publicToken: string; paymentId: string; reference: string },
+  created: { orderId: string; orderCode: string; publicToken: string; paymentId: string; reference: string; ownerId: string },
   details: { amountCents: number; currency: PublicCheckout["offer"]["currency"]; method: string | null; phone: string | null; customer: { name: string; email: string }; description: string; imageUrl: string | null },
 ): Promise<{ redirectUrl: string | null; notStarted?: string }> {
   const base = await resolveAppBaseUrl();
@@ -239,22 +243,22 @@ export async function chargeWithProvider(
           await audit(tx, created.orderId, "PENDING", "CANCELED", `charge-response:${provider.id}`, "Pagamento não iniciado pelo fornecedor");
         }
       });
-      await prisma.integrationLog.create({ data: { provider: provider.id, level: "error", message: `Pagamento não iniciado para ${created.orderCode}: ${result.reason}`.slice(0, 500) } });
+      await prisma.integrationLog.create({ data: { ownerId: created.ownerId, provider: provider.id, level: "error", message: `Pagamento não iniciado para ${created.orderCode}: ${result.reason}`.slice(0, 500) } });
       await recordOrderEventSafe("failed", created.orderId);
       return { redirectUrl: null, notStarted: result.userMessage };
     }
     case "paid":
       await prisma.payment.update({ where: { id: created.paymentId }, data: { status: "PENDING", externalId: result.externalId } });
-      await applyPaymentStatus(provider.id, { externalId: result.externalId, reference: created.reference, state: "paid", amountCents: result.amountCents, currency: result.currency, feeCents: result.feeCents, rawStatus: result.rawStatus }, "charge-response");
+      await applyPaymentStatus(provider.id, { externalId: result.externalId, reference: created.reference, state: "paid", amountCents: result.amountCents, currency: result.currency, feeCents: result.feeCents, rawStatus: result.rawStatus }, "charge-response", { ownerId: created.ownerId });
       return { redirectUrl: null };
     case "failed":
       await prisma.payment.update({ where: { id: created.paymentId }, data: { externalId: result.externalId, failureReason: result.reason.slice(0, 200) } });
-      await applyPaymentStatus(provider.id, { externalId: result.externalId, reference: created.reference, state: "failed", amountCents: null, currency: null, feeCents: null, rawStatus: result.rawStatus ?? "failed" }, "charge-response");
+      await applyPaymentStatus(provider.id, { externalId: result.externalId, reference: created.reference, state: "failed", amountCents: null, currency: null, feeCents: null, rawStatus: result.rawStatus ?? "failed" }, "charge-response", { ownerId: created.ownerId });
       return { redirectUrl: null };
     case "error":
       // Estado incerto: a encomenda fica pendente e será verificada por consulta oficial; nunca se assume sucesso.
       await prisma.payment.update({ where: { id: created.paymentId }, data: { status: "PENDING", failureReason: `Estado incerto: ${result.reason}`.slice(0, 200) } });
-      await prisma.integrationLog.create({ data: { provider: provider.id, level: "error", message: `Falha ao criar pagamento para ${created.orderCode} (estado incerto).` } });
+      await prisma.integrationLog.create({ data: { ownerId: created.ownerId, provider: provider.id, level: "error", message: `Falha ao criar pagamento para ${created.orderCode} (estado incerto).` } });
       await recordOrderEventSafe("pending", created.orderId);
       return { redirectUrl: null };
   }
@@ -272,10 +276,12 @@ export async function refreshPaymentStatus(orderId: string): Promise<void> {
 }
 
 async function refreshOne(orderId: string): Promise<void> {
-  const payment = await prisma.payment.findFirst({ where: { orderId, status: { in: ["CREATED", "PENDING"] } }, orderBy: { createdAt: "desc" } });
+  const payment = await prisma.payment.findFirst({ where: { orderId, status: { in: ["CREATED", "PENDING"] } }, orderBy: { createdAt: "desc" }, include: { order: { select: { ownerId: true } } } });
   if (!payment) return;
   if (payment.lastCheckedAt && Date.now() - payment.lastCheckedAt.getTime() < STATUS_CHECK_INTERVAL_MS) return;
-  const provider = await getProvider(payment.provider);
+  // Consulta com as credenciais da conta dona da encomenda
+  const ownerId = payment.order.ownerId;
+  const provider = await getProvider(payment.provider, ownerId);
   // Nota: um gateway desativado continua a confirmar pagamentos já iniciados (só deixa de aceitar novos).
   if (!provider || !provider.isConfigured() || !provider.getStatus) return;
   // marca a verificação antes da chamada para limitar pedidos concorrentes
@@ -286,9 +292,9 @@ async function refreshOne(orderId: string): Promise<void> {
   if (claimed.count !== 1) return;
   try {
     const status = await provider.getStatus(payment.externalId, payment.idempotencyKey);
-    if (status.state !== "pending") await applyPaymentStatus(provider.id, status, "status-check");
+    if (status.state !== "pending") await applyPaymentStatus(provider.id, status, "status-check", { ownerId });
   } catch {
-    await prisma.integrationLog.create({ data: { provider: provider.id, level: "warn", message: "Falha na consulta de estado; nova tentativa mais tarde." } });
+    await prisma.integrationLog.create({ data: { ownerId, provider: provider.id, level: "warn", message: "Falha na consulta de estado; nova tentativa mais tarde." } });
   }
 }
 
@@ -324,6 +330,7 @@ export async function getPaymentView(publicToken: string, opts: { refresh?: bool
   return {
     state,
     code: full.code,
+    ownerId: full.ownerId,
     totalCents: full.totalCents,
     discountCents: full.discountCents,
     currency: full.currency,
@@ -335,7 +342,7 @@ export async function getPaymentView(publicToken: string, opts: { refresh?: bool
     isTestPayment: full.isTestPayment,
     uncertain: Boolean(p?.failureReason?.startsWith("Estado incerto")),
     // Fornecedor sem consulta de estado (E2Payments): a loja verifica manualmente, nunca automaticamente "pago"
-    manualReview: Boolean(p?.failureReason?.startsWith("Estado incerto")) && !(await getProvider(p!.provider))?.getStatus,
+    manualReview: Boolean(p?.failureReason?.startsWith("Estado incerto")) && !(await getProvider(p!.provider, full.ownerId))?.getStatus,
     // A ligação de acesso só existe depois de o pagamento estar confirmado
     accessToken: state === "paid" ? (full.delivery?.token ?? null) : null,
     checkout: full.checkout,
@@ -356,14 +363,15 @@ export async function getDeliveryView(deliveryToken: string) {
   await prisma.delivery.update({ where: { id: d.id }, data: { accessCount: { increment: 1 }, lastAccessAt: new Date() } });
   return {
     code: d.order.code,
+    ownerId: d.order.ownerId,
     items: d.order.items.map((i) => ({ name: i.product.name, url: i.product.deliveryUrl, support: i.product.supportEmail })),
   };
 }
 
 /** Reconciliação: consulta oficial de pagamentos pendentes (ex.: comprador fechou a página e o aviso não chegou). */
-export async function reconcilePendingPayments(limit = 30): Promise<{ checked: number; changed: number }> {
+export async function reconcilePendingPayments(ownerId: string, limit = 30): Promise<{ checked: number; changed: number }> {
   const pending = await prisma.payment.findMany({
-    where: { status: { in: ["CREATED", "PENDING"] }, externalId: { not: null }, order: { status: "PENDING", isDemo: false } },
+    where: { status: { in: ["CREATED", "PENDING"] }, externalId: { not: null }, order: { status: "PENDING", isDemo: false, ownerId } },
     orderBy: { createdAt: "asc" },
     take: limit,
     select: { orderId: true },
@@ -378,9 +386,9 @@ export async function reconcilePendingPayments(limit = 30): Promise<{ checked: n
 }
 
 /** Pagamento sem resposta do fornecedor e sem consulta de estado documentada (ex.: E2Payments): precisa de verificação manual. */
-export async function needsManualVerification(payment: { provider: string; status: string; failureReason: string | null }): Promise<boolean> {
+export async function needsManualVerification(payment: { provider: string; status: string; failureReason: string | null }, ownerId: string): Promise<boolean> {
   if (!["CREATED", "PENDING"].includes(payment.status) || !payment.failureReason?.startsWith("Estado incerto")) return false;
-  const provider = await getProvider(payment.provider);
+  const provider = await getProvider(payment.provider, ownerId);
   return Boolean(provider && !provider.getStatus);
 }
 
@@ -389,19 +397,21 @@ export async function needsManualVerification(payment: { provider: string; statu
  * Só se aplica a pagamentos "por verificar" de fornecedores sem consulta de estado; fica registada na auditoria.
  * O comprador nunca tem acesso a esta operação.
  */
-export async function resolveUncertainPayment(orderId: string, outcome: "paid" | "failed", actor: string): Promise<{ ok: true } | { ok: false; error: string }> {
-  const order = await prisma.order.findFirst({ where: { id: orderId, isDemo: false }, include: { payments: { orderBy: { createdAt: "desc" }, take: 1 } } });
+export async function resolveUncertainPayment(orderId: string, outcome: "paid" | "failed", actor: string, ownerId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  // Só o dono da venda (conta da sessão) pode resolver o pagamento da sua encomenda
+  const order = await prisma.order.findFirst({ where: { id: orderId, isDemo: false, ownerId }, include: { payments: { orderBy: { createdAt: "desc" }, take: 1 } } });
   const payment = order?.payments[0];
-  if (!order || !payment || order.status !== "PENDING" || !(await needsManualVerification(payment))) {
+  if (!order || !payment || order.status !== "PENDING" || !(await needsManualVerification(payment, ownerId))) {
     return { ok: false, error: "Este pagamento não está por verificar." };
   }
   const r = await applyPaymentStatus(
     payment.provider,
     { externalId: payment.externalId, reference: payment.idempotencyKey, state: outcome, amountCents: outcome === "paid" ? payment.amountCents : null, currency: outcome === "paid" ? payment.currency : null, feeCents: null, rawStatus: `manual_${outcome}` },
     "manual-verification",
+    { ownerId },
   );
   if (r.result === "rejected") return { ok: false, error: r.reason ?? "Não foi possível atualizar o pagamento." };
   // a transição já fica na auditoria da encomenda (manual-verification:<fornecedor>); aqui regista-se quem a fez
-  await prisma.integrationLog.create({ data: { provider: payment.provider, level: "info", message: `Pagamento ${order.code} marcado como ${outcome === "paid" ? "pago" : "não pago"} após verificação manual por ${actor}.`.slice(0, 500) } });
+  await prisma.integrationLog.create({ data: { ownerId, provider: payment.provider, level: "info", message: `Pagamento ${order.code} marcado como ${outcome === "paid" ? "pago" : "não pago"} após verificação manual por ${actor}.`.slice(0, 500) } });
   return { ok: true };
 }

@@ -33,7 +33,7 @@ export default async function PaymentStatusPage({ params, searchParams }: { para
     const dest = await nextDestination(token);
     if (dest) redirect(dest.url);
   }
-  const settings = await getSettings();
+  const settings = await getSettings(view.ownerId);
   const bg = view.checkout?.backgroundColor ?? "#0B0C0E";
   const primary = view.checkout?.primaryColor ?? "#C8F135";
   const fg = readableOn(bg);

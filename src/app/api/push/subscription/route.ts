@@ -1,5 +1,5 @@
 // Registo e remoção do dispositivo atual para notificações push. Exige sessão válida e pedido da própria origem.
-import { getCurrentUser } from "@/server/auth/session";
+import { getActiveUser } from "@/server/auth/session";
 import { rateLimit } from "@/server/rate-limit";
 import { json, sameOrigin } from "@/server/notifications/http";
 import { revokeDevice, subscribeDevice } from "@/server/notifications/service";
@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 async function guard(req: Request) {
   if (!sameOrigin(req)) return { error: json({ error: "Origem não permitida" }, 403) };
   if (!(req.headers.get("content-type") ?? "").includes("application/json")) return { error: json({ error: "Formato inválido" }, 415) };
-  const user = await getCurrentUser();
+  const user = await getActiveUser();
   if (!user) return { error: json({ error: "Não autenticado" }, 401) };
   if (!rateLimit(`push-sub:${user.id}`, 20, 10 * 60_000)) return { error: json({ error: "Demasiados pedidos. Aguarde alguns minutos." }, 429) };
   let body: unknown;

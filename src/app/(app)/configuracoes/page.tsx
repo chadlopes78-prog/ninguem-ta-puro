@@ -18,7 +18,7 @@ export const metadata: Metadata = { title: "Configurações" };
 
 export default async function SettingsPage() {
   const user = await requireUser();
-  const [s, counts, vapid, devices, prefs] = await Promise.all([getSettings(), demoDataCounts(), getVapidKeys().catch(() => null), listDevices(user.id), getPrefs(user.id)]);
+  const [s, counts, vapid, devices, prefs] = await Promise.all([getSettings(user.id), demoDataCounts(user.id), getVapidKeys().catch(() => null), listDevices(user.id), getPrefs(user.id)]);
   const tools = demoToolsEnabled();
   const hasDemo = Object.values(counts).some((n) => n > 0);
 

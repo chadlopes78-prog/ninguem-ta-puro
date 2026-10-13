@@ -32,7 +32,7 @@ const REFUND_COLOR = "var(--color-info)";
 export default async function ReportsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   await requireUser();
   const sp = await searchParams;
-  const { isDemo, settings } = await getScope();
+  const { isDemo, settings, scope } = await getScope();
   const tz = settings.timezone;
   const range = resolveRange({ preset: sp.range, from: sp.from, to: sp.to }, tz);
   const cur = CURRENCIES.includes(sp.currency as CurrencyCode) ? (sp.currency as CurrencyCode) : undefined;
@@ -49,10 +49,10 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   };
 
   const [fin, legacy, tx, opts] = await Promise.all([
-    getFinanceReport({ isDemo, range, currency: cur, defaultCurrency: settings.defaultCurrency, tz }),
-    getReportsData({ isDemo, range, currency: cur, defaultCurrency: settings.defaultCurrency, tz }),
-    listTransactions(isDemo, range, filters),
-    transactionFilterOptions(isDemo),
+    getFinanceReport({ scope, range, currency: cur, defaultCurrency: settings.defaultCurrency, tz }),
+    getReportsData({ scope, range, currency: cur, defaultCurrency: settings.defaultCurrency, tz }),
+    listTransactions(scope, range, filters),
+    transactionFilterOptions(scope),
   ]);
   const c = fin.currency;
   const m = (v: number) => formatMoney(v, c);
