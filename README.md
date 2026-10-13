@@ -52,6 +52,8 @@ npm run dev
 | `EPAY_SECRET_KEY` | para EPay | Chave secreta da EPay `sk_test_…` (sandbox) ou `sk_live_…` (produção). Só no servidor |
 | `E2PAYMENTS_CLIENT_ID`, `E2PAYMENTS_CLIENT_SECRET`, `E2PAYMENTS_MPESA_WALLET_ID`, `E2PAYMENTS_EMOLA_WALLET_ID` | opcional | Credenciais da E2Payments (alternativa ao formulário da aba Integrações). Só no servidor |
 | `INTEGRATIONS_ENCRYPTION_KEY` | opcional | Chave dedicada (≥ 32 caracteres) para cifrar as credenciais introduzidas na aba Integrações. Sem ela, usa-se uma chave derivada de `DATABASE_URL` |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | opcional | Chaves das notificações push (Web Push). Sem elas, são geradas e guardadas cifradas na BD na primeira utilização |
+| `CRON_SECRET` | opcional | Protege a tarefa diária `/api/cron/notifications` (resumo diário e reenvio de push). Sem ela, as tarefas correm quando o painel é aberto |
 | `NTP_ENABLE_TEST_PROVIDER`, `TEST_PROVIDER_SECRET` | só testes | Fornecedor de pagamentos fictício; só funciona com a BD `ntp_test` |
 
 Nenhum segredo é exposto ao frontend.

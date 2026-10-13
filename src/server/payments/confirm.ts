@@ -4,6 +4,8 @@ import { randomBytes } from "crypto";
 import type { OrderStatus, PaymentStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/server/db";
 import type { NormalizedStatus } from "./types";
+import { recordOrderEvent } from "@/server/notifications/events";
+import { schedulePushDispatch } from "@/server/notifications/push";
 
 export type ConfirmSource = "webhook" | "status-check" | "charge-response" | "manual-verification";
 export type ConfirmResult = "processed" | "unchanged" | "ignored" | "rejected";
@@ -124,7 +126,9 @@ export async function applyPaymentStatus(provider: string, status: NormalizedSta
       await audit(tx, order.id, from, "APPROVED", actor, `Pagamento confirmado (${status.rawStatus})`);
       // Entrega: criada uma única vez (orderId é único)
       await tx.delivery.upsert({ where: { orderId: order.id }, create: { orderId: order.id, token: newDeliveryToken() }, update: {} });
-      return { result: "processed" as const };
+      // Notificação de venda: na mesma transação (idempotente por pedido) — só existe se a encomenda foi aprovada aqui
+      await recordOrderEvent(tx, "sale", order.id);
+      return { result: "processed" as const, notified: true };
     }
 
     if (target === "FAILED" || target === "CANCELED" || target === "EXPIRED") {
@@ -141,6 +145,8 @@ export async function applyPaymentStatus(provider: string, status: NormalizedSta
           await tx.$executeRaw`UPDATE "Coupon" SET "usesCount" = GREATEST("usesCount" - 1, 0) WHERE "id" = ${order.couponId}`;
         }
         await audit(tx, order.id, "PENDING", to, actor, `Pagamento ${status.state} (${status.rawStatus})`);
+        await recordOrderEvent(tx, "failed", order.id);
+        return { result: "processed" as const, notified: true };
       }
       return { result: "processed" as const };
     }
@@ -149,5 +155,8 @@ export async function applyPaymentStatus(provider: string, status: NormalizedSta
   });
 
   if (outcome.result === "processed" && target === "PAID") await log(provider, "info", `Pagamento confirmado: ${order.code} (${source}).`);
-  return { ...outcome, orderId: order.id };
+  // Envio push depois da resposta; se falhar, a fila persistente volta a tentar
+  if ("notified" in outcome && outcome.notified) await schedulePushDispatch();
+  const { notified: _n, ...rest } = outcome as typeof outcome & { notified?: boolean };
+  return { ...rest, orderId: order.id };
 }

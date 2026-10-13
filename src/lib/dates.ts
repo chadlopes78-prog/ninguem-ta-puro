@@ -1,10 +1,11 @@
 // Intervalos de datas calculados no fuso horário do negócio (Settings.timezone).
 
-export const RANGE_PRESETS = ["today", "7d", "30d", "90d", "month", "prevmonth", "custom"] as const;
+export const RANGE_PRESETS = ["today", "yesterday", "7d", "30d", "90d", "month", "prevmonth", "custom"] as const;
 export type RangePreset = (typeof RANGE_PRESETS)[number];
 
 export const RANGE_LABELS: Record<RangePreset, string> = {
   today: "Hoje",
+  yesterday: "Ontem",
   "7d": "Últimos 7 dias",
   "30d": "Últimos 30 dias",
   "90d": "Últimos 90 dias",
@@ -107,6 +108,9 @@ export function resolveRange(
   switch (preset) {
     case "today":
       fromKey = toKey = today;
+      break;
+    case "yesterday":
+      fromKey = toKey = addDays(today, -1);
       break;
     case "7d":
       fromKey = addDays(today, -6);

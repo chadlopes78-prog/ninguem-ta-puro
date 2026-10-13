@@ -45,6 +45,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: SP
         </span>
       }
       description={`${range.label} · valores em ${d.currency} · fuso ${tz}`}
+      actions={<LinkButton href="/relatorios" variant="ghost" size="sm">Relatório financeiro detalhado →</LinkButton>}
     />
   );
 

@@ -7,6 +7,7 @@ import { newOrderCode } from "@/lib/ids";
 import { getActivePaymentProviders, getProvider } from "@/server/payments/registry";
 import { resolveAppBaseUrl } from "@/server/app-url";
 import { applyPaymentStatus, audit } from "@/server/payments/confirm";
+import { recordOrderEventSafe } from "@/server/notifications/events";
 import type { PaymentMethodOption, PaymentProvider } from "@/server/payments/types";
 import { consumeCouponUse } from "./coupons";
 import { computeOrderTotals } from "./order-logic";
@@ -221,9 +222,11 @@ export async function chargeWithProvider(
   switch (result.kind) {
     case "redirect":
       await prisma.payment.update({ where: { id: created.paymentId }, data: { status: "PENDING", externalId: result.externalId, redirectUrl: result.url } });
+      await recordOrderEventSafe("pending", created.orderId);
       return { redirectUrl: result.url };
     case "pending":
       await prisma.payment.update({ where: { id: created.paymentId }, data: { status: "PENDING", externalId: result.externalId } });
+      await recordOrderEventSafe("pending", created.orderId);
       return { redirectUrl: null };
     case "not_created": {
       // Nada foi criado nem cobrado no fornecedor: a tentativa e a encomenda são encerradas e o comprador pode repetir.
@@ -237,6 +240,7 @@ export async function chargeWithProvider(
         }
       });
       await prisma.integrationLog.create({ data: { provider: provider.id, level: "error", message: `Pagamento não iniciado para ${created.orderCode}: ${result.reason}`.slice(0, 500) } });
+      await recordOrderEventSafe("failed", created.orderId);
       return { redirectUrl: null, notStarted: result.userMessage };
     }
     case "paid":
@@ -251,6 +255,7 @@ export async function chargeWithProvider(
       // Estado incerto: a encomenda fica pendente e será verificada por consulta oficial; nunca se assume sucesso.
       await prisma.payment.update({ where: { id: created.paymentId }, data: { status: "PENDING", failureReason: `Estado incerto: ${result.reason}`.slice(0, 200) } });
       await prisma.integrationLog.create({ data: { provider: provider.id, level: "error", message: `Falha ao criar pagamento para ${created.orderCode} (estado incerto).` } });
+      await recordOrderEventSafe("pending", created.orderId);
       return { redirectUrl: null };
   }
 }

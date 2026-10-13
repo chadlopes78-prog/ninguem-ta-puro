@@ -10,8 +10,14 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
+  // web-push usa módulos nativos do Node (crypto/https): fica fora do bundle do servidor
+  serverExternalPackages: ["web-push"],
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      { source: "/:path*", headers: securityHeaders },
+      // Service worker sempre atualizado e limitado à própria origem
+      { source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }, { key: "Content-Type", value: "application/javascript; charset=utf-8" }, { key: "Content-Security-Policy", value: "default-src 'self'; script-src 'self'" }] },
+    ];
   },
 };
 

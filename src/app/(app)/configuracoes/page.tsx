@@ -9,12 +9,16 @@ import { Alert } from "@/components/ui/alert";
 import { ActionButton } from "@/components/ui/action-button";
 import { PasswordForm, SettingsForm } from "@/components/settings/settings-form";
 import { changePasswordAction, clearDemoAction, saveSettingsAction, seedDemoAction, setDemoModeAction } from "./actions";
+import { PushSettings } from "@/components/notifications/push-settings";
+import { getVapidKeys } from "@/server/notifications/push";
+import { getPrefs, listDevices } from "@/server/notifications/service";
+import { revokeDeviceAction, savePrefsAction, sendTestAction } from "../notificacoes/actions";
 
 export const metadata: Metadata = { title: "Configurações" };
 
 export default async function SettingsPage() {
   const user = await requireUser();
-  const [s, counts] = await Promise.all([getSettings(), demoDataCounts()]);
+  const [s, counts, vapid, devices, prefs] = await Promise.all([getSettings(), demoDataCounts(), getVapidKeys().catch(() => null), listDevices(user.id), getPrefs(user.id)]);
   const tools = demoToolsEnabled();
   const hasDemo = Object.values(counts).some((n) => n > 0);
 
@@ -35,6 +39,26 @@ export default async function SettingsPage() {
             timezone: s.timezone,
           }}
         />
+
+        <Card id="notificacoes" className="scroll-mt-6">
+          <CardHeader title="Notificações e Alertas" description="Alertas de vendas, pagamentos e reembolsos no painel e por notificação push (Android, iPhone e computador)." />
+          <CardBody>
+            <PushSettings
+              publicKey={vapid?.publicKey ?? null}
+              devices={devices.map((d) => ({
+                ...d,
+                createdAt: d.createdAt.toISOString(),
+                lastSuccessAt: d.lastSuccessAt?.toISOString() ?? null,
+                lastErrorAt: d.lastErrorAt?.toISOString() ?? null,
+                revokedAt: d.revokedAt?.toISOString() ?? null,
+              }))}
+              prefs={prefs}
+              savePrefs={savePrefsAction}
+              revokeDevice={revokeDeviceAction}
+              sendTest={sendTestAction}
+            />
+          </CardBody>
+        </Card>
 
         <Card id="demo" className="scroll-mt-6">
           <CardHeader

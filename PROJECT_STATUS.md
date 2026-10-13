@@ -1,6 +1,6 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-13 · Sessão 8 (funis com upsell real, página de obrigado, PDF protegido, temas claro/escuro)
+Última atualização: 2026-10-13 · Sessão 9 (notificações push PWA, central de notificações, relatórios de faturamento, reembolsos)
 
 ## Estado geral
 
@@ -10,8 +10,8 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 |---|---|---|
 | Lint | `npm run lint` | ✅ 0 erros, 0 avisos |
 | Tipos TypeScript | `npm run typecheck` | ✅ sem erros |
-| Testes unitários + integração | `npm test` | ✅ 190/190 (10 de funis reais/upsell/obrigado/PDF; 18 de gateways EPay + E2Payments) |
-| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 53/53 (8 de funis/upsell/obrigado/temas, 9 de pagamentos, 4 de personalização, 3 de gateways) |
+| Testes unitários + integração | `npm test` | ✅ 206/206 (16 de notificações/push/reembolsos/relatórios; 10 de funis; 18 de gateways EPay + E2Payments) |
+| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 63/63 (10 de notificações/PWA/relatórios, 8 de funis, 9 de pagamentos, 4 de personalização, 3 de gateways) |
 | Build de produção | `npm run build` | ✅ sem erros |
 | Fuga de segredos | build com `EPAY_SECRET_KEY`, `E2PAYMENTS_CLIENT_ID/SECRET` e `INTEGRATIONS_ENCRYPTION_KEY` fictícias + `grep` em `.next/` e log | ✅ valor ausente do bundle do browser, do output do servidor e do log; nenhuma variável `NEXT_PUBLIC_`; `.env` com segredos fora do Git |
 
@@ -26,6 +26,82 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | 5 — Operação | ✅ Concluída | Pedidos (filtros, detalhe, transições), clientes, cupões (com testador), relatórios |
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
+
+## Notificações push, alertas de vendas e relatórios de faturamento (sessão 9)
+
+### Análise da arquitetura (antes de alterar)
+- **Pagamentos**: a única via confiável de aprovação é `applyPaymentStatus` (`src/server/payments/confirm.ts`), chamada por webhooks assinados, consulta oficial de estado, resposta síncrona do gateway e verificação manual auditada. Os eventos de venda são gerados **aí, dentro da mesma transação** que aprova o pedido. `epay.ts` e `e2payments.ts` **não foram alterados**; nenhuma variável de ambiente existente foi alterada.
+- **Alojamento**: Vercel (funções serverless). Não há fila nem processos permanentes → fila persistente na BD (outbox) + `after()` (waitUntil) + Vercel Cron diário + execução oportunista ao abrir o painel.
+- **Utilizadores**: loja única; todos os utilizadores administram a mesma loja (não existe propriedade de produtos por vendedor). As notificações, preferências e dispositivos são **por utilizador**.
+- **Reembolsos**: a API da EPay não faz reembolsos (documentação: "reembolso pelo painel"); a E2Payments também não documenta reembolsos. A plataforma passa a **registar** reembolsos (parciais/totais) feitos no painel do gateway.
+
+### O que foi implementado (funcional)
+- **PWA**: `manifest.webmanifest` (standalone, ícones 192/512 + maskable), ícone Apple 180 px, metadados `apple-mobile-web-app-*`, service worker `/sw.js` **só para push** (sem cache, não interceta pedidos), servido com `no-cache`.
+- **Web Push com VAPID + cifra aes128gcm** (biblioteca `web-push`, RFC 8030/8291/8292). Chaves: `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` se definidas; senão **geradas na primeira utilização e guardadas na BD com a privada cifrada** (secret-box) — funciona sem configurar a Vercel. A chave privada nunca chega ao browser.
+- **Subscrições**: `POST/DELETE /api/push/subscription` (sessão + mesma origem + JSON + limite de pedidos); só aceita endpoints dos serviços de push conhecidos (Google/FCM, Apple, Mozilla, Microsoft) — impede SSRF; máx. 20 dispositivos por utilizador; um endpoint pertence a um só utilizador; revogação pelo utilizador, por 404/410 do serviço de push ou por mudança de chaves.
+- **Fila persistente (`PushDelivery`)**: notificação + entregas gravadas na transação do evento; envio depois da resposta; até 5 tentativas com espera crescente (1 min → 2 h); 404/410 revoga; 4xx definitivo; erros registados no dispositivo e na entrega.
+- **Confirmação de receção**: o conteúdo cifrado leva um token aleatório; o service worker do dispositivo chama `/api/push/receipt` ao mostrar a notificação. O botão **"Enviar notificação de teste"** mostra separadamente "Aceite pelo serviço de push (HTTP 201)" e "Recebida pelo dispositivo" — nunca afirma entrega sem essa confirmação.
+- **Central de Notificações** (`/notificacoes`): lista, não lidas, contador no menu e no sino do telemóvel, marcar como lida, marcar todas, abrir o pedido/relatório, filtro por tipo, estado do push por notificação, **histórico de eventos** (auditoria dos pedidos).
+- **Eventos automáticos** (idempotentes por `userId + eventKey`): venda confirmada (`sale:<pedido>`), pagamento pendente, pagamento falhado/não concluído, reembolso confirmado, resumo diário, teste. Pagamentos com credenciais de teste aparecem como "Pagamento de teste confirmado". Pedidos de demonstração não geram alertas.
+- **Resumo diário**: dia anterior no fuso da plataforma, a partir das 07:00 locais, uma vez por dia (`JobRun`), com vendas, bruto, reembolsos, após reembolsos e mais vendidos.
+- **Preferências** (Configurações → **Notificações e Alertas**): push on/off, novas vendas, pendentes, falhados, reembolsos, resumo diário; dispositivos subscritos com remoção; botão de teste; instruções para iPhone (instalar pelo Safari → ecrã principal → abrir a app → ativar → Permitir), para permissão recusada (Android/iPhone/computador), navegadores internos (WhatsApp/Instagram) e HTTP. A autorização **só é pedida depois do clique**.
+- **Relatórios** (`/relatorios`): faturamento bruto, reembolsos, após reembolsos, vendas confirmadas, ticket médio, pendentes, falhados, nº de reembolsos, taxas registadas; comparação com o período anterior; aviso explícito **"faturamento não é lucro nem saldo disponível"** (lucro e saldo não são calculados por falta de dados de custos/liquidações); gráficos de evolução do faturamento, vendas por dia, reembolsos por dia, vendas por produto e por gateway; períodos Hoje, **Ontem**, 7/30/90 dias, este mês, mês anterior, personalizado; **tabela de transações** com pesquisa, filtros (estado, gateway, produto), ordenação (data/valor) e paginação; **exportação CSV** (`;`, UTF-8 com BOM, fórmulas neutralizadas, máx. 5000 linhas, só com sessão).
+- **Reembolsos**: botão "Registar reembolso" no pedido pago (parcial ou total; soma nunca excede o total; bloqueio da linha contra registos simultâneos; em pedidos reais exige confirmar que foi feito no painel do gateway); com o total o pedido passa a REEMBOLSADO; auditoria e notificação.
+- **Dashboard**: mantém os indicadores existentes (definição documentada) + ligação ao relatório financeiro detalhado.
+
+### Regras financeiras
+| Situação | Regra |
+|---|---|
+| Pagamento confirmado | Pedido com `approvedAt` e estado Pago/Reembolsado; conta no dia da confirmação (fuso da plataforma) |
+| Pendente | Não entra no faturamento; contado à parte |
+| Falhado / cancelado / expirado | Não entra no faturamento; contados à parte |
+| Reembolso parcial/total | Registo próprio (`Refund`), subtraído no dia do registo; o pedido continua a ser venda no dia em que foi pago |
+| Eventos duplicados | Soma-se por pedido (não por evento/tentativa); a aprovação é uma transição condicional única |
+| Pagamento extra num pedido já pago | Não é somado; fica registado para reembolso manual (comportamento existente) |
+| Várias moedas | Nunca somadas; seleção de moeda |
+| Pagamentos de teste / demonstração | Fora dos relatórios reais |
+| Limites dos dias | 00:00–23:59 no fuso `Settings.timezone` (Africa/Maputo por omissão) |
+
+### Variáveis de ambiente (novas, todas opcionais)
+`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `CRON_SECRET` (ver `.env.example`). Nenhuma variável da EPay/E2Payments foi alterada.
+
+### Configuração do Web Push em produção
+1. Nada obrigatório: as chaves VAPID são geradas e guardadas automaticamente. (Opcional: fixá-las com `npx web-push generate-vapid-keys` → `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`; mudar as chaves obriga a reativar os dispositivos.)
+2. Recomendado: definir `CRON_SECRET` (≥ 16 caracteres) na Vercel para o cron diário (`vercel.json`, 05:10 UTC = 07:10 em Maputo). Sem ele, o resumo e os reenvios correm quando alguém abre o painel.
+3. Em cada telemóvel: Configurações → Notificações e Alertas → **Ativar notificações** → **Enviar notificação de teste**.
+
+### Testes (16 cenários pedidos)
+| # | Cenário | Onde | Resultado |
+|---|---|---|---|
+| 1 | Pagamento confirmado → uma única notificação de venda | integração `notifications` 1; E2E 09 "venda confirmada" | ✅ |
+| 2 | Eventos repetidos sem duplicar notificações/faturamento | integração 2 (webhook repetido, outro id, consulta de estado) | ✅ |
+| 3 | Pendentes não contam como confirmados | integração 3 (2 testes); E2E 09 relatórios | ✅ |
+| 4 | Reembolsos atualizam relatórios | integração 4 (parcial+total, excesso recusado, demo); E2E 09 reembolso pela interface | ✅ |
+| 5 | Separação por gateway | integração 5 (EPay vs E2Payments) | ✅ |
+| 6 | Subscrever dispositivo | integração 6 (válido, endpoint malicioso, chaves inválidas) | ✅ (servidor) |
+| 7 | Revogar subscrição | integração 7 | ✅ |
+| 8 | Notificação de teste | integração 8 (aceite vs recebida, token de receção); E2E 09 (sem dispositivo) | ✅ |
+| 9 | Instalação da PWA | E2E 09 (manifest, ícones, service worker ativo, metadados Apple) | ✅ (critérios técnicos) |
+| 10 | Android | E2E 09 com agente Android (autorização só após clique) | ⚠️ simulado no Chromium |
+| 11 | iPhone: instalação e autorização | E2E 09 com agente iPhone (instruções) | ⚠️ simulado; sem iPhone real |
+| 12 | Permissões recusadas | E2E 09 (instruções de correção; recusa não regista) | ✅ |
+| 13 | Notificações internas mantêm-se se o push falhar | integração 12–13 (503 com tentativas, 410 revoga); E2E 09 | ✅ |
+| 14 | Filtros e cálculos | integração 3/4/5/14 ("Ontem" no fuso, resumo diário); E2E 09 (filtros, CSV) | ✅ |
+| 15 | Vendedor não vê vendas de outro | integração 15 (notificações, dispositivos, estados de entrega isolados por utilizador) | ⚠️ ver limitação (loja única) |
+| 16 | EPay e E2Payments continuam funcionais | testes existentes de gateways (18) + E2E 05/07 sem alterações | ✅ (servidores simulados) |
+
+Cifra e VAPID verificados com uma chave de dispositivo real gerada no teste: o conteúdo só é decifrável com a chave privada do dispositivo (RFC 8291) e o cabeçalho `Authorization: vapid t=…, k=…` está correto.
+
+### Limitações (não comprovado neste ambiente)
+- **Entrega real em Android e iPhone não foi testada**: o ambiente não tem acesso aos serviços de push da Google/Apple nem a dispositivos físicos. Testado: cifra, VAPID, fila, tentativas, revogação e fluxo da interface. Primeiro passo em produção: ativar num Android (Chrome) e num iPhone (iOS ≥ 16.4, app instalada pelo Safari) e usar o botão de teste — o resultado indica se o dispositivo confirmou a receção.
+- **iPhone**: push só na app instalada no ecrã principal, iOS/iPadOS 16.4+; o sistema pode atrasar/agrupar notificações; "Não incomodar"/Foco pode escondê-las.
+- **Loja única**: não existe conceito de "vendedor" dono de produtos; todos os utilizadores autenticados veem todas as vendas da loja. O isolamento implementado é por utilizador para notificações, preferências e dispositivos. Separar vendas por vendedor exigiria um modelo de propriedade (multi-loja) — não foi inventado.
+- **Reembolsos**: a plataforma não executa reembolsos nos gateways (sem API); regista-os. Os webhooks de loja da EPay (`refund.approved`) poderiam automatizar este registo no futuro, mas exigem um segredo `whsec_…` próprio e não foram ligados para não alterar a configuração EPay.
+- **Vercel Hobby**: cron no máximo diário; reenvios dentro do dia acontecem a cada abertura do painel e logo após cada evento.
+- **Lucro e saldo disponível**: não calculados (faltam custos, impostos, comissões e liquidações).
+
+### Ficheiros principais
+`src/server/notifications/{push,events,service,http}.ts`, `src/server/services/{finance,finance-logic}.ts`, `src/lib/notifications.ts`, `public/sw.js`, `src/app/manifest.ts`, `public/icons/*`, `src/app/api/push/*`, `src/app/api/cron/notifications/route.ts`, `vercel.json`, `src/app/(app)/notificacoes/*`, `src/app/(app)/relatorios/{page.tsx,exportar/route.ts}`, `src/components/notifications/*`, `src/components/orders/refund-panel.tsx`, migração `20261015090000_notifications_refunds` (aditiva; backfill de reembolsos de pedidos já reembolsados), `tests/integration/notifications.test.ts`, `e2e/09-notifications.spec.ts`.
 
 ## Funis, upsell, página de obrigado e temas (sessão 8)
 
@@ -388,6 +464,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 9 (2026-10-13)**: notificações push via PWA/Web Push (VAPID + aes128gcm, sem Pushcut), fila persistente com tentativas e confirmação de receção, central de notificações, preferências e dispositivos, resumo diário (cron + execução oportunista), relatórios de faturamento (indicadores, gráficos, transações, CSV) e registo de reembolsos parciais/totais. EPay/E2Payments intactas; migração aditiva. 206 testes unitários/integração e 63 E2E a passar; entrega em dispositivos reais por comprovar.
 - **Sessão 8 (2026-10-13)**: funis por produto com upsell pago a sério (nova encomenda + novo pagamento pelos gateways existentes, entrega só após confirmação, sem duplicados), página de obrigado editável (WhatsApp, link ou PDF protegido), encaminhamento pós-pagamento decidido no servidor, tema claro/escuro por checkout e tema do painel por utilizador. Migração só aditiva; EPay/E2Payments intactas. 190 testes unitários/integração e 53 E2E a passar; build OK.
 - **Sessão 7e (2026-10-13)**: causa provável do `invalid_client` encontrada na integração anterior do dono (Lovable/NEXAPAY): a E2Payments serve a API em dois domínios, `e2payments.explicador.co.mz` (original) e `mpesaemolatech.com` (novo), e algumas contas só autenticam num deles. A plataforma passa a tentar os dois, memoriza o que aceita as credenciais (aparece no cartão como "Servidor") e paga nesse domínio; o valor passa a ser enviado em texto. 180 testes a passar.
 - **Sessão 7d (2026-10-13)**: `invalid_client` persistente com credenciais corretas. O pedido de token passa a tentar as três formas OAuth padrão (JSON, formulário, HTTP Basic), cada uma também com os campos trocados, e deteta segredos copiados mascarados ou cifrados (`$2y$…`); 179 testes a passar.

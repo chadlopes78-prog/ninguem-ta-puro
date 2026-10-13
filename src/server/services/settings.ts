@@ -1,9 +1,15 @@
 import { prisma } from "@/server/db";
-import type { Settings } from "@prisma/client";
+import { Prisma, type Settings } from "@prisma/client";
 import type { SettingsInput } from "@/server/validation/schemas";
 
 export async function getSettings(): Promise<Settings> {
-  return prisma.settings.upsert({ where: { id: "default" }, create: { id: "default" }, update: {} });
+  try {
+    return await prisma.settings.upsert({ where: { id: "default" }, create: { id: "default" }, update: {} });
+  } catch (e) {
+    // Dois pedidos em simultâneo numa base de dados nova: o outro já criou a linha
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return prisma.settings.findUniqueOrThrow({ where: { id: "default" } });
+    throw e;
+  }
 }
 
 /** Âmbito de dados atual: modo de demonstração ou dados reais. Nunca misturados. */

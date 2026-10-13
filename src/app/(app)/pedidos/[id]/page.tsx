@@ -16,7 +16,8 @@ import { Badge, DemoBadge } from "@/components/ui/badge";
 import { Alert } from "@/components/ui/alert";
 import { ActionButton } from "@/components/ui/action-button";
 import { OrderStatusBadge } from "@/components/orders/status";
-import { changeOrderStatusAction, resolveUncertainPaymentAction } from "../actions";
+import { changeOrderStatusAction, recordRefundAction, resolveUncertainPaymentAction } from "../actions";
+import { RefundButton } from "@/components/orders/refund-panel";
 import { needsManualVerification } from "@/server/services/payment-flow";
 import { e2Reference } from "@/server/payments/providers/e2payments";
 
@@ -51,6 +52,9 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
   if (!isDemo && o.status === "PENDING") for (const p of o.payments) if (await needsManualVerification(p)) manualIds.add(p.id);
   const m = (c: number) => formatMoney(c, o.currency);
   const can = (to: "APPROVED" | "DECLINED" | "REFUNDED" | "CANCELED") => canTransition(o.status, to, { isDemo }).ok;
+  const refundedCents = o.refunds.reduce((a, r) => a + r.amountCents, 0);
+  const refundable = o.status === "APPROVED" && o.approvedAt !== null && refundedCents < o.totalCents;
+  const remaining = o.totalCents - refundedCents;
 
   return (
     <>
@@ -71,6 +75,15 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
             {can("APPROVED") && <ActionButton action={changeOrderStatusAction.bind(null, o.id, "APPROVED")} confirm={{ title: "Aprovar (simulação)", description: "Marca este pedido de demonstração como aprovado. Nenhum pagamento real é processado." }}>Aprovar (demo)</ActionButton>}
             {can("DECLINED") && <ActionButton variant="secondary" action={changeOrderStatusAction.bind(null, o.id, "DECLINED")}>Recusar (demo)</ActionButton>}
             {can("REFUNDED") && <ActionButton variant="secondary" action={changeOrderStatusAction.bind(null, o.id, "REFUNDED")} confirm={{ title: "Reembolsar (simulação)", description: "Marca o pedido de demonstração como reembolsado.", danger: true }}>Reembolsar (demo)</ActionButton>}
+            {refundable && (
+              <RefundButton
+                remainingLabel={m(remaining)}
+                remainingInput={(remaining / 100).toFixed(2).replace(".", ",")}
+                isDemo={isDemo}
+                gatewayName={GATEWAY_NAMES[o.provider ?? ""] ?? "plataforma de pagamentos"}
+                action={recordRefundAction.bind(null, o.id)}
+              />
+            )}
             {can("CANCELED") && <ActionButton variant="danger" action={changeOrderStatusAction.bind(null, o.id, "CANCELED")} confirm={{ title: "Cancelar pedido", description: "O pedido pendente será cancelado. Esta ação não pode ser desfeita.", confirmLabel: "Cancelar pedido", danger: true }}>Cancelar pedido</ActionButton>}
           </>
         }
@@ -100,7 +113,21 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
             <Row label="Valor bruto"><span className="font-semibold">{m(o.totalCents)}</span></Row>
             <Row label="Taxas registadas">{m(o.feeCents)}</Row>
             <Row label="Valor líquido"><span className="font-semibold">{m(o.netCents)}</span></Row>
+            {refundedCents > 0 && <Row label="Reembolsado"><span className="font-semibold text-info" data-testid="refunded-total">−{m(refundedCents)}</span></Row>}
           </dl>
+          {o.refunds.length > 0 && (
+            <div className="border-t border-line px-5 py-3">
+              <p className="text-[12px] font-medium uppercase tracking-wider text-subtle">Reembolsos</p>
+              <ul className="mt-2 flex flex-col gap-1.5 text-[13px]" data-testid="refund-list">
+                {o.refunds.map((r) => (
+                  <li key={r.id} className="flex flex-wrap justify-between gap-2">
+                    <span className="text-muted">{formatDate(r.createdAt, tz, true)} · {r.reason ?? "Sem motivo"} · {r.actor}</span>
+                    <span className="font-medium tabular">−{m(r.amountCents)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </Card>
         <div className="flex flex-col gap-5">
           <Card>

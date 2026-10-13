@@ -232,7 +232,11 @@ export async function seedDemoData(now = new Date(), currency: Currency = "MZN")
       canceledAt: s.status === "CANCELED" ? createdAt : null,
       items: { create: items },
     };
-    await prisma.order.create({ data });
+    const created = await prisma.order.create({ data });
+    // Reembolso fictício registado (relatórios contam reembolsos pela data de registo)
+    if (s.status === "REFUNDED") {
+      await prisma.refund.create({ data: { orderId: created.id, amountCents: subtotal, currency, reason: "Reembolso de demonstração", actor: "demo", isDemo: true, createdAt: new Date(createdAt.getTime() + dayMs) } });
+    }
   }
 
   // Sessões de checkout fictícias para permitir calcular conversão

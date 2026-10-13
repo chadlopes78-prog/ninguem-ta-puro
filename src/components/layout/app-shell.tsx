@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronsLeft, ChevronsRight, LogOut, Menu, X } from "lucide-react";
+import { Bell, ChevronsLeft, ChevronsRight, LogOut, Menu, X } from "lucide-react";
 import { ThemeToggle } from "./theme-toggle";
 import type { PanelTheme } from "@/lib/panel-theme";
 import { cn } from "@/lib/utils";
@@ -17,19 +17,24 @@ interface Props {
   logoutAction: () => Promise<void>;
   theme: PanelTheme;
   saveTheme: (t: string) => Promise<{ ok: boolean }>;
+  /** Notificações por ler (canal interno) */
+  unread?: number;
   children: React.ReactNode;
 }
 
 const STORAGE_KEY = "ntp:sidebar-collapsed";
 
-export function AppShell({ user, businessName, demoMode, logoutAction, theme, saveTheme, children }: Props) {
+export function AppShell({ user, businessName, demoMode, logoutAction, theme, saveTheme, unread = 0, children }: Props) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     setCollapsed(localStorage.getItem(STORAGE_KEY) === "1");
+    // Service worker só para notificações push (sem cache): permite instalar a app e receber alertas
+    if ("serviceWorker" in navigator && window.isSecureContext) navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => undefined);
   }, []);
+  const unreadLabel = unread > 99 ? "99+" : String(unread);
   useEffect(() => setMobileOpen(false), [pathname]);
   useEffect(() => {
     document.body.style.overflow = mobileOpen ? "hidden" : "";
@@ -68,6 +73,15 @@ export function AppShell({ user, businessName, demoMode, logoutAction, theme, sa
                     {active && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r-full bg-accent" aria-hidden="true" />}
                     <Icon className={cn("h-[18px] w-[18px] shrink-0", active ? "text-accent" : "text-subtle group-hover:text-fg")} aria-hidden="true" />
                     {!isCollapsed && <span className="truncate">{item.label}</span>}
+                    {item.href === "/notificacoes" && unread > 0 && (
+                      <span
+                        className={cn("grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1.5 text-[10.5px] font-bold text-accent-ink tabular", isCollapsed ? "absolute right-1.5 top-1 h-4 min-w-4 px-1 text-[9.5px]" : "ml-auto")}
+                        aria-label={`${unread} por ler`}
+                        data-testid="unread-badge"
+                      >
+                        {unreadLabel}
+                      </span>
+                    )}
                   </Link>
                 </li>
               );
@@ -157,7 +171,11 @@ export function AppShell({ user, businessName, demoMode, logoutAction, theme, sa
             <Menu className="h-5 w-5" />
           </button>
           <LogoMark className="h-7 w-7" />
-          <span className="truncate font-display text-[15px] font-semibold">{current?.label ?? businessName}</span>
+          <span className="min-w-0 flex-1 truncate font-display text-[15px] font-semibold">{current?.label ?? businessName}</span>
+          <Link href="/notificacoes" className="relative grid h-10 w-10 shrink-0 place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-fg" aria-label={unread ? `Notificações: ${unread} por ler` : "Notificações"}>
+            <Bell className="h-5 w-5" />
+            {unread > 0 && <span className="absolute right-1 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[9.5px] font-bold text-accent-ink">{unreadLabel}</span>}
+          </Link>
         </header>
         <main className="mx-auto w-full max-w-[1400px] flex-1 has-[[data-testid=funnel-canvas]]:max-w-none px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</main>
       </div>

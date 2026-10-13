@@ -8,6 +8,11 @@ export const metadata: Metadata = {
   title: { default: "Ninguém Tá Puro", template: "%s · Ninguém Tá Puro" },
   description: "Plataforma privada de vendas digitais.",
   robots: { index: false, follow: false },
+  applicationName: "Ninguém Tá Puro",
+  // iPhone: aplicação web instalável a partir do Safari (Partilhar → Adicionar ao ecrã principal)
+  appleWebApp: { capable: true, title: "Ninguém Tá Puro", statusBarStyle: "black" },
+  icons: { icon: [{ url: "/icon.svg", type: "image/svg+xml" }, { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }], apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180" }] },
+  formatDetection: { telephone: false },
 };
 
 export const viewport: Viewport = { themeColor: "#0b0c0e", width: "device-width", initialScale: 1 };

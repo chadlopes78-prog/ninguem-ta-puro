@@ -70,6 +70,7 @@ export async function getOrder(id: string, isDemo: boolean) {
       payments: { orderBy: { createdAt: "desc" } },
       auditLogs: { orderBy: { createdAt: "desc" } },
       delivery: { select: { token: true, accessCount: true, lastAccessAt: true } },
+      refunds: { orderBy: { createdAt: "desc" } },
     },
   });
   if (!o) throw new NotFoundError("Pedido");
@@ -171,6 +172,12 @@ export async function changeOrderStatus(id: string, to: OrderStatus, isDemo: boo
   if (res.count !== 1) throw new DomainError("O pedido foi alterado entretanto. Atualize a página.");
   await audit(tx, id, order.status, to, actor, isDemo ? "Alteração manual (demonstração)" : "Alteração manual");
   if (to === "APPROVED") await tx.delivery.upsert({ where: { orderId: id }, create: { orderId: id, token: newDeliveryToken() }, update: {} });
+  // Reembolso total (só possível em demonstração): fica registado para os relatórios por data de reembolso
+  if (to === "REFUNDED") {
+    const done = await tx.refund.aggregate({ where: { orderId: id }, _sum: { amountCents: true } });
+    const remaining = order.totalCents - (done._sum.amountCents ?? 0);
+    if (remaining > 0) await tx.refund.create({ data: { orderId: id, amountCents: remaining, currency: order.currency, reason: "Reembolso total", actor, isDemo } });
+  }
   });
 }
 
