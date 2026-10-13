@@ -22,7 +22,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Pagination } from "@/components/ui/pagination";
 import { RangeFilter } from "@/components/filters/range-filter";
 import { BarList } from "@/components/charts/bar-list";
-import { DailyBars, GrossChart } from "@/components/charts/charts";
+import { DailyBars, GrossChart } from "@/components/charts/lazy-charts";
 import { OrderStatusBadge } from "@/components/orders/status";
 
 export const metadata: Metadata = { title: "Relatórios" };

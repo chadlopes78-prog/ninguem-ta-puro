@@ -11,16 +11,28 @@ import { unreadCount, runNotificationJobs } from "@/server/notifications/service
 
 export const dynamic = "force-dynamic";
 
+// As tarefas de notificações (push pendente, resumo diário) não precisam de correr em cada navegação:
+// no máximo uma vez a cada 5 minutos por instância (o cron diário continua a garantir a execução).
+const JOBS_INTERVAL_MS = 5 * 60_000;
+let lastJobsRun = 0;
+
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
-  const [settings, prefs, unread] = await Promise.all([getSettings(user.id), prisma.user.findUnique({ where: { id: user.id }, select: { themePreference: true } }), unreadCount(user.id)]);
-  // Depois da resposta: envia push pendente e gera o resumo diário em falta (não depende só do cron)
-  after(() => runNotificationJobs().catch((e) => console.error("[notificações] tarefas", e)));
-  const theme = isPanelTheme(prefs?.themePreference) ? prefs.themePreference : "system";
   const isOwner = canAdminister(user);
-  const pendingApprovals = isOwner ? await prisma.user.count({ where: { status: "PENDING_APPROVAL", bannedAt: null } }) : 0;
+  // Consultas independentes em paralelo (cada ida à BD custa a latência Vercel ↔ BD)
+  const [settings, unread, pendingApprovals] = await Promise.all([
+    getSettings(user.id),
+    unreadCount(user.id),
+    isOwner ? prisma.user.count({ where: { status: "PENDING_APPROVAL", bannedAt: null } }) : Promise.resolve(0),
+  ]);
+  if (Date.now() - lastJobsRun > JOBS_INTERVAL_MS) {
+    lastJobsRun = Date.now();
+    // Depois da resposta: envia push pendente e gera o resumo diário em falta (não depende só do cron)
+    after(() => runNotificationJobs().catch((e) => console.error("[notificações] tarefas", e)));
+  }
+  const theme = isPanelTheme(user.themePreference) ? user.themePreference : "system";
   return (
-    <AppShell user={user} businessName={settings.businessName} demoMode={settings.demoMode} logoutAction={logoutAction} theme={theme} saveTheme={setThemePreferenceAction} unread={unread} isOwner={isOwner} pendingApprovals={pendingApprovals}>
+    <AppShell user={{ name: user.name, email: user.email }} businessName={settings.businessName} demoMode={settings.demoMode} logoutAction={logoutAction} theme={theme} saveTheme={setThemePreferenceAction} unread={unread} isOwner={isOwner} pendingApprovals={pendingApprovals}>
       {children}
     </AppShell>
   );

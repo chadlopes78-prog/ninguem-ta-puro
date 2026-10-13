@@ -17,7 +17,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { LinkButton } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
 import { RangeFilter } from "@/components/filters/range-filter";
-import { OrdersChart, RevenueChart } from "@/components/charts/charts";
+import { OrdersChart, RevenueChart } from "@/components/charts/lazy-charts";
 import { BarList } from "@/components/charts/bar-list";
 import { OrderStatusBadge, STATUS_COLOR } from "@/components/orders/status";
 

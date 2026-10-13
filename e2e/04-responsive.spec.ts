@@ -26,6 +26,24 @@ test("navegação mobile com menu lateral", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Cupons" })).toBeVisible();
 });
 
+test("telemóvel com rede lenta: o toque no menu responde logo (fecha o menu e mostra progresso)", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 800 });
+  await login(page);
+  // simula um servidor lento (ex.: base de dados longe) só para a página de destino
+  await page.route("**/clientes**", async (route) => {
+    await new Promise((r) => setTimeout(r, 2000));
+    await route.continue();
+  });
+  await page.getByRole("button", { name: "Abrir menu" }).click();
+  await page.getByRole("dialog", { name: "Menu" }).getByRole("link", { name: "Clientes" }).click();
+  // antes de a página chegar: menu fechado e barra de progresso visível
+  await expect(page.getByRole("dialog", { name: "Menu" })).toHaveCount(0, { timeout: 500 });
+  await expect(page.getByTestId("nav-progress")).toBeVisible({ timeout: 500 });
+  await expect(page).toHaveURL(/\/clientes/);
+  await expect(page.getByRole("heading", { name: "Clientes", level: 1 })).toBeVisible();
+  await expect(page.getByTestId("nav-progress")).toHaveCount(0);
+});
+
 test("sidebar recolhível no desktop", async ({ page }) => {
   await login(page);
   await page.getByRole("button", { name: "Recolher menu" }).click();

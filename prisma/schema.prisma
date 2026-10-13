@@ -3,7 +3,10 @@
 // Dados de demonstração: coluna `isDemo` em todas as entidades de negócio; nunca misturados com dados reais.
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  // Relações carregadas numa só consulta (JOIN) em vez de uma ida à base de dados por relação:
+  // em produção cada ida custa a latência entre a Vercel e a BD.
+  previewFeatures = ["relationJoins"]
 }
 
 datasource db {

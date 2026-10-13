@@ -9,6 +9,7 @@ import type { PanelTheme } from "@/lib/panel-theme";
 import { cn } from "@/lib/utils";
 import { GROUP_LABELS, NAV } from "./nav";
 import { Logo, LogoMark } from "./logo";
+import { LinkPending, NavProgress } from "./nav-progress";
 
 interface Props {
   user: { name: string; email: string };
@@ -68,6 +69,8 @@ export function AppShell({ user, businessName, demoMode, logoutAction, theme, sa
                     href={item.href}
                     aria-current={active ? "page" : undefined}
                     title={isCollapsed ? item.label : undefined}
+                    // fecha o menu do telemóvel no próprio toque (não à espera da resposta do servidor)
+                    onClick={() => setMobileOpen(false)}
                     className={cn(
                       "group relative flex h-10 items-center gap-3 rounded-[var(--radius-md)] px-2.5 text-[13.5px] font-medium transition-colors",
                       active ? "bg-surface-3 text-fg" : "text-muted hover:bg-surface-2 hover:text-fg",
@@ -77,6 +80,7 @@ export function AppShell({ user, businessName, demoMode, logoutAction, theme, sa
                     {active && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r-full bg-accent" aria-hidden="true" />}
                     <Icon className={cn("h-[18px] w-[18px] shrink-0", active ? "text-accent" : "text-subtle group-hover:text-fg")} aria-hidden="true" />
                     {!isCollapsed && <span className="truncate">{item.label}</span>}
+                    {!isCollapsed && <LinkPending />}
                     {item.href === "/admin" && pendingApprovals > 0 && (
                       <span className={cn("grid h-5 min-w-5 place-items-center rounded-full bg-warning px-1.5 text-[10.5px] font-bold text-black tabular", isCollapsed ? "absolute right-1.5 top-1 h-4 min-w-4 px-1 text-[9.5px]" : "ml-auto")} aria-label={`${pendingApprovals} pendente(s)`} data-testid="pending-approvals-badge">
                         {pendingApprovals > 99 ? "99+" : pendingApprovals}
@@ -125,6 +129,7 @@ export function AppShell({ user, businessName, demoMode, logoutAction, theme, sa
 
   return (
     <div className="flex min-h-dvh bg-canvas text-fg" data-app-shell>
+      <NavProgress />
       {/* Sidebar desktop */}
       <aside
         className={cn(

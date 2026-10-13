@@ -1,6 +1,6 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-14 · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
+Última atualização: 2026-10-14 · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
 
 ## Estado geral
 
@@ -11,7 +11,7 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | Lint | `npm run lint` | ✅ 0 erros, 0 avisos |
 | Tipos TypeScript | `npm run typecheck` | ✅ sem erros |
 | Testes unitários + integração | `npm test` | ✅ 221/221 (12 de multiutilizador A–G + 3 da política de acesso; 16 de notificações/relatórios; 10 de funis; 18 de gateways) |
-| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 68/68 (5 de várias contas/aprovação/Administração, 10 de notificações/PWA/relatórios, 8 de funis, 9 de pagamentos, 4 de personalização, 3 de gateways) |
+| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 69/69 (1 de navegação no telemóvel com rede lenta, 5 de várias contas/aprovação/Administração, 10 de notificações/PWA/relatórios, 8 de funis, 9 de pagamentos, 4 de personalização, 3 de gateways) |
 | Build de produção | `npm run build` | ✅ sem erros |
 | Fuga de segredos | build com `EPAY_SECRET_KEY`, `E2PAYMENTS_CLIENT_ID/SECRET` e `INTEGRATIONS_ENCRYPTION_KEY` fictícias + `grep` em `.next/` e log | ✅ valor ausente do bundle do browser, do output do servidor e do log; nenhuma variável `NEXT_PUBLIC_`; `.env` com segredos fora do Git |
 
@@ -26,6 +26,50 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | 5 — Operação | ✅ Concluída | Pedidos (filtros, detalhe, transições), clientes, cupões (com testador), relatórios |
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
+
+## Desempenho no telemóvel (sessão 11)
+
+### Diagnóstico (medido)
+
+O JavaScript das páginas já era pequeno (~110 kB), exceto Dashboard e Relatórios (217 kB, por causa da biblioteca de gráficos).
+
+O atraso vinha sobretudo do servidor: cada navegação fazia 20–50 consultas à base de dados, muitas em sequência. Em produção, cada consulta paga a latência entre a função da Vercel e a base de dados. Por exemplo, em `/produtos` havia ~11 idas sequenciais:
+- sessão, depois utilizador;
+- *upsert* das configurações (BEGIN/SELECT/SELECT/COMMIT), feito duas vezes;
+- contagens;
+- produtos, depois ofertas, depois checkouts.
+
+No telemóvel, o menu lateral só fechava quando a página nova chegava, por isso o toque parecia não responder.
+
+### O que mudou
+
+- **Consultas** (medidas com o registo de consultas do Prisma):
+
+  | Página | Antes | Depois |
+  |---|---|---|
+  | `/produtos` | 20 | 5 |
+  | `/dashboard` | 28 | 10 |
+  | `/pedidos` | 24 | 7 |
+  | `/relatorios` | 52 | 24 |
+
+  - `relationJoins` do Prisma: as relações (`include`) carregam-se numa só consulta com JOIN.
+  - Sessão e conta lidas numa só consulta, só com os campos necessários.
+  - Configurações lidas com uma leitura simples; o *upsert* só acontece na primeira utilização.
+  - Layout do painel: tudo em paralelo; o tema vem da sessão.
+  - Dashboard e Relatórios: consultas em paralelo e encomendas lidas uma só vez.
+- **Tarefas de notificações**: deixaram de correr em cada navegação. Correm no máximo a cada 5 minutos por instância, e o cron diário mantém-se.
+- **Gráficos (Recharts)** carregam à parte, depois da página. O JavaScript inicial do Dashboard e dos Relatórios passou de 217 kB para 110 kB.
+- **Resposta imediata ao toque**:
+  - o menu do telemóvel fecha no toque;
+  - o item tocado mostra um indicador;
+  - uma barra de progresso no topo aparece até a página chegar;
+  - pesquisas e filtros na mesma página não são afetados.
+
+### Configuração recomendada na Vercel (não verificável a partir daqui)
+
+A **região das funções** da Vercel (Settings → Functions → Function Region) deve ser a **mesma região da base de dados** (Storage → base de dados → região).
+- Com regiões diferentes, cada consulta pode custar 80–150 ms em vez de 1–5 ms.
+- A latência entre a função e a BD pesa mais do que a distância ao utilizador, porque cada página faz várias consultas e o browser só faz um pedido.
 
 ## Multiutilizador, aprovação de contas e Administração da Plataforma (sessão 10)
 
@@ -565,6 +609,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 11 (2026-10-14)**: desempenho no telemóvel: menos consultas e em paralelo (JOIN do Prisma, sessão numa consulta, configurações sem upsert, layout e relatórios em paralelo), tarefas de notificações limitadas, gráficos carregados à parte (Dashboard/Relatórios 217 → 110 kB) e resposta imediata ao toque (menu fecha logo, indicador e barra de progresso). 221 testes unitários/integração e 69 E2E a passar.
 - **Sessão 10 (2026-10-14)**: sistema multiutilizador com registo pendente, aprovação/rejeição/suspensão pelo proprietário, Administração da Plataforma, isolamento total por conta (`ownerId` em todas as entidades), credenciais EPay/E2Payments por conta (cifradas, sem fallback) e avisos de pagamento verificados com a chave da conta dona. A migração atribui os dados existentes e as credenciais ao proprietário sem as alterar. 221 testes unitários/integração e 68 E2E a passar.
 - **Sessão 9 (2026-10-13)**: notificações push via PWA/Web Push (VAPID + aes128gcm, sem Pushcut), fila persistente com tentativas e confirmação de receção, central de notificações, preferências e dispositivos, resumo diário (cron + execução oportunista), relatórios de faturamento (indicadores, gráficos, transações, CSV) e registo de reembolsos parciais/totais. EPay/E2Payments intactas; migração aditiva. 206 testes unitários/integração e 63 E2E a passar; entrega em dispositivos reais por comprovar.
 - **Sessão 8 (2026-10-13)**: funis por produto com upsell pago a sério (nova encomenda + novo pagamento pelos gateways existentes, entrega só após confirmação, sem duplicados), página de obrigado editável (WhatsApp, link ou PDF protegido), encaminhamento pós-pagamento decidido no servidor, tema claro/escuro por checkout e tema do painel por utilizador. Migração só aditiva; EPay/E2Payments intactas. 190 testes unitários/integração e 53 E2E a passar; build OK.

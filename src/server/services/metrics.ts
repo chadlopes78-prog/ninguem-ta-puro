@@ -37,13 +37,24 @@ async function countSessions(scope: Scope, from: Date, to: Date) {
   return prisma.checkoutSession.count({ where: { ...own(scope), createdAt: { gte: from, lt: to } } });
 }
 
-export async function getDashboardData(params: { scope: Scope; range: DateRange; currency?: CurrencyCode; defaultCurrency: CurrencyCode; tz: string }) {
+type MetricsParams = { scope: Scope; range: DateRange; currency?: CurrencyCode; defaultCurrency: CurrencyCode; tz: string };
+
+// Todas as leituras são independentes e correm em paralelo: em produção cada ida à base de dados
+// custa a latência entre a Vercel e a BD, por isso consultas em sequência somam-se.
+async function dashboardCore(params: MetricsParams) {
   const { scope, range, tz } = params;
-  const [orders, prevOrders, sessions, prevSessions] = await Promise.all([
+  const [orders, prevOrders, sessions, prevSessions, recent, anyOrder] = await Promise.all([
     loadOrders(scope, range.from, range.to),
     loadOrders(scope, range.previous.from, range.previous.to),
     countSessions(scope, range.from, range.to),
     countSessions(scope, range.previous.from, range.previous.to),
+    prisma.order.findMany({
+      where: own(scope),
+      orderBy: { createdAt: "desc" },
+      take: 8,
+      include: { customer: { select: { name: true, email: true } }, items: { take: 1, select: { product: { select: { name: true } } } } },
+    }),
+    prisma.order.findFirst({ where: own(scope), select: { id: true } }),
   ]);
   const currencies = currenciesIn([...orders, ...prevOrders]);
   const currency = params.currency && currencies.includes(params.currency) ? params.currency : currencies.includes(params.defaultCurrency) || !currencies.length ? params.defaultCurrency : currencies[0];
@@ -51,14 +62,7 @@ export async function getDashboardData(params: { scope: Scope; range: DateRange;
   const prevDays = range.days.map((_, i) => i); // índices alinhados para comparação
   const prevSeries = dailySeries(prevOrders, currency, shiftDays(range.days, range.days.length), tz);
 
-  const recent = await prisma.order.findMany({
-    where: own(scope),
-    orderBy: { createdAt: "desc" },
-    take: 8,
-    include: { customer: { select: { name: true, email: true } }, items: { take: 1, select: { product: { select: { name: true } } } } },
-  });
-
-  return {
+  const data = {
     currency,
     currencies,
     kpis: computeKpis(orders, currency, sessions),
@@ -70,8 +74,13 @@ export async function getDashboardData(params: { scope: Scope; range: DateRange;
     products: productPerformance(orders, currency).slice(0, 8),
     statuses: statusDistribution(orders, currency),
     recent,
-    hasAnyOrder: (await prisma.order.count({ where: own(scope) })) > 0,
+    hasAnyOrder: anyOrder !== null,
   };
+  return { data, orders };
+}
+
+export async function getDashboardData(params: MetricsParams) {
+  return (await dashboardCore(params)).data;
 }
 
 function shiftDays(days: string[], by: number): string[] {
@@ -81,31 +90,45 @@ function shiftDays(days: string[], by: number): string[] {
   });
 }
 
-export async function getReportsData(params: { scope: Scope; range: DateRange; currency?: CurrencyCode; defaultCurrency: CurrencyCode; tz: string }) {
+export async function getReportsData(params: MetricsParams) {
   const { scope, range } = params;
-  const base = await getDashboardData(params);
-  const orders = await loadOrders(scope, range.from, range.to);
-
-  const checkouts = await prisma.checkout.findMany({
-    where: own(scope),
-    select: {
-      id: true,
-      name: true,
-      offer: { select: { currency: true } },
-      _count: { select: { sessions: { where: { createdAt: { gte: range.from, lt: range.to } } } } },
-    },
-  });
-  const approvedByCheckout = await prisma.order.groupBy({
-    by: ["checkoutId"],
-    where: { ...own(scope), isTestPayment: false, status: "APPROVED", currency: base.currency, createdAt: { gte: range.from, lt: range.to }, checkoutId: { not: null } },
-    _count: { _all: true },
-    _sum: { totalCents: true },
-  });
-  const submits = await prisma.analyticsEvent.groupBy({
-    by: ["checkoutId"],
-    where: { ...own(scope), type: EVENT_TYPES.CHECKOUT_SUBMIT, createdAt: { gte: range.from, lt: range.to } },
-    _count: { _all: true },
-  });
+  const [core, checkouts, approvedRows, submits, funnels, offerEvents] = await Promise.all([
+    dashboardCore(params),
+    prisma.checkout.findMany({
+      where: own(scope),
+      select: {
+        id: true,
+        name: true,
+        offer: { select: { currency: true } },
+        _count: { select: { sessions: { where: { createdAt: { gte: range.from, lt: range.to } } } } },
+      },
+    }),
+    // agrupado também por moeda: a moeda do relatório só é conhecida depois de ler as encomendas
+    prisma.order.groupBy({
+      by: ["checkoutId", "currency"],
+      where: { ...own(scope), isTestPayment: false, status: "APPROVED", createdAt: { gte: range.from, lt: range.to }, checkoutId: { not: null } },
+      _count: { _all: true },
+      _sum: { totalCents: true },
+    }),
+    prisma.analyticsEvent.groupBy({
+      by: ["checkoutId"],
+      where: { ...own(scope), type: EVENT_TYPES.CHECKOUT_SUBMIT, createdAt: { gte: range.from, lt: range.to } },
+      _count: { _all: true },
+    }),
+    prisma.funnel.findMany({ where: own(scope), select: { id: true, name: true, status: true } }),
+    prisma.analyticsEvent.groupBy({
+      by: ["funnelId", "type"],
+      where: {
+        ...own(scope),
+        type: { in: [EVENT_TYPES.FUNNEL_STEP_VIEW, EVENT_TYPES.OFFER_ACCEPT, EVENT_TYPES.OFFER_DECLINE] },
+        createdAt: { gte: range.from, lt: range.to },
+      },
+      _count: { _all: true },
+    }),
+  ]);
+  const base = core.data;
+  const orders = core.orders;
+  const approvedByCheckout = approvedRows.filter((r) => r.currency === base.currency);
   const checkoutRows = checkouts.map((c) => {
     const a = approvedByCheckout.find((x) => x.checkoutId === c.id);
     const sessions = c._count.sessions;
@@ -121,16 +144,6 @@ export async function getReportsData(params: { scope: Scope; range: DateRange; c
     };
   });
 
-  const funnels = await prisma.funnel.findMany({ where: own(scope), select: { id: true, name: true, status: true } });
-  const offerEvents = await prisma.analyticsEvent.groupBy({
-    by: ["funnelId", "type"],
-    where: {
-      ...own(scope),
-      type: { in: [EVENT_TYPES.FUNNEL_STEP_VIEW, EVENT_TYPES.OFFER_ACCEPT, EVENT_TYPES.OFFER_DECLINE] },
-      createdAt: { gte: range.from, lt: range.to },
-    },
-    _count: { _all: true },
-  });
   const funnelRows = funnels.map((f) => {
     const get = (t: string) => offerEvents.find((e) => e.funnelId === f.id && e.type === t)?._count._all ?? 0;
     const accepts = get(EVENT_TYPES.OFFER_ACCEPT);

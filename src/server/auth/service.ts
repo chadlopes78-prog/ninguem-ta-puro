@@ -8,10 +8,10 @@ export const LOGIN_MAX_FAILURES = 5;
 export const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 
 /** Utilizador da sessão. role/status/bannedAt vêm SEMPRE da base de dados, nunca do browser. */
-export type AuthUser = { id: string; email: string; name: string; role: UserRole; status: AccountStatus; bannedAt: Date | null };
+export type AuthUser = { id: string; email: string; name: string; role: UserRole; status: AccountStatus; bannedAt: Date | null; themePreference?: string | null };
 
-function toAuthUser(u: { id: string; email: string; name: string; role: UserRole; status: AccountStatus; bannedAt: Date | null }): AuthUser {
-  return { id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, bannedAt: u.bannedAt };
+function toAuthUser(u: { id: string; email: string; name: string; role: UserRole; status: AccountStatus; bannedAt: Date | null; themePreference?: string | null }): AuthUser {
+  return { id: u.id, email: u.email, name: u.name, role: u.role, status: u.status, bannedAt: u.bannedAt, themePreference: u.themePreference ?? null };
 }
 
 export async function hasAnyUser(): Promise<boolean> {
@@ -93,7 +93,8 @@ export async function getUserBySessionToken(token: string | undefined | null): P
   if (!token || token.length < 20 || token.length > 200) return null;
   const session = await prisma.session.findUnique({
     where: { tokenHash: hashToken(token) },
-    include: { user: true },
+    // sessão + conta numa só consulta; só os campos necessários (nunca o hash da password)
+    select: { id: true, expiresAt: true, user: { select: { id: true, email: true, name: true, role: true, status: true, bannedAt: true, themePreference: true } } },
   });
   if (!session) return null;
   if (session.expiresAt.getTime() <= Date.now()) {

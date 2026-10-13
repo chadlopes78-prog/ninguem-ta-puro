@@ -6,6 +6,9 @@ import { scopeOf, type Scope } from "@/server/scope";
 
 /** Configurações de UMA conta (criadas na primeira utilização). Nunca partilhadas entre contas. */
 export async function getSettings(ownerId: string): Promise<Settings> {
+  // Caminho rápido: uma só leitura. O upsert (transação com várias idas à BD) só na primeira utilização.
+  const existing = await prisma.settings.findUnique({ where: { ownerId } });
+  if (existing) return existing;
   try {
     return await prisma.settings.upsert({ where: { ownerId }, create: { ownerId }, update: {} });
   } catch (e) {
