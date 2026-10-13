@@ -13,13 +13,13 @@ O site da documentação (`https://e2payments.explicador.co.mz/docs`, referênci
 
 | Tema | Confirmado |
 |---|---|
-| URL base | `https://e2payments.explicador.co.mz` |
+| URL base | `https://e2payments.explicador.co.mz` (domínio original) e `https://mpesaemolatech.com` (domínio novo, com a mesma API). Algumas contas só autenticam num deles. O domínio novo vem da integração E2Payments que o dono já tinha a funcionar (projeto NEXAPAY, no Lovable); não foi possível confirmá-lo noutra fonte. A plataforma tenta o domínio já confirmado e depois o outro, memoriza o que aceitar as credenciais e envia os pagamentos para esse. |
 | Credenciais | `client_id` e `client_secret` (painel → *Credenciais*); ID da carteira M-Pesa e/ou e-Mola (painel → *Carteiras*), **sem o "#"** |
 | Autenticação | `POST /oauth/token`, JSON `{"grant_type":"client_credentials","client_id":…,"client_secret":…}` → resposta com `token_type` e `access_token`. O cabeçalho usado depois é `Authorization: <token_type> <access_token>` |
 | Pagamento M-Pesa | `POST /v1/c2b/mpesa-payment/{wallet_id}` |
 | Pagamento e-Mola | `POST /v1/c2b/emola-payment/{wallet_id}` |
 | Cabeçalhos | `Authorization`, `Content-Type: application/json`, `Accept: application/json`. O SDK envia também `Origin` com o endereço do site |
-| Corpo | `{"client_id", "amount", "phone", "reference"}`. O SDK envia também `wallet_id` (marcado "por remover") e `fromApp`; a aplicação de exemplo não os envia |
+| Corpo | `{"client_id", "amount", "phone", "reference"}`, com `amount` em texto (ex.: `"1500"`), como na aplicação de exemplo e na integração NEXAPAY. O SDK envia também `wallet_id` (marcado "por remover") e `fromApp`; a aplicação de exemplo não os envia |
 | Telefone | 9 dígitos sem indicativo. M-Pesa começa por 84/85 e e-Mola por 86/87 (validação da aplicação de exemplo) |
 | Respostas | 200 *Request executed successfully*; 201 *The transaction executed successfully*; 400 problema de carteira, origem ou M-Pesa; 401 credenciais; 403 carteira inexistente ou sem acesso; 500 erro do servidor. Os erros podem trazer `message` |
 | Natureza da chamada | Síncrona: o SDK espera até 180 s pela resposta (o comprador confirma no telemóvel) |

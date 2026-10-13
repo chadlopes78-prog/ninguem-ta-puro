@@ -8,7 +8,7 @@ import { prisma } from "@/server/db";
 import { decryptSecret, encryptSecret, secretStorageAvailable } from "@/server/secret-box";
 import { staticAppBaseUrl } from "@/server/app-url";
 import { epayProvider } from "./providers/epay";
-import { createE2PaymentsProvider, sanitizeCredential, WALLET_ID_RE, type E2Credentials } from "./providers/e2payments";
+import { createE2PaymentsProvider, isE2Host, sanitizeCredential, WALLET_ID_RE, type E2Credentials, type E2Host } from "./providers/e2payments";
 import type { GatewayId, PaymentProvider } from "./types";
 
 /** Estado inicial quando ainda não existe registo: a EPay mantém o comportamento atual (ativa). */
@@ -37,6 +37,8 @@ export function isEnabled(id: GatewayId, row: IntegrationConfig | undefined): bo
 interface E2PublicConfig {
   mpesaWalletId?: string | null;
   emolaWalletId?: string | null;
+  /** Domínio da E2Payments que aceitou as credenciais no último teste de ligação */
+  apiHost?: string | null;
 }
 interface E2SecretConfig {
   clientId: string;
@@ -68,12 +70,14 @@ function readSecret(row: IntegrationConfig | undefined): E2SecretConfig | null {
 }
 
 export function e2Credentials(row: IntegrationConfig | undefined): E2Credentials | null {
+  const host = readPublic(row).apiHost;
+  const apiHost = isE2Host(host) ? host : null;
   const env = envE2();
-  if (env) return env;
+  if (env) return { ...env, apiHost };
   const secret = readSecret(row);
   if (!secret) return null;
   const pub = readPublic(row);
-  return { ...secret, mpesaWalletId: pub.mpesaWalletId ?? null, emolaWalletId: pub.emolaWalletId ?? null, source: "panel" };
+  return { ...secret, mpesaWalletId: pub.mpesaWalletId ?? null, emolaWalletId: pub.emolaWalletId ?? null, source: "panel", apiHost };
 }
 
 export function e2CredentialsFromEnv(): boolean {
@@ -173,4 +177,16 @@ export async function swapStoredE2Credentials(): Promise<boolean> {
   });
   await prisma.integrationLog.create({ data: { provider: "e2payments", level: "info", message: "Client ID e Client Secret estavam trocados; corrigidos automaticamente (valores não registados)." } });
   return true;
+}
+
+/** Memoriza o domínio da E2Payments que aceitou as credenciais (os pagamentos passam a usá-lo primeiro). */
+export async function rememberE2Host(host: E2Host | null): Promise<void> {
+  const row = (await gatewayRows()).get("e2payments");
+  const pub = readPublic(row);
+  if ((pub.apiHost ?? null) === host) return;
+  await prisma.integrationConfig.upsert({
+    where: { provider: "e2payments" },
+    create: { provider: "e2payments", enabled: false, publicConfig: { ...pub, apiHost: host } },
+    update: { publicConfig: { ...pub, apiHost: host } },
+  });
 }

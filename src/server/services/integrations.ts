@@ -10,9 +10,10 @@ import {
   providerFor,
   saveE2Credentials,
   swapStoredE2Credentials,
+  rememberE2Host,
   GATEWAY_STATUS_LABELS,
 } from "@/server/payments/gateways";
-import { createE2PaymentsProvider } from "@/server/payments/providers/e2payments";
+import { createE2PaymentsProvider, e2HostLabel } from "@/server/payments/providers/e2payments";
 import { secretStorageAvailable, maskSecret } from "@/server/secret-box";
 import { DomainError } from "@/server/services/products";
 
@@ -50,6 +51,7 @@ export async function listGateways() {
               hasSecret: Boolean(e2?.clientSecret),
               mpesaWalletId: e2?.mpesaWalletId ?? "",
               emolaWalletId: e2?.emolaWalletId ?? "",
+              apiHost: e2?.apiHost ? e2HostLabel(e2.apiHost) : null,
             }
           : null,
     };
@@ -69,6 +71,7 @@ export async function testGatewayConnection(id: GatewayId): Promise<{ ok: boolea
   // instância sem o gancho de erro: o resultado é tratado aqui
   const provider = createE2PaymentsProvider(e2Credentials(row));
   let r = await provider.testConnection();
+  if (r.ok && r.host) await rememberE2Host(r.host);
   if (r.ok && r.swapped) {
     // Corrige o que está guardado no painel; nas variáveis de ambiente o dono tem de trocar os valores.
     const fixed = await swapStoredE2Credentials();

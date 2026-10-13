@@ -18,7 +18,21 @@
 import "server-only";
 import type { ChargeRequest, ChargeResult, ConfigCheck, PaymentMethodOption, PaymentProvider } from "../types";
 
-export const E2PAYMENTS_BASE_URL = "https://e2payments.explicador.co.mz";
+/**
+ * A E2Payments serve a mesma API em dois domínios: o original (e2payments.explicador.co.mz, usado no SDK
+ * oficial) e o novo (mpesaemolatech.com). Algumas contas só autenticam num deles, por isso tenta-se o
+ * domínio já confirmado para a conta e depois o outro; o que aceitar as credenciais é usado nos pagamentos.
+ * (O domínio novo e este comportamento vêm da integração E2Payments que o dono da loja já tinha a funcionar.)
+ */
+export const E2PAYMENTS_HOSTS = ["https://e2payments.explicador.co.mz", "https://mpesaemolatech.com"] as const;
+export type E2Host = (typeof E2PAYMENTS_HOSTS)[number];
+export const E2PAYMENTS_BASE_URL: E2Host = E2PAYMENTS_HOSTS[0];
+export function isE2Host(v: unknown): v is E2Host {
+  return typeof v === "string" && (E2PAYMENTS_HOSTS as readonly string[]).includes(v);
+}
+export function e2HostLabel(h: string | null | undefined): string {
+  return h ? h.replace(/^https:\/\//, "") : "";
+}
 const TOKEN_TIMEOUT_MS = 20_000;
 /** O SDK oficial espera até 180 s pela confirmação no telemóvel; ficamos ligeiramente abaixo. */
 export const E2PAYMENTS_CHARGE_TIMEOUT_MS = 170_000;
@@ -30,6 +44,8 @@ export interface E2Credentials {
   mpesaWalletId: string | null;
   emolaWalletId: string | null;
   source: "env" | "panel";
+  /** Domínio que já aceitou estas credenciais (tentado primeiro) */
+  apiHost?: E2Host | null;
 }
 
 export type E2Method = "mpesa" | "emola";
@@ -85,7 +101,7 @@ async function readJson(res: Response): Promise<unknown> {
   }
 }
 
-export type TokenResult = { ok: true; authorization: string } | { ok: false; status: number | null; reason: string };
+export type TokenResult = { ok: true; authorization: string; host: E2Host } | { ok: false; status: number | null; reason: string; host: E2Host };
 
 /**
  * Formas de enviar as credenciais ao servidor OAuth da E2Payments (/oauth/token, grant client_credentials).
@@ -109,31 +125,46 @@ function tokenRequest(variant: TokenVariant, creds: Pick<E2Credentials, "clientI
   return { ...base, headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json", Authorization: `Basic ${basic}` }, body: new URLSearchParams({ grant_type: "client_credentials" }).toString() };
 }
 
-async function requestTokenVariant(variant: TokenVariant, creds: Pick<E2Credentials, "clientId" | "clientSecret">): Promise<TokenResult> {
+async function requestTokenVariant(variant: TokenVariant, creds: Pick<E2Credentials, "clientId" | "clientSecret">, host: E2Host): Promise<TokenResult> {
   let res: Response;
   try {
-    res = await fetch(`${E2PAYMENTS_BASE_URL}/oauth/token`, tokenRequest(variant, creds));
+    res = await fetch(`${host}/oauth/token`, tokenRequest(variant, creds));
   } catch (e) {
-    return { ok: false, status: null, reason: e instanceof Error && e.name === "TimeoutError" ? "tempo de resposta excedido" : "falha de rede" };
+    return { ok: false, status: null, host, reason: e instanceof Error && e.name === "TimeoutError" ? "tempo de resposta excedido" : "falha de rede" };
   }
   const json = await readJson(res);
-  if (res.status !== 200) return { ok: false, status: res.status, reason: oauthError(json) ?? `HTTP ${res.status}` };
+  if (res.status !== 200) return { ok: false, status: res.status, host, reason: oauthError(json) ?? `HTTP ${res.status}` };
   const j = (json ?? {}) as { token_type?: unknown; access_token?: unknown };
-  if (typeof j.access_token !== "string" || !j.access_token) return { ok: false, status: 200, reason: "resposta de autenticação sem token" };
+  if (typeof j.access_token !== "string" || !j.access_token) return { ok: false, status: 200, host, reason: "resposta de autenticação sem token" };
   // token_type documentado como "Bearer"; se faltar, usa-se Bearer (tipo do único esquema OAuth descrito)
-  return { ok: true, authorization: `${typeof j.token_type === "string" && j.token_type ? j.token_type : "Bearer"} ${j.access_token}` };
+  return { ok: true, host, authorization: `${typeof j.token_type === "string" && j.token_type ? j.token_type : "Bearer"} ${j.access_token}` };
 }
 
-export async function requestToken(creds: Pick<E2Credentials, "clientId" | "clientSecret">): Promise<TokenResult> {
+async function requestTokenOnHost(creds: Pick<E2Credentials, "clientId" | "clientSecret">, host: E2Host): Promise<TokenResult> {
   let first: TokenResult | null = null;
   for (const v of TOKEN_VARIANTS) {
-    const r = await requestTokenVariant(v, creds);
+    const r = await requestTokenVariant(v, creds, host);
     if (r.ok) return r;
     first ??= r;
     // só faz sentido tentar outra forma quando o servidor recusou as credenciais
     if (r.status !== 400 && r.status !== 401) return r;
   }
   return first!;
+}
+
+/** Autentica no domínio preferido e, se falhar, no outro domínio da E2Payments. */
+export async function requestToken(creds: Pick<E2Credentials, "clientId" | "clientSecret">, preferred?: E2Host | null): Promise<TokenResult> {
+  const hosts = preferred ? [preferred, ...E2PAYMENTS_HOSTS.filter((h) => h !== preferred)] : [...E2PAYMENTS_HOSTS];
+  let rejected: TokenResult | null = null;
+  let other: TokenResult | null = null;
+  for (const host of hosts) {
+    const r = await requestTokenOnHost(creds, host);
+    if (r.ok) return r;
+    // guarda de preferência a recusa de credenciais (é a informação útil para o dono)
+    if (r.status === 400 || r.status === 401) rejected ??= r;
+    else other ??= r;
+  }
+  return (rejected ?? other)!;
 }
 
 /**
@@ -160,6 +191,8 @@ export interface ConnectionTest {
   message: string;
   /** As credenciais só funcionam com o Client ID e o Client Secret trocados (foram colados nos campos errados). */
   swapped?: boolean;
+  /** Domínio da E2Payments que aceitou as credenciais */
+  host?: E2Host;
 }
 
 export function createE2PaymentsProvider(creds: E2Credentials | null, hooks: E2ProviderHooks = {}): PaymentProvider & { testConnection(): Promise<ConnectionTest> } {
@@ -197,15 +230,15 @@ export function createE2PaymentsProvider(creds: E2Credentials | null, hooks: E2P
       if (wallets().length === 0) return { ok: false, message: "Indique pelo menos uma carteira (M-Pesa ou e-Mola)." };
       const problem = credentialProblem(creds);
       if (problem) return { ok: false, message: problem };
-      const t = await requestToken(creds);
-      if (t.ok) return { ok: true, message: "Ligação verificada: a E2Payments aceitou as credenciais." };
+      const t = await requestToken(creds, creds.apiHost);
+      if (t.ok) return { ok: true, host: t.host, message: `Ligação verificada: a E2Payments (${e2HostLabel(t.host)}) aceitou as credenciais.` };
       if (t.status === 401 || t.status === 400) {
         // Engano frequente: Client ID e Client Secret colados nos campos trocados. Testa-se a combinação inversa.
-        const swapped = await requestToken({ clientId: creds.clientSecret, clientSecret: creds.clientId });
-        if (swapped.ok) return { ok: true, swapped: true, message: "Ligação verificada. O Client ID e o Client Secret estavam nos campos trocados." };
+        const swapped = await requestToken({ clientId: creds.clientSecret, clientSecret: creds.clientId }, creds.apiHost);
+        if (swapped.ok) return { ok: true, swapped: true, host: swapped.host, message: "Ligação verificada. O Client ID e o Client Secret estavam nos campos trocados." };
         return {
           ok: false,
-          message: `A E2Payments rejeitou as credenciais (HTTP ${t.status}${t.reason && t.reason !== `HTTP ${t.status}` ? ` — ${t.reason}` : ""}). Já foram testados o envio em JSON, em formulário e por autenticação HTTP Basic, e também com os campos trocados. Confirme no painel da E2Payments (Credenciais) que o Client ID e o Client Secret pertencem à mesma credencial e que esta está ativa; em caso de dúvida, gere uma nova credencial e cole os dois valores.`,
+          message: `A E2Payments rejeitou as credenciais (HTTP ${t.status}${t.reason && t.reason !== `HTTP ${t.status}` ? ` — ${t.reason}` : ""}). Foram testados os dois domínios da E2Payments (${E2PAYMENTS_HOSTS.map(e2HostLabel).join(" e ")}), o envio em JSON, em formulário e por HTTP Basic, e os campos trocados. Confirme no painel da E2Payments (Credenciais) que o Client ID e o Client Secret pertencem à mesma credencial e que esta está ativa; em caso de dúvida, gere uma nova credencial e cole os dois valores.`,
         };
       }
       return { ok: false, message: `Não foi possível contactar a E2Payments (${t.status ? `HTTP ${t.status}` : t.reason}). Tente novamente.` };
@@ -219,7 +252,7 @@ export function createE2PaymentsProvider(creds: E2Credentials | null, hooks: E2P
       }
       if (req.currency !== "MZN") return { kind: "not_created", reason: "moeda não suportada", userMessage: "Moeda não suportada." };
 
-      const token = await requestToken(creds);
+      const token = await requestToken(creds, creds.apiHost);
       if (!token.ok) {
         if (token.status === 401 || token.status === 400) await hooks.onConfigError?.("Credenciais rejeitadas pela E2Payments (autenticação)");
         return { kind: "not_created", reason: `autenticação: ${token.reason}`, userMessage: "Não foi possível iniciar o pagamento. Nada foi cobrado. Tente novamente ou escolha outro método." };
@@ -227,7 +260,8 @@ export function createE2PaymentsProvider(creds: E2Credentials | null, hooks: E2P
 
       let res: Response;
       try {
-        res = await fetch(`${E2PAYMENTS_BASE_URL}/v1/c2b/${METHODS[m].path}/${encodeURIComponent(wallet)}`, {
+        // o pagamento vai para o mesmo domínio que emitiu o token
+        res = await fetch(`${token.host}/v1/c2b/${METHODS[m].path}/${encodeURIComponent(wallet)}`, {
           method: "POST",
           headers: {
             Authorization: token.authorization,
@@ -235,7 +269,7 @@ export function createE2PaymentsProvider(creds: E2Credentials | null, hooks: E2P
             Accept: "application/json",
             ...(hooks.origin ? { Origin: hooks.origin } : {}),
           },
-          body: JSON.stringify({ client_id: creds.clientId, amount: e2Amount(req.amountCents), phone: req.phone, reference: e2Reference(req.orderCode) }),
+          body: JSON.stringify({ client_id: creds.clientId, amount: String(e2Amount(req.amountCents)), phone: req.phone, reference: e2Reference(req.orderCode) }),
           signal: AbortSignal.timeout(E2PAYMENTS_CHARGE_TIMEOUT_MS),
           cache: "no-store",
         });

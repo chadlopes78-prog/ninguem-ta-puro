@@ -31,7 +31,8 @@ let calls: Call[] = [];
 let e2Token: (c: Call) => { status: number; body: unknown };
 let e2Charge: (c: Call) => { status: number; body: unknown } | "timeout";
 
-const e2Calls = () => calls.filter((c) => c.url.startsWith("https://e2payments.explicador.co.mz"));
+const E2_HOST_RE = /^https:\/\/(e2payments\.explicador\.co\.mz|mpesaemolatech\.com)\//;
+const e2Calls = () => calls.filter((c) => E2_HOST_RE.test(c.url));
 const epayCalls = () => calls.filter((c) => c.url.startsWith("https://checkout.epay.co.mz"));
 
 beforeAll(() => {
@@ -46,8 +47,8 @@ beforeAll(() => {
     const call: Call = { url, method: init.method ?? "GET", headers, body };
     calls.push(call);
     let r: { status: number; body: unknown };
-    if (url === "https://e2payments.explicador.co.mz/oauth/token") r = e2Token(call);
-    else if (url.startsWith("https://e2payments.explicador.co.mz/v1/c2b/")) {
+    if (E2_HOST_RE.test(url) && url.endsWith("/oauth/token")) r = e2Token(call);
+    else if (E2_HOST_RE.test(url) && url.includes("/v1/c2b/")) {
       const out = e2Charge(call);
       if (out === "timeout") throw Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
       r = out;
@@ -161,7 +162,7 @@ describe("2. credenciais da E2Payments", () => {
     expect((await updateE2Credentials({ mpesaWalletId: "333333", emolaWalletId: "" })).ok).toBe(true);
     const row2 = await prisma.integrationConfig.findUniqueOrThrow({ where: { provider: "e2payments" } });
     expect(JSON.parse(decryptSecret(row2.secretConfig)!).clientSecret).toBe(E2_SECRET);
-    expect(row2.publicConfig).toEqual({ mpesaWalletId: "333333", emolaWalletId: null });
+    expect(row2.publicConfig).toEqual({ mpesaWalletId: "333333", emolaWalletId: null, apiHost: "https://e2payments.explicador.co.mz" });
   });
 
   it("sem INTEGRATIONS_ENCRYPTION_KEY guarda-se na mesma, cifrado com a chave do servidor; validação dos campos", async () => {
@@ -233,7 +234,7 @@ describe("3–4. ativar e desativar a E2Payments", () => {
     expect(charge.headers.authorization).toBe("Bearer tok_abc");
     expect(charge.headers["content-type"]).toBe("application/json");
     const o = await orderOf(r.token);
-    expect(charge.body).toEqual({ client_id: E2_ID, amount: 1500, phone: "841234567", reference: e2Reference(o.code) });
+    expect(charge.body).toEqual({ client_id: E2_ID, amount: "1500", phone: "841234567", reference: e2Reference(o.code) });
     expect(JSON.stringify(charge.body)).not.toContain(E2_SECRET); // o segredo só vai no pedido de token
     expect(epayCalls()).toHaveLength(0); // só o gateway escolhido é contactado
 
@@ -301,6 +302,32 @@ describe("3–4. ativar e desativar a E2Payments", () => {
       expect((await orderOf(r.token)).status).toBe("APPROVED");
       expect(e2Calls().find((c) => c.url.includes("/v1/c2b/"))!.headers.authorization).toBe(`Bearer tok_${accepted}`);
     }
+  });
+
+  it("conta que só autentica no domínio novo (mpesaemolatech.com): usa-o e memoriza-o para os pagamentos", async () => {
+    e2Token = (c) =>
+      c.url.startsWith("https://mpesaemolatech.com/") && c.body?.client_id === E2_ID && c.body?.client_secret === E2_SECRET
+        ? { status: 200, body: { token_type: "Bearer", access_token: "tok_new" } }
+        : { status: 401, body: { error: "invalid_client", message: "Client authentication failed" } };
+    await configureE2();
+    const t = await testGatewayConnection("e2payments");
+    expect(t.ok).toBe(true);
+    expect(t.message).toContain("mpesaemolatech.com");
+    const row = await prisma.integrationConfig.findUniqueOrThrow({ where: { provider: "e2payments" } });
+    expect((row.publicConfig as Record<string, unknown>).apiHost).toBe("https://mpesaemolatech.com");
+    expect((await listGateways()).find((g) => g.id === "e2payments")!.e2!.apiHost).toBe("mpesaemolatech.com");
+
+    expect((await setGatewayEnabled("e2payments", true)).ok).toBe(true);
+    const { slug } = await product();
+    calls = [];
+    const r = await buy(slug, { method: "e2payments:mpesa", phone: "841234567" });
+    if (r.kind !== "payment_started") throw new Error(r.kind);
+    expect((await orderOf(r.token)).status).toBe("APPROVED");
+    // domínio memorizado é tentado primeiro: um único pedido de token e o pagamento no mesmo domínio
+    const tokenCalls = e2Calls().filter((c) => c.url.endsWith("/oauth/token"));
+    expect(tokenCalls).toHaveLength(1);
+    expect(tokenCalls[0].url).toBe("https://mpesaemolatech.com/oauth/token");
+    expect(e2Calls().find((c) => c.url.includes("/v1/c2b/"))!.url).toBe("https://mpesaemolatech.com/v1/c2b/mpesa-payment/111111");
   });
 
   it("segredo copiado mascarado ou cifrado é identificado sem contactar a E2Payments", async () => {

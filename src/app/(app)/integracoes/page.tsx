@@ -65,6 +65,7 @@ function GatewayCard({ g, tz }: { g: GatewayView; tz: string }) {
           {g.configured && <Info label="Ambiente">{g.environment === "test" ? "Teste (sandbox)" : "Produção"}</Info>}
           <Info label="Métodos">{g.methods.length ? g.methods.join(", ") : g.id === "epay" ? "M-Pesa, e-Mola e IZI (página da EPay)" : "—"}</Info>
           {g.supportsConnectionTest && <Info label="Ligação">{g.verifiedAt ? `Verificada ${formatDate(g.verifiedAt, tz, true)}` : "Não verificada"}</Info>}
+          {g.e2?.apiHost && g.verifiedAt && <Info label="Servidor">{g.e2.apiHost}</Info>}
         </div>
 
         {g.lastError && g.status === "config_error" && (
