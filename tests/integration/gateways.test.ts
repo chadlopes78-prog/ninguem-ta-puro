@@ -158,16 +158,37 @@ describe("2. credenciais da E2Payments", () => {
     expect(row2.publicConfig).toEqual({ mpesaWalletId: "333333", emolaWalletId: null });
   });
 
-  it("sem chave de cifra não se guarda nada; validação dos campos documentados", async () => {
+  it("sem INTEGRATIONS_ENCRYPTION_KEY guarda-se na mesma, cifrado com a chave do servidor; validação dos campos", async () => {
     delete process.env.INTEGRATIONS_ENCRYPTION_KEY;
-    const r = await updateE2Credentials({ clientId: E2_ID, clientSecret: E2_SECRET, mpesaWalletId: "111111" });
-    expect(r.ok).toBe(false);
-    expect(await prisma.integrationConfig.count({ where: { provider: "e2payments" } })).toBe(0);
+    expect((await updateE2Credentials({ clientId: E2_ID, clientSecret: E2_SECRET, mpesaWalletId: "111111" })).ok).toBe(true);
+    const row = await prisma.integrationConfig.findUniqueOrThrow({ where: { provider: "e2payments" } });
+    expect(row.secretConfig!.startsWith("v1d:")).toBe(true);
+    expect(row.secretConfig).not.toContain(E2_SECRET);
+    expect(JSON.parse(decryptSecret(row.secretConfig)!).clientSecret).toBe(E2_SECRET);
 
+    // definir mais tarde uma chave dedicada não estraga o que já estava guardado
     process.env.INTEGRATIONS_ENCRYPTION_KEY = ENC_KEY;
-    const bad = await updateE2Credentials({ clientId: "", clientSecret: "", mpesaWalletId: "#abc", emolaWalletId: "" });
+    expect(JSON.parse(decryptSecret(row.secretConfig)!).clientSecret).toBe(E2_SECRET);
+    expect((await listGateways()).find((g) => g.id === "e2payments")!.configured).toBe(true);
+
+    // se o segredo do servidor mudar, as credenciais deixam de ser legíveis e o painel pede-as de novo
+    const url = process.env.DATABASE_URL!;
+    process.env.DATABASE_URL = `${url}&rotated=1`;
+    try {
+      expect(decryptSecret(row.secretConfig)).toBeNull();
+    } finally {
+      process.env.DATABASE_URL = url;
+    }
+
+    // campos vazios mantêm o Client ID/Secret guardados; IDs de carteira inválidos são recusados
+    const bad = await updateE2Credentials({ clientId: "", clientSecret: "", mpesaWalletId: "#abc", emolaWalletId: "x" });
     expect(bad.ok).toBe(false);
-    if (!bad.ok) expect(Object.keys(bad.fieldErrors ?? {})).toEqual(expect.arrayContaining(["clientId", "clientSecret", "mpesaWalletId"]));
+    if (!bad.ok) {
+      expect(Object.keys(bad.fieldErrors ?? {}).sort()).toEqual(["emolaWalletId", "mpesaWalletId"]);
+    }
+    expect((await updateE2Credentials({ clientId: "", clientSecret: "", mpesaWalletId: "#222", emolaWalletId: "" })).ok).toBe(true);
+    const kept = await prisma.integrationConfig.findUniqueOrThrow({ where: { provider: "e2payments" } });
+    expect(JSON.parse(decryptSecret(kept.secretConfig)!)).toEqual({ clientId: E2_ID, clientSecret: E2_SECRET });
   });
 
   it("credenciais por variáveis de ambiente têm prioridade e o painel não as sobrepõe", async () => {

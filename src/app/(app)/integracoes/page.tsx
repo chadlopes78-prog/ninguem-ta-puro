@@ -147,7 +147,10 @@ function E2Section({ g }: { g: GatewayView }) {
           Definidas nas variáveis de ambiente do servidor (<code className="text-fg">E2PAYMENTS_CLIENT_ID</code>, <code className="text-fg">E2PAYMENTS_CLIENT_SECRET</code>, <code className="text-fg">E2PAYMENTS_MPESA_WALLET_ID</code>, <code className="text-fg">E2PAYMENTS_EMOLA_WALLET_ID</code>). Para as alterar, edite-as no alojamento.
         </p>
       ) : e2.storageAvailable ? (
-        <E2PaymentsForm key={`${e2.clientIdMasked}-${e2.mpesaWalletId}-${e2.emolaWalletId}`} action={saveE2CredentialsAction} initial={e2} />
+        <>
+          <p className="text-[12.5px] text-muted">Pode alterar estes dados aqui sempre que precisar. Ficam guardados cifrados no servidor e o Client Secret nunca volta a ser mostrado.</p>
+          <E2PaymentsForm key={`${e2.clientIdMasked}-${e2.mpesaWalletId}-${e2.emolaWalletId}`} action={saveE2CredentialsAction} initial={e2} />
+        </>
       ) : (
         <KeySetup />
       )}

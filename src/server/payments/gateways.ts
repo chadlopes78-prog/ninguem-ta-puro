@@ -1,7 +1,7 @@
 // Configuração de cada gateway de pagamento (EPay e E2Payments), independente entre si.
 // - "enabled" controla apenas NOVOS pagamentos; desativar nunca apaga credenciais nem bloqueia confirmações.
 // - EPay: credenciais exclusivamente em variáveis de ambiente (EPAY_SECRET_KEY) — esta camada nunca as altera.
-// - E2Payments: variáveis de ambiente (prioritárias) ou credenciais introduzidas na aba Integrações, cifradas na BD.
+// - E2Payments: credenciais introduzidas na aba Integrações (cifradas na BD) ou variáveis de ambiente (prioritárias).
 import "server-only";
 import type { IntegrationConfig, Prisma } from "@prisma/client";
 import { prisma } from "@/server/db";
@@ -107,7 +107,7 @@ export function buildE2Provider(row: IntegrationConfig | undefined) {
  */
 export async function saveE2Credentials(input: { clientId?: string; clientSecret?: string; mpesaWalletId?: string; emolaWalletId?: string }): Promise<{ ok: true } | { ok: false; error: string; fieldErrors?: Record<string, string> }> {
   if (e2CredentialsFromEnv()) return { ok: false, error: "As credenciais da E2Payments estão definidas nas variáveis de ambiente do servidor; altere-as lá." };
-  if (!secretStorageAvailable()) return { ok: false, error: "Defina primeiro INTEGRATIONS_ENCRYPTION_KEY no servidor para guardar credenciais de forma cifrada." };
+  if (!secretStorageAvailable()) return { ok: false, error: "O servidor não tem chave de cifra disponível; as credenciais não foram guardadas." };
   const rows = await gatewayRows();
   const row = rows.get("e2payments");
   const current = readSecret(row);

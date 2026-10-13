@@ -1,37 +1,54 @@
 // Cifra de credenciais guardadas na base de dados (ex.: credenciais da E2Payments introduzidas na aba Integrações).
-// AES-256-GCM com uma chave que só existe no servidor (INTEGRATIONS_ENCRYPTION_KEY, nunca NEXT_PUBLIC_*).
-// Sem a chave nada é guardado: a base de dados nunca contém segredos em texto simples.
+// AES-256-GCM com uma chave que só existe no servidor e nunca na base de dados (nunca NEXT_PUBLIC_*):
+//  - "v1":  INTEGRATIONS_ENCRYPTION_KEY, quando definida (recomendado em instalações próprias);
+//  - "v1d": derivada de DATABASE_URL (segredo do servidor que já existe), para que as credenciais possam ser
+//           geridas no site sem configurar nada no alojamento. Uma cópia da base de dados sozinha não as revela.
+//           Se a palavra-passe da base de dados mudar, as credenciais têm de ser introduzidas de novo.
+// Cada valor guarda a versão da chave usada, por isso definir mais tarde INTEGRATIONS_ENCRYPTION_KEY não estraga
+// o que já foi guardado.
 import "server-only";
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "crypto";
 
-const VERSION = "v1";
+type KeyVersion = "v1" | "v1d";
 
-function key(): Buffer | null {
-  const raw = process.env.INTEGRATIONS_ENCRYPTION_KEY?.trim();
-  if (!raw || raw.length < 32) return null;
-  // aceita qualquer texto aleatório longo (ex.: openssl rand -base64 32) e deriva 32 bytes
-  return createHash("sha256").update(`ntp-integrations:${raw}`).digest();
+function keyFor(version: KeyVersion): Buffer | null {
+  if (version === "v1") {
+    const raw = process.env.INTEGRATIONS_ENCRYPTION_KEY?.trim();
+    if (!raw || raw.length < 32) return null;
+    return createHash("sha256").update(`ntp-integrations:${raw}`).digest();
+  }
+  const db = process.env.DATABASE_URL?.trim();
+  if (!db) return null;
+  return createHash("sha256").update(`ntp-integrations-db:${db}`).digest();
+}
+
+function currentVersion(): KeyVersion | null {
+  if (keyFor("v1")) return "v1";
+  if (keyFor("v1d")) return "v1d";
+  return null;
 }
 
 export function secretStorageAvailable(): boolean {
-  return key() !== null;
+  return currentVersion() !== null;
 }
 
 export function encryptSecret(plain: string): string {
-  const k = key();
-  if (!k) throw new Error("INTEGRATIONS_ENCRYPTION_KEY não definida");
+  const version = currentVersion();
+  const k = version ? keyFor(version) : null;
+  if (!version || !k) throw new Error("Sem chave de cifra disponível no servidor");
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", k, iv);
   const ct = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
-  return [VERSION, iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), ct.toString("base64url")].join(":");
+  return [version, iv.toString("base64url"), cipher.getAuthTag().toString("base64url"), ct.toString("base64url")].join(":");
 }
 
 /** Devolve null se a chave faltar, tiver mudado ou o valor estiver corrompido (nunca lança com detalhes do segredo). */
 export function decryptSecret(box: string | null | undefined): string | null {
-  const k = key();
-  if (!k || !box) return null;
+  if (!box) return null;
   const [v, iv, tag, ct] = box.split(":");
-  if (v !== VERSION || !iv || !tag || !ct) return null;
+  if ((v !== "v1" && v !== "v1d") || !iv || !tag || !ct) return null;
+  const k = keyFor(v);
+  if (!k) return null;
   try {
     const d = createDecipheriv("aes-256-gcm", k, Buffer.from(iv, "base64url"));
     d.setAuthTag(Buffer.from(tag, "base64url"));

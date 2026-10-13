@@ -39,7 +39,7 @@ export async function listGateways() {
       supportsConnectionTest: p.id === "e2payments",
       verifiedAt: row?.verifiedAt ?? null,
       lastCheckedAt: row?.lastCheckedAt ?? null,
-      lastError: row?.lastError ?? (p.id === "e2payments" && e2SecretUnreadable(row) ? "As credenciais guardadas não podem ser decifradas (INTEGRATIONS_ENCRYPTION_KEY em falta ou alterada). Introduza-as novamente." : null),
+      lastError: row?.lastError ?? (p.id === "e2payments" && e2SecretUnreadable(row) ? "As credenciais guardadas já não podem ser lidas (a chave do servidor mudou, por exemplo após alterar a palavra-passe da base de dados). Introduza-as novamente." : null),
       e2:
         p.id === "e2payments"
           ? {

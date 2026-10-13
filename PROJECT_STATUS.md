@@ -45,8 +45,9 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
   - o checkout usa os gateways **ativados e configurados**; a E2Payments exige ainda a ligação verificada e nenhum erro;
   - cada opção identifica o gateway (`epay`, `e2payments:mpesa`, `e2payments:emola`) e o servidor só cobra no gateway escolhido, se estiver ativo.
 - **Desativar** um gateway bloqueia apenas novos pagamentos. As credenciais, a configuração e o histórico ficam, e os webhooks, consultas e reconciliação de pagamentos já iniciados continuam a funcionar.
-- **Credenciais E2Payments**: variáveis de ambiente (prioritárias) ou formulário na aba Integrações.
-  - No formulário, ficam **cifradas (AES-256-GCM)** na BD com `INTEGRATIONS_ENCRYPTION_KEY`; sem essa chave nada é guardado.
+- **Credenciais E2Payments**: geridas no próprio site, no formulário da aba Integrações, e alteráveis a qualquer momento sem mexer na Vercel. Em alternativa, podem vir de variáveis de ambiente, que têm prioridade.
+  - Ficam **cifradas (AES-256-GCM)** na BD. A chave é `INTEGRATIONS_ENCRYPTION_KEY`, se definida; caso contrário, é derivada do segredo do servidor `DATABASE_URL`, que nunca está na BD.
+  - Cada valor guarda a versão da chave usada. Se a palavra-passe da BD mudar, o painel avisa e pede as credenciais de novo.
   - O Client Secret nunca é devolvido ao browser e o Client ID aparece mascarado (`••••1234`).
   - Os registos de integração não contêm valores.
 - **Aba Integrações → "Gateways de Pagamento"**: dois cartões (EPay e E2Payments) com:
@@ -333,6 +334,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 7b (2026-10-13)**: credenciais da E2Payments configuráveis no site sem nenhuma variável na Vercel (cifra com chave derivada do segredo do servidor quando `INTEGRATIONS_ENCRYPTION_KEY` não existe); 174 testes e 45 E2E a passar.
 - **Sessão 7 (2026-10-13)**: E2Payments adicionada como segundo gateway sem alterar a EPay (`epay.ts` intacto). Ativação e desativação independentes, credenciais cifradas, checkout com vários gateways, pagamentos "por verificar" com resolução manual auditada. Documentação oficial inacessível a partir do ambiente: implementação baseada no SDK e na aplicação oficiais da Explicador (docs/e2payments-api.md). 174 testes unitários/integração e 45 E2E a passar; build OK; sem fugas de segredos.
 - **Sessão 6b (2026-10-12)**: aba renomeada para "Personalizar Checkout" e sem links (só escolher o produto e personalizar); link do checkout com "Copiar link" na lista de Produtos; 156 testes unitários/integração e 42 E2E a passar.
 - **Sessão 6 (2026-10-12)**: checkout principal gerado automaticamente com cada produto (link legível estável, sem duplicados, recuperação/backfill, migração que preserva links); página "Personalização do Checkout" com cartões por produto; editor visual por blocos com rascunho, pré-visualização e publicação; secção "Link de Checkout" no produto; 156 testes unitários/integração e 42 E2E a passar; build OK; verificação visual em computador e telemóvel.

@@ -51,7 +51,7 @@ npm run dev
 | `INSECURE_COOKIES` | não | `true` apenas para testes locais em HTTP com `NODE_ENV=production` |
 | `EPAY_SECRET_KEY` | para EPay | Chave secreta da EPay `sk_test_…` (sandbox) ou `sk_live_…` (produção). Só no servidor |
 | `E2PAYMENTS_CLIENT_ID`, `E2PAYMENTS_CLIENT_SECRET`, `E2PAYMENTS_MPESA_WALLET_ID`, `E2PAYMENTS_EMOLA_WALLET_ID` | opcional | Credenciais da E2Payments (alternativa ao formulário da aba Integrações). Só no servidor |
-| `INTEGRATIONS_ENCRYPTION_KEY` | para guardar credenciais no painel | Valor aleatório longo (≥ 32 caracteres) usado para cifrar as credenciais introduzidas na aba Integrações |
+| `INTEGRATIONS_ENCRYPTION_KEY` | opcional | Chave dedicada (≥ 32 caracteres) para cifrar as credenciais introduzidas na aba Integrações. Sem ela, usa-se uma chave derivada de `DATABASE_URL` |
 | `NTP_ENABLE_TEST_PROVIDER`, `TEST_PROVIDER_SECRET` | só testes | Fornecedor de pagamentos fictício; só funciona com a BD `ntp_test` |
 
 Nenhum segredo é exposto ao frontend.
