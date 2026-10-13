@@ -25,6 +25,8 @@ model User {
   email        String    @unique
   name         String
   passwordHash String
+  /// Preferência visual do painel: "system" | "light" | "dark" (não afeta checkouts públicos)
+  themePreference String @default("system")
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   sessions     Session[]
@@ -89,6 +91,8 @@ model Product {
   checkouts    Checkout[]
   orderItems   OrderItem[]
   coupons      CouponProduct[]
+  files        ProductFile[]
+  funnels      Funnel[]
 
   @@index([isDemo, status])
   @@index([createdAt])
@@ -231,6 +235,9 @@ model Funnel {
   description String?
   status      FunnelStatus @default(DRAFT)
   isDemo      Boolean      @default(false)
+  /// Produto inicial (funis criados pelo assistente). Null = funil avançado criado no editor visual.
+  productId   String?
+  product     Product?     @relation(fields: [productId], references: [id], onDelete: Restrict)
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
   steps       FunnelStep[]
@@ -238,8 +245,43 @@ model Funnel {
   checkouts   Checkout[]
   orders      Order[]
   runs        FunnelRun[]
+  thankYouPage ThankYouPage?
 
   @@index([isDemo])
+  @@index([productId])
+}
+
+/// Página de obrigado de um funil (aparência + destino do botão principal). Separada dos dados de pagamento.
+model ThankYouPage {
+  id        String   @id @default(cuid())
+  funnelId  String   @unique
+  funnel    Funnel   @relation(fields: [funnelId], references: [id], onDelete: Cascade)
+  /// Aparência e textos (ver src/lib/thank-you.ts)
+  design    Json     @default("{}")
+  /// Destino do botão: produto (PDF ou link) ou WhatsApp
+  action    Json     @default("{}")
+  /// Ficheiro PDF entregue quando o destino é "produto → PDF"
+  fileId    String?
+  file      ProductFile? @relation(fields: [fileId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Ficheiro privado de um produto (ex.: PDF). Guardado na base de dados, nunca exposto por URL público:
+/// só é descarregado através do acesso pessoal de uma encomenda paga que inclua o produto.
+model ProductFile {
+  id         String   @id @default(cuid())
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  filename   String
+  mimeType   String
+  sizeBytes  Int
+  sha256     String
+  data       Bytes
+  createdAt  DateTime @default(now())
+  thankYouPages ThankYouPage[]
+
+  @@index([productId])
 }
 
 model FunnelStep {
@@ -277,7 +319,8 @@ model FunnelRun {
   id             String   @id
   funnelId       String
   funnel         Funnel   @relation(fields: [funnelId], references: [id], onDelete: Cascade)
-  orderId        String?
+  /// Um percurso por encomenda (impede percursos duplicados para a mesma compra)
+  orderId        String?  @unique
   order          Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
   currentStepKey String
   isDemo         Boolean  @default(true)
@@ -355,6 +398,12 @@ model Order {
   isTestPayment Boolean      @default(false)
   notes         String?
   isDemo        Boolean      @default(false)
+  /// Encomenda de upsell: aponta para a compra inicial (cada upsell é um pedido e pagamento próprios)
+  parentOrderId String?
+  parentOrder   Order?       @relation("OrderUpsells", fields: [parentOrderId], references: [id], onDelete: Restrict)
+  upsellOrders  Order[]      @relation("OrderUpsells")
+  /// Etapa do funil que originou esta encomenda (upsell)
+  funnelStepKey String?
   approvedAt    DateTime?
   refundedAt    DateTime?
   canceledAt    DateTime?
@@ -370,6 +419,7 @@ model Order {
   @@index([isDemo, status, createdAt])
   @@index([customerId])
   @@index([checkoutId])
+  @@index([parentOrderId])
 }
 
 enum OrderItemKind {

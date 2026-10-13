@@ -27,7 +27,7 @@ export async function listFunnels(params: { isDemo: boolean; q?: string; status?
   return prisma.funnel.findMany({
     where,
     orderBy: { updatedAt: "desc" },
-    include: { _count: { select: { steps: true, checkouts: true, orders: true } }, steps: { select: { type: true } } },
+    include: { _count: { select: { steps: true, checkouts: true, orders: true } }, steps: { select: { type: true } }, product: { select: { name: true } } },
   });
 }
 
@@ -159,7 +159,16 @@ export async function deactivateFunnel(id: string, isDemo: boolean) {
 
 export async function duplicateFunnel(id: string, isDemo: boolean) {
   const f = await getFunnelRecord(id, isDemo);
-  return createFunnel({ name: `${f.name} (cópia)`.slice(0, 100), description: f.description ?? undefined }, isDemo, toGraph(f));
+  const copy = await createFunnel({ name: `${f.name} (cópia)`.slice(0, 100), description: f.description ?? undefined }, isDemo, toGraph(f));
+  // Funis do assistente: a cópia mantém o produto inicial e a página de obrigado (fica em rascunho)
+  if (f.productId) {
+    const page = await prisma.thankYouPage.findUnique({ where: { funnelId: f.id } });
+    await prisma.$transaction([
+      prisma.funnel.update({ where: { id: copy.id }, data: { productId: f.productId } }),
+      ...(page ? [prisma.thankYouPage.create({ data: { funnelId: copy.id, design: page.design ?? {}, action: page.action ?? {}, fileId: page.fileId } })] : []),
+    ]);
+  }
+  return copy;
 }
 
 export async function deleteFunnel(id: string, isDemo: boolean) {

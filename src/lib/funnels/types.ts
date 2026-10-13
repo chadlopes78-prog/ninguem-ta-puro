@@ -25,6 +25,16 @@ export interface StepConfig {
   title?: string;
   message?: string;
   redirectUrl?: string;
+  /** Upsell: vídeo (YouTube/Vimeo) */
+  videoUrl?: string;
+  /** Upsell: destino depois de aceitar e pagar */
+  afterAccept?: "thank_you" | "url";
+  afterAcceptUrl?: string;
+  /** Upsell: destino depois de recusar */
+  afterDecline?: "thank_you" | "url";
+  afterDeclineUrl?: string;
+  /** Upsell: se o pagamento falhar — voltar à oferta ou seguir para a página de obrigado */
+  afterFail?: "retry" | "thank_you";
 }
 
 export interface GraphNode {

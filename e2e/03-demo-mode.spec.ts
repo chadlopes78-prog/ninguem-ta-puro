@@ -123,7 +123,7 @@ test.describe.serial("modo de demonstração (secção 28)", () => {
   test("construtor de funis: criar, adicionar etapas, validação e persistência", async ({ page }) => {
     await login(page);
     await page.goto("/funis");
-    await page.getByRole("button", { name: "Novo funil" }).click();
+    await page.getByRole("button", { name: "Funil avançado" }).click();
     await page.getByRole("dialog").getByLabel("Nome").fill("Funil E2E");
     await page.getByRole("button", { name: "Criar e abrir editor" }).click();
     await expect(page).toHaveURL(/\/funis\/[a-z0-9]+$/);

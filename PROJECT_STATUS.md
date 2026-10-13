@@ -1,6 +1,6 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-13 · Sessão 7 (E2Payments como segundo gateway, EPay preservada)
+Última atualização: 2026-10-13 · Sessão 8 (funis com upsell real, página de obrigado, PDF protegido, temas claro/escuro)
 
 ## Estado geral
 
@@ -10,8 +10,8 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 |---|---|---|
 | Lint | `npm run lint` | ✅ 0 erros, 0 avisos |
 | Tipos TypeScript | `npm run typecheck` | ✅ sem erros |
-| Testes unitários + integração | `npm test` | ✅ 174/174 (12 ficheiros; 18 de gateways EPay + E2Payments) |
-| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 45/45 (9 de pagamentos, 4 de personalização, 3 de gateways) |
+| Testes unitários + integração | `npm test` | ✅ 190/190 (10 de funis reais/upsell/obrigado/PDF; 18 de gateways EPay + E2Payments) |
+| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 53/53 (8 de funis/upsell/obrigado/temas, 9 de pagamentos, 4 de personalização, 3 de gateways) |
 | Build de produção | `npm run build` | ✅ sem erros |
 | Fuga de segredos | build com `EPAY_SECRET_KEY`, `E2PAYMENTS_CLIENT_ID/SECRET` e `INTEGRATIONS_ENCRYPTION_KEY` fictícias + `grep` em `.next/` e log | ✅ valor ausente do bundle do browser, do output do servidor e do log; nenhuma variável `NEXT_PUBLIC_`; `.env` com segredos fora do Git |
 
@@ -22,10 +22,64 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | 1 — Fundação | ✅ Concluída | Next.js 15 + TS + Tailwind 4 + Prisma/PostgreSQL, design system, auth, navegação |
 | 2 — Dashboard | ✅ Concluída | 8 KPIs, 4 visualizações, comparação de períodos, filtros, atividade recente, estados vazios |
 | 3 — Produtos e checkouts | ✅ Concluída | CRUD, ofertas/preços, checkout principal criado automaticamente com link legível, editor visual com rascunho/publicação |
-| 4 — Funis | ✅ Concluída | Editor React Flow, 9 tipos de etapa, upsell/downsell com saídas aceita/recusa, validação, persistência, simulador |
+| 4 — Funis | ✅ Concluída | Assistente por produto (produto inicial → upsell → página de obrigado) com upsell pago a sério (sessão 8); editor avançado React Flow mantido ("Funil avançado") |
 | 5 — Operação | ✅ Concluída | Pedidos (filtros, detalhe, transições), clientes, cupões (com testador), relatórios |
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
+
+## Funis, upsell, página de obrigado e temas (sessão 8)
+
+### Análise e plano
+- **Reutilizado sem alterar**: motor de funis em grafo (`START → CHECKOUT → UPSELL → THANK_YOU → END`, saídas `accept`/`decline`), `validateFunnel`/`activateFunnel`, checkout principal automático por produto, `chargeWithProvider` (EPay/E2Payments/teste), `applyPaymentStatus` (única via de aprovação + token de entrega), webhooks e consulta de estado. **`epay.ts` e `e2payments.ts` não foram tocados.**
+- **Plano executado**: (1) migração aditiva; (2) assistente que gera o mesmo grafo; (3) encaminhamento pós-pagamento decidido no servidor; (4) upsell como encomenda filha paga pelos gateways existentes; (5) página de obrigado editável com destino Produto (PDF/link) ou WhatsApp; (6) PDF privado; (7) tema do checkout; (8) tema do painel; (9) testes e correções.
+
+### O que foi implementado (funcional, não apenas visual)
+- **Aba Funis → "Novo funil"**: escolhe-se o produto inicial (nome, imagem, preço, estado e link do checkout já gerado, com copiar). "O que acontece depois do pagamento?" → **Upsell** ou **Página de Obrigado**. Fluxo visual Produto inicial → Upsell → Página de Obrigado. O editor de grafo anterior continua disponível em "Funil avançado".
+- **Upsell**: produto e oferta (preço vem sempre da oferta no servidor — regras comerciais do produto), título, descrição, imagem ou vídeo, textos de aceitar/recusar, destino depois de aceitar e pagar / depois de recusar / se o pagamento falhar (tentar de novo ou página de obrigado), pré-visualização computador/telemóvel.
+- **Pagamento do upsell**: aceitar cria uma **nova encomenda** (`parentOrderId` → encomenda inicial) e um **novo pagamento** pelo gateway escolhido. Clicar não marca nada como pago; a entrega só existe depois de `applyPaymentStatus` confirmar. Idempotente (uma encomenda filha por etapa; repetir devolve a mesma). Recusar ou falhar não altera a compra inicial.
+- **Encaminhamento pós-pagamento** (`nextDestination`): só com a encomenda **APPROVED na base de dados**; parâmetros de URL nunca contam. Pendente fica na página de estado; percurso de funil manipulado ou de encomenda não paga fica bloqueado.
+- **Página de obrigado**: título, subtítulo, mensagem, instruções, logótipo, imagem de destaque, cores, tipografia, alinhamento, espaçamento, texto do botão, texto auxiliar, suporte, resumo da compra; modelo padrão escuro/claro; pré-visualização computador/telemóvel. Estados: **confirmada** (botão visível), **pendente** ("Estamos a confirmar o seu pagamento", sem botão, atualiza sozinha), **falhada**.
+- **Botão principal**: *Aceder ao produto* → **PDF protegido** (só `%PDF-`, máx. 4 MB, guardado na BD, sem URL público permanente; descarga em `/acesso/{token}/ficheiro/{id}` só para encomenda paga, não-demo, que contém o produto; `Cache-Control: private, no-store`) ou **link** (https validado, aviso de link externo). *WhatsApp* → número normalizado (`84…` → `258…`), mensagem codificada em `https://wa.me/…?text=…`; a interface diz que a conversa abre com a mensagem preenchida (o envio é sempre do comprador).
+- **Tema do checkout**: cartões "Negrito/Escuro" e "Claro" no editor de personalização, pré-visualização imediata, guardado por checkout de produto e aplicado ao checkout público e às páginas de oferta.
+- **Tema do painel**: claro / escuro / sistema na conta (barra lateral), guardado por utilizador (`User.themePreference` + cookie para evitar piscar), independente dos checkouts públicos.
+- **Base de dados** (migração `20261014090000_funnels_thank_you_theme`, só aditiva): `Funnel.productId`, `ThankYouPage`, `ProductFile`, `Order.parentOrderId`/`funnelStepKey`, `FunnelRun.orderId` único, `User.themePreference`. Nenhum dado existente é alterado.
+
+### Testes (18 cenários pedidos)
+| # | Cenário | Onde | Resultado |
+|---|---|---|---|
+| 1 | Funil com produto inicial e página de obrigado | integração `funnels-real` #1, #7 | ✅ |
+| 2 | Funil com produto inicial e upsell | integração #2; E2E 08 "assistente" | ✅ |
+| 3 | Selecionar/configurar produto de upsell | integração #2 (produto/preço/oferta validados); E2E 08 | ✅ |
+| 4 | Encaminhamento após pagamento confirmado | integração #3; E2E 08 "pagamento confirmado → upsell" | ✅ |
+| 5 | Pendente não é aprovado | integração #3, #6; E2E 08 "compra pendente" | ✅ |
+| 6 | Recusar o upsell | integração #3; E2E 08 | ✅ |
+| 7 | Falha no pagamento do upsell | integração #5 | ✅ |
+| 8 | Página de obrigado → WhatsApp | integração #8; E2E 08 | ✅ |
+| 9 | Página de obrigado → link do produto | integração #9 | ✅ |
+| 10 | PDF com controlo de acesso | integração #10–11; E2E 08 "PDF protegido" | ✅ |
+| 11 | Só compradores autorizados descarregam | integração #10–11 (token inventado, encomenda pendente, demo, outro produto → 404); E2E 08 | ✅ |
+| 12 | Alterar tema do checkout escuro/claro | E2E 08 "tema do checkout" | ✅ |
+| 13 | Pré-visualização e checkout público usam o tema | E2E 08 "tema do checkout" | ✅ |
+| 14 | Tema do painel e persistência | E2E 08 "tema do painel" (recarregar mantém) | ✅ |
+| 15 | Tema do painel não muda os checkouts | E2E 08 "tema do painel" | ✅ |
+| 16 | EPay e E2Payments continuam funcionais | 18 testes de gateways + E2E 05/07 sem alterações | ✅ (com servidores simulados — ver abaixo) |
+| 17 | Outros produtos/checkouts não afetados | E2E 06 e 08 (outro checkout continua escuro, preço inalterado) + suite completa | ✅ |
+| 18 | Novas interfaces em computador e telemóvel | E2E 08 "telemóvel" (sem deslocamento horizontal) + verificação visual 1440 px e 390 px | ✅ |
+
+Correções feitas durante os testes: o assistente transbordava no telemóvel (grelhas sem `minmax(0,1fr)`), o título do funil ficava cortado no telemóvel, a página de oferta clara deixava uma faixa escura no fundo, "Ana, Obrigado" com maiúscula, tamanho "0 KB" em ficheiros pequenos.
+
+### Dependem de credenciais reais (não testáveis aqui)
+- Upsell pago com **EPay** real (checkout alojado + aviso assinado) e com **E2Payments** real (push no telemóvel). Testado com o fornecedor de teste local e com servidores simulados; fazer uma compra real de valor baixo com upsell em cada gateway.
+
+### Limitações (explicadas, não contornadas)
+- **E2Payments** não tem webhook nem consulta de estado documentados: o upsell é confirmado na resposta síncrona; se a resposta não chegar, fica "por verificar" com resolução manual (igual ao checkout).
+- **EPay**: o upsell abre o checkout alojado da EPay (nova página) e volta pela página de estado; a confirmação chega pelo aviso assinado.
+- **Um vendedor por loja**: a plataforma é de loja única (todos os utilizadores administram a mesma loja; a separação existente é dados reais vs demonstração). Não existe propriedade por vendedor, por isso o isolamento "vendedor A não edita o funil do vendedor B" não se aplica; os ficheiros e funis são validados contra o produto e o modo (real/demo).
+- **PDF até 4 MB** (limite do corpo de pedido das funções da Vercel); guardado no PostgreSQL. Ficheiros maiores → usar a opção "link".
+- Não há envio de email: o acesso aparece na página de obrigado/estado após confirmação.
+
+### Ficheiros principais
+`src/lib/thank-you.ts`, `src/lib/funnels/wizard.ts`, `src/lib/panel-theme.ts`, `src/server/services/{funnel-wizard,post-purchase,product-files}.ts`, `src/components/funnels/funnel-wizard.tsx`, `src/components/public/{thank-you-content,upsell-content}.tsx`, `src/app/obrigado/[token]/`, `src/app/oferta/[runId]/`, `src/app/acesso/[token]/ficheiro/[fileId]/route.ts`, `src/components/layout/theme-toggle.tsx`, `tests/integration/funnels-real.test.ts`, `e2e/08-funnels.spec.ts`.
 
 ## Gateways de pagamento: EPay + E2Payments (sessão 7)
 
@@ -317,7 +371,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 1. **EPay**: definir `EPAY_SECRET_KEY` (`sk_test_…`) e `APP_BASE_URL`, fazer o teste no sandbox e depois uma transação real de valor baixo com `sk_live_…` (ver "O que falta fazer"). **Não declarar produção pronta antes disso.**
 2. Reembolsos reais através da API EPay (se a API os suportar); hoje só existem como simulação em modo demo.
-3. Upsell/downsell com pagamento real: exige uma nova cobrança por oferta e só funciona em modo demo (simulação).
+3. Upsell com pagamento real: implementado na sessão 8 (assistente de funis); falta uma compra real de valor baixo com upsell em cada gateway. Downsell continua só no editor avançado/simulação.
 4. Envio do link de acesso por email (não há fornecedor de email); hoje o acesso é mostrado na página de estado após confirmação.
 3. Rate limiting de endpoints públicos em memória → mover para armazenamento partilhado (Redis) se houver várias instâncias.
 4. Upload de imagens: atualmente por URL; adicionar armazenamento de ficheiros (ex.: S3/Blob) se necessário.
@@ -334,6 +388,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 8 (2026-10-13)**: funis por produto com upsell pago a sério (nova encomenda + novo pagamento pelos gateways existentes, entrega só após confirmação, sem duplicados), página de obrigado editável (WhatsApp, link ou PDF protegido), encaminhamento pós-pagamento decidido no servidor, tema claro/escuro por checkout e tema do painel por utilizador. Migração só aditiva; EPay/E2Payments intactas. 190 testes unitários/integração e 53 E2E a passar; build OK.
 - **Sessão 7e (2026-10-13)**: causa provável do `invalid_client` encontrada na integração anterior do dono (Lovable/NEXAPAY): a E2Payments serve a API em dois domínios, `e2payments.explicador.co.mz` (original) e `mpesaemolatech.com` (novo), e algumas contas só autenticam num deles. A plataforma passa a tentar os dois, memoriza o que aceita as credenciais (aparece no cartão como "Servidor") e paga nesse domínio; o valor passa a ser enviado em texto. 180 testes a passar.
 - **Sessão 7d (2026-10-13)**: `invalid_client` persistente com credenciais corretas. O pedido de token passa a tentar as três formas OAuth padrão (JSON, formulário, HTTP Basic), cada uma também com os campos trocados, e deteta segredos copiados mascarados ou cifrados (`$2y$…`); 179 testes a passar.
 - **Sessão 7c (2026-10-13)**: "A E2Payments rejeitou o Client ID ou o Client Secret" — o teste de ligação passa a mostrar o erro exato devolvido pela E2Payments (ex.: `invalid_client`), deteta e corrige automaticamente Client ID/Secret colados nos campos trocados (os exemplos oficiais da Explicador mostram formatos contraditórios) e remove espaços invisíveis/aspas coladas; 177 testes a passar.

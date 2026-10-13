@@ -221,7 +221,7 @@ export function CheckoutView({
   );
 
   return (
-    <div className={cn("@container min-h-full", fg)} style={{ background: data.backgroundColor }}>
+    <div className={cn("@container min-h-full", fg)} style={{ background: data.backgroundColor }} data-testid="checkout-root" data-mode={dark ? "dark" : "light"}>
       {data.isDemo && (
         <div className="bg-[#f5a524] px-4 py-2 text-center text-[12.5px] font-semibold text-black">
           CHECKOUT DE DEMONSTRAÇÃO — nenhuma cobrança é efetuada

@@ -16,7 +16,7 @@ export function BarList({ items, emptyLabel = "Sem dados no período." }: { item
             </span>
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-surface-3">
-            <div className={cn("h-full rounded-full transition-[width] duration-500")} style={{ width: `${Math.max(2, (i.value / max) * 100)}%`, background: i.color ?? "#c8f135" }} />
+            <div className={cn("h-full rounded-full transition-[width] duration-500")} style={{ width: `${Math.max(2, (i.value / max) * 100)}%`, background: i.color ?? "var(--color-accent)" }} />
           </div>
         </li>
       ))}

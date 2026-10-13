@@ -7,6 +7,8 @@ import { formatMoney } from "@/lib/money";
 import { readableOn } from "@/lib/color";
 import { Unavailable } from "@/components/public/unavailable";
 import { StatusPoller } from "./status-poller";
+import { redirect } from "next/navigation";
+import { nextDestination } from "@/server/services/post-purchase";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Estado do pagamento", robots: { index: false } };
@@ -26,6 +28,11 @@ export default async function PaymentStatusPage({ params, searchParams }: { para
   // Visitar esta página nunca marca a encomenda como paga: apenas lê o estado (e pode pedir uma consulta oficial).
   const view = await getPaymentView(token, { refresh: true });
   if (!view) return <Unavailable title="Encomenda não encontrada" message="Não foi possível encontrar esta encomenda." />;
+  // Funil: com o pagamento confirmado pelo servidor (ou um upsell falhado), segue para o destino configurado.
+  if (view.state === "paid" || view.state === "failed" || view.state === "canceled") {
+    const dest = await nextDestination(token);
+    if (dest) redirect(dest.url);
+  }
   const settings = await getSettings();
   const bg = view.checkout?.backgroundColor ?? "#0B0C0E";
   const primary = view.checkout?.primaryColor ?? "#C8F135";

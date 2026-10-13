@@ -62,7 +62,7 @@ export default async function CheckoutPage({ params }: { params: Promise<{ id: s
         <div className="flex flex-wrap gap-2">
           <CopyButton value={path} />
           <LinkButton href={`/checkouts/${c.id}/preview`} variant="secondary" size="sm"><Eye className="h-4 w-4" /> Pré-visualizar</LinkButton>
-          <a href={path} target="_blank" rel="noopener" className="inline-flex h-8 items-center gap-2 rounded-[var(--radius-md)] border border-line bg-surface-3 px-3 text-[13px] font-medium text-fg hover:bg-[#252a31]">
+          <a href={path} target="_blank" rel="noopener" className="inline-flex h-8 items-center gap-2 rounded-[var(--radius-md)] border border-line bg-surface-3 px-3 text-[13px] font-medium text-fg hover:bg-surface-hover">
             <ExternalLink className="h-4 w-4" /> Abrir
           </a>
         </div>

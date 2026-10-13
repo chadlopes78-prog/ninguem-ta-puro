@@ -88,7 +88,7 @@ export default async function CheckoutPersonalizationPage({ searchParams }: { se
                     <LinkButton href={`/checkouts/personalizar/${p.id}`} size="sm" className="min-w-0 flex-1" data-testid="personalize" aria-label={`Personalizar Checkout de ${p.name}`}>
                       <Paintbrush className="h-4 w-4 shrink-0" /> <span className="truncate">Personalizar Checkout</span>
                     </LinkButton>
-                    <Link href={`/checkouts/personalizar/${p.id}/preview`} className="grid h-10 w-10 place-items-center rounded-[var(--radius-md)] border border-line bg-surface-3 text-muted hover:bg-[#252a31] hover:text-fg" aria-label={`Pré-visualizar checkout de ${p.name}`}>
+                    <Link href={`/checkouts/personalizar/${p.id}/preview`} className="grid h-10 w-10 place-items-center rounded-[var(--radius-md)] border border-line bg-surface-3 text-muted hover:bg-surface-hover hover:text-fg" aria-label={`Pré-visualizar checkout de ${p.name}`}>
                       <Eye className="h-4 w-4" />
                     </Link>
                   </div>

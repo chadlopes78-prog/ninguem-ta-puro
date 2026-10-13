@@ -49,7 +49,7 @@ export function CheckoutLinkCard({
         {!live && reason && <p className="text-[12.5px] text-warning">{reason}</p>}
         <div className="flex flex-wrap gap-2">
           <CopyButton value={path} label="Copiar link" size="md" />
-          <a href={path} target="_blank" rel="noopener" className="inline-flex h-10 items-center gap-2 rounded-[var(--radius-md)] border border-line bg-surface-3 px-4 text-sm font-medium hover:bg-[#252a31]">
+          <a href={path} target="_blank" rel="noopener" className="inline-flex h-10 items-center gap-2 rounded-[var(--radius-md)] border border-line bg-surface-3 px-4 text-sm font-medium hover:bg-surface-hover">
             <ExternalLink className="h-4 w-4" aria-hidden="true" /> Abrir checkout
           </a>
           <LinkButton href={`/checkouts/personalizar/${productId}`} variant="secondary">

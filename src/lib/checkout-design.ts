@@ -80,6 +80,8 @@ export const designSchema = z
       buttonText: z.string().trim().min(2, "Texto do botão obrigatório").max(40),
       layout: z.enum(["split", "stacked"]).default("split"),
       announcement: text(160).default(""),
+      /** Tema visual: "dark" (Negrito/Escuro) ou "light" (Claro). Designs antigos derivam-no da cor de fundo. */
+      mode: z.enum(["dark", "light"]).optional(),
     }),
     blocks: z.array(blockSchema).max(40, "Máximo de 40 elementos"),
   })
@@ -160,4 +162,19 @@ export function defaultDesign(theme: { primaryColor: string; backgroundColor: st
 export function parseDesign(value: unknown): CheckoutDesign | null {
   const r = designSchema.safeParse(value);
   return r.success ? r.data : null;
+}
+
+/** Predefinições de cada tema do checkout (o preço e o pagamento nunca dependem do tema). */
+export const CHECKOUT_THEME_PRESETS = {
+  dark: { backgroundColor: "#0B0C0E", primaryColor: "#C8F135" },
+  light: { backgroundColor: "#F6F7F9", primaryColor: "#16A34A" },
+} as const;
+
+export function themeMode(theme: { mode?: "dark" | "light"; backgroundColor: string }): "dark" | "light" {
+  if (theme.mode) return theme.mode;
+  const m = /^#([0-9a-f]{6})$/i.exec(theme.backgroundColor);
+  if (!m) return "dark";
+  const n = parseInt(m[1], 16);
+  const lum = 0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255);
+  return lum > 140 ? "light" : "dark";
 }

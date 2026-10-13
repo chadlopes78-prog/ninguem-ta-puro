@@ -128,7 +128,8 @@ export async function startRealPayment(
           code: newOrderCode(),
           customerId: customer.id,
           checkoutId: c.id,
-          funnelId: null,
+          // Funil ativo deste checkout: define o percurso após o pagamento confirmado
+          funnelId: c.funnel?.status === "ACTIVE" ? c.funnel.id : null,
           couponId: coupon.couponId,
           status: "PENDING",
           source: "CHECKOUT",
@@ -197,7 +198,7 @@ export async function startRealPayment(
 
 class CouponExhausted extends Error {}
 
-async function chargeWithProvider(
+export async function chargeWithProvider(
   provider: PaymentProvider,
   created: { orderId: string; orderCode: string; publicToken: string; paymentId: string; reference: string },
   details: { amountCents: number; currency: PublicCheckout["offer"]["currency"]; method: string | null; phone: string | null; customer: { name: string; email: string }; description: string; imageUrl: string | null },

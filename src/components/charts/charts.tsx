@@ -3,10 +3,10 @@
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, type TooltipProps } from "recharts";
 import { formatMoney, type CurrencyCode } from "@/lib/money";
 
-const AXIS = { stroke: "#6c737d", fontSize: 11, tickLine: false, axisLine: false } as const;
-const GRID = "#1f2328";
-const ACCENT = "#c8f135";
-const PREV = "#6c737d";
+const AXIS = { stroke: "var(--color-subtle)", fontSize: 11, tickLine: false, axisLine: false } as const;
+const GRID = "var(--color-line)";
+const ACCENT = "var(--color-accent)";
+const PREV = "var(--color-subtle)";
 
 function shortDay(d: string) {
   const [, m, day] = d.split("-");
@@ -58,7 +58,7 @@ export function RevenueChart({ data, currency }: { data: SeriesPoint[]; currency
           <XAxis dataKey="day" tickFormatter={shortDay} {...AXIS} minTickGap={24} />
           <YAxis tickFormatter={(v: number) => compactMoney(v, currency)} {...AXIS} width={56} />
           <Tooltip
-            cursor={{ stroke: "#3a4048", strokeWidth: 1 }}
+            cursor={{ stroke: "var(--color-line-strong)", strokeWidth: 1 }}
             content={({ active, payload, label }: TooltipProps<number, string>) =>
               active && payload?.length ? (
                 <TooltipBox
@@ -72,7 +72,7 @@ export function RevenueChart({ data, currency }: { data: SeriesPoint[]; currency
             }
           />
           <Line type="monotone" dataKey="prevRevenueCents" stroke={PREV} strokeWidth={1.5} strokeDasharray="4 4" dot={false} isAnimationActive={false} />
-          <Area type="monotone" dataKey="revenueCents" stroke={ACCENT} strokeWidth={2} fill="url(#rev)" dot={false} activeDot={{ r: 4, stroke: "#111316", strokeWidth: 2, fill: ACCENT }} />
+          <Area type="monotone" dataKey="revenueCents" stroke={ACCENT} strokeWidth={2} fill="url(#rev)" dot={false} activeDot={{ r: 4, stroke: "var(--color-surface)", strokeWidth: 2, fill: ACCENT }} />
         </AreaChart>
       </ResponsiveContainer>
     </div>

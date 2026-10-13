@@ -37,7 +37,7 @@ test("construtor de funis utilizável no telemóvel", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 });
   await login(page);
   await page.goto("/funis");
-  await page.getByRole("button", { name: "Novo funil" }).first().click();
+  await page.getByRole("button", { name: "Funil avançado" }).first().click();
   await page.getByRole("dialog").getByLabel("Nome").fill("Funil Mobile");
   await page.getByRole("button", { name: "Criar e abrir editor" }).click();
   await expect(page.getByTestId("funnel-canvas")).toBeVisible();

@@ -18,6 +18,12 @@ export const stepConfigSchema = z
     title: opt(160),
     message: opt(2000),
     redirectUrl: opt(2000).refine((v) => !v || /^https?:\/\//i.test(v), "URL inválido"),
+    videoUrl: opt(2000).refine((v) => !v || /^https:\/\//i.test(v), "URL inválido"),
+    afterAccept: z.enum(["thank_you", "url"]).optional(),
+    afterAcceptUrl: opt(2000).refine((v) => !v || /^https:\/\//i.test(v), "URL inválido"),
+    afterDecline: z.enum(["thank_you", "url"]).optional(),
+    afterDeclineUrl: opt(2000).refine((v) => !v || /^https:\/\//i.test(v), "URL inválido"),
+    afterFail: z.enum(["retry", "thank_you"]).optional(),
   })
   .strip();
 

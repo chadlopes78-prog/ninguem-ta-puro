@@ -9,7 +9,7 @@ export function ProductCover({ src, name, className }: { src?: string | null; na
   }
   const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase()).join("");
   return (
-    <div className={cn("relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-[var(--radius-sm)] border border-line bg-[linear-gradient(135deg,#1c2025,#111316)]", className)} aria-hidden="true">
+    <div className={cn("relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-[var(--radius-sm)] border border-line bg-[linear-gradient(135deg,var(--color-surface-3),var(--color-surface))]", className)} aria-hidden="true">
       {initials ? <span className="font-display text-[12px] font-semibold text-accent">{initials}</span> : <Package className="h-4 w-4 text-subtle" />}
     </div>
   );

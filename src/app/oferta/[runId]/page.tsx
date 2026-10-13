@@ -9,15 +9,73 @@ import { formatMoney } from "@/lib/money";
 import { readableOn } from "@/lib/color";
 import { Unavailable } from "@/components/public/unavailable";
 import { OfferDecision } from "./offer-decision";
-import { decideRunAction } from "./actions";
+import { acceptUpsellAction, decideRunAction, declineUpsellAction } from "./actions";
+import { redirect } from "next/navigation";
+import { getRealOfferView, nextDestination } from "@/server/services/post-purchase";
+import { UpsellContent } from "@/components/public/upsell-content";
+import { RealOfferForm } from "./real-offer";
 
 export const dynamic = "force-dynamic";
+// Aceitar o upsell com E2Payments espera pela confirmação no telemóvel (até 180 s), tal como o checkout.
+export const maxDuration = 180;
 export const metadata: Metadata = { title: "Oferta especial", robots: { index: false } };
 
 const KIND_LABEL: Record<string, string> = { MAIN: "Produto principal", UPSELL: "Upsell", DOWNSELL: "Downsell", ORDER_BUMP: "Oferta adicional" };
 
-export default async function OfferPage({ params }: { params: Promise<{ runId: string }> }) {
+export default async function OfferPage({ params, searchParams }: { params: Promise<{ runId: string }>; searchParams: Promise<{ pagamento?: string }> }) {
   const { runId } = await params;
+  const { pagamento } = await searchParams;
+
+  // Funil real: o acesso depende apenas do estado das encomendas no servidor
+  const real = await getRealOfferView(runId);
+  if (real) {
+    if (real.blocked) return <Unavailable title="Compra ainda não confirmada" message="A oferta fica disponível depois de o pagamento da sua compra ser confirmado." />;
+    const { run, root, node, active, offer, child, options } = real;
+    if (child && (child.status === "PENDING" || child.status === "APPROVED")) redirect(`/pagamento/${child.publicToken}`);
+    if (!active || !node || !offer) {
+      const dest = root.publicToken ? await nextDestination(root.publicToken) : null;
+      if (dest && dest.kind !== "upsell") redirect(dest.url);
+      return <Unavailable title="Oferta indisponível" message="Esta oferta já não está disponível. A sua compra principal está confirmada." />;
+    }
+    const s = await getSettings();
+    const bg = root.checkout?.backgroundColor ?? "#0B0C0E";
+    const primary = root.checkout?.primaryColor ?? "#C8F135";
+    const seen = await prisma.analyticsEvent.count({ where: { type: EVENT_TYPES.FUNNEL_STEP_VIEW, stepKey: node.key, meta: { path: ["runId"], equals: run.id } } });
+    if (!seen) await trackRunView(run.id, node.key, run.funnelId, false);
+    return (
+      <main className="min-h-dvh">
+        <UpsellContent
+          fullPage
+          businessName={s.businessName}
+          primaryColor={primary}
+          backgroundColor={bg}
+          headline={node.config.headline ?? offer.product.name}
+          body={node.config.body}
+          imageUrl={node.config.imageUrl}
+          videoUrl={node.config.videoUrl}
+          productName={offer.product.name}
+          offerName={offer.name}
+          priceCents={offer.priceCents}
+          compareAtCents={offer.compareAtCents}
+          currency={offer.currency}
+        >
+          <RealOfferForm
+            accept={acceptUpsellAction.bind(null, run.id, node.key)}
+            decline={declineUpsellAction.bind(null, run.id, node.key)}
+            options={options}
+            phoneHint={real.phoneHint}
+            acceptText={node.config.acceptText ?? "Sim, quero adicionar"}
+            declineText={node.config.declineText ?? "Não, obrigado"}
+            primary={primary}
+            onPrimary={readableOn(primary)}
+            dark={readableOn(bg) === "#ffffff"}
+            failed={pagamento === "falhou"}
+          />
+        </UpsellContent>
+      </main>
+    );
+  }
+
   const view = await getRunView(runId);
   if (!view) return <Unavailable title="Oferta indisponível" message="Esta página já não está disponível." />;
   const { run, node, offer, order } = view;

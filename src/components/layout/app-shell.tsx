@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronsLeft, ChevronsRight, LogOut, Menu, X } from "lucide-react";
+import { ThemeToggle } from "./theme-toggle";
+import type { PanelTheme } from "@/lib/panel-theme";
 import { cn } from "@/lib/utils";
 import { GROUP_LABELS, NAV } from "./nav";
 import { Logo, LogoMark } from "./logo";
@@ -13,12 +15,14 @@ interface Props {
   businessName: string;
   demoMode: boolean;
   logoutAction: () => Promise<void>;
+  theme: PanelTheme;
+  saveTheme: (t: string) => Promise<{ ok: boolean }>;
   children: React.ReactNode;
 }
 
 const STORAGE_KEY = "ntp:sidebar-collapsed";
 
-export function AppShell({ user, businessName, demoMode, logoutAction, children }: Props) {
+export function AppShell({ user, businessName, demoMode, logoutAction, theme, saveTheme, children }: Props) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -76,6 +80,7 @@ export function AppShell({ user, businessName, demoMode, logoutAction, children 
 
   const account = (isCollapsed: boolean) => (
     <div className={cn("border-t border-line p-3", isCollapsed && "flex flex-col items-center gap-2")}>
+      {isCollapsed ? <ThemeToggle initial={theme} save={saveTheme} compact /> : <div className="mb-2"><ThemeToggle initial={theme} save={saveTheme} /></div>}
       <div className={cn("flex items-center gap-2.5 rounded-[var(--radius-md)] px-1.5 py-1.5", isCollapsed && "justify-center px-0")}>
         <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-surface-3 text-[12px] font-semibold text-fg" aria-hidden="true">
           {user.name.slice(0, 1).toUpperCase()}
@@ -96,11 +101,11 @@ export function AppShell({ user, businessName, demoMode, logoutAction, children 
   );
 
   return (
-    <div className="flex min-h-dvh">
+    <div className="flex min-h-dvh bg-canvas text-fg" data-app-shell>
       {/* Sidebar desktop */}
       <aside
         className={cn(
-          "sticky top-0 hidden h-dvh shrink-0 flex-col border-r border-line bg-[#0d0f12] transition-[width] duration-200 lg:flex",
+          "sticky top-0 hidden h-dvh shrink-0 flex-col border-r border-line bg-surface transition-[width] duration-200 lg:flex",
           collapsed ? "w-[72px]" : "w-[248px]",
         )}
       >
@@ -124,7 +129,7 @@ export function AppShell({ user, businessName, demoMode, logoutAction, children 
       {mobileOpen && (
         <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Menu">
           <div className="absolute inset-0 animate-fade-in bg-black/70 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 flex w-[min(300px,85vw)] animate-slide-up flex-col border-r border-line bg-[#0d0f12]">
+          <aside className="absolute inset-y-0 left-0 flex w-[min(300px,85vw)] animate-slide-up flex-col border-r border-line bg-surface">
             <div className="flex h-16 items-center justify-between border-b border-line px-4">
               <Logo name={businessName} />
               <button onClick={() => setMobileOpen(false)} className="grid h-10 w-10 place-items-center rounded-md text-muted hover:bg-surface-2" aria-label="Fechar menu">

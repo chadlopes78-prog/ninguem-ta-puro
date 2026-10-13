@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowLeft, ArrowUp, Eye, Lock, Plus, RotateCcw, Save, Send, Trash2, X } from "lucide-react";
 import { ADDABLE_BLOCKS, BLOCK_LABELS, newBlock, type CheckoutDesign, type DesignBlock } from "@/lib/checkout-design";
+import { CHECKOUT_THEME_PRESETS, themeMode } from "@/lib/checkout-design";
 import type { ActionResult, FieldErrors } from "@/server/validation/common";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -119,7 +120,7 @@ export function DesignEditor(props: Props) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <a href={`/checkouts/personalizar/${props.productId}/preview`} target="_blank" rel="noopener" className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-md)] border border-line bg-surface-3 px-3 text-[13px] font-medium hover:bg-[#252a31]" title="Abre o rascunho guardado">
+          <a href={`/checkouts/personalizar/${props.productId}/preview`} target="_blank" rel="noopener" className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-md)] border border-line bg-surface-3 px-3 text-[13px] font-medium hover:bg-surface-hover" title="Abre o rascunho guardado">
             <Eye className="h-4 w-4" /> Pré-visualizar
           </a>
           {props.status !== "default" && (
@@ -228,8 +229,41 @@ export function DesignEditor(props: Props) {
 
 function ThemePanel({ design, onChange }: { design: CheckoutDesign; onChange: (t: Partial<CheckoutDesign["theme"]>) => void }) {
   const t = design.theme;
+  const mode = themeMode(t);
+  const pick = (m: "dark" | "light") => {
+    const other = CHECKOUT_THEME_PRESETS[m === "dark" ? "light" : "dark"];
+    // muda o fundo; a cor principal só muda se ainda for a predefinição do outro tema (mantém personalizações)
+    onChange({ mode: m, backgroundColor: CHECKOUT_THEME_PRESETS[m].backgroundColor, ...(t.primaryColor.toUpperCase() === other.primaryColor ? { primaryColor: CHECKOUT_THEME_PRESETS[m].primaryColor } : {}) });
+  };
   return (
     <div className="flex flex-col gap-4">
+      <div>
+        <p className="mb-2 text-[13px] font-medium">Tema do checkout</p>
+        <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Tema do checkout">
+          {(["dark", "light"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              role="radio"
+              aria-checked={mode === m}
+              onClick={() => pick(m)}
+              data-testid={`checkout-theme-${m}`}
+              className={cn("overflow-hidden rounded-[var(--radius-md)] border text-left transition-colors", mode === m ? "border-accent ring-2 ring-accent/30" : "border-line hover:border-line-strong")}
+            >
+              <span className="block p-2.5" style={{ background: CHECKOUT_THEME_PRESETS[m].backgroundColor }}>
+                <span className="block h-2 w-14 rounded" style={{ background: m === "dark" ? "#eceef1" : "#111316" }} />
+                <span className="mt-1.5 block h-1.5 w-20 rounded opacity-50" style={{ background: m === "dark" ? "#eceef1" : "#111316" }} />
+                <span className="mt-2.5 block h-4 rounded" style={{ background: CHECKOUT_THEME_PRESETS[m].primaryColor }} />
+              </span>
+              <span className="flex items-center justify-between px-2.5 py-2 text-[12.5px] font-medium">
+                {m === "dark" ? "Negrito / Escuro" : "Claro"}
+                {mode === m && <span className="text-accent">✓</span>}
+              </span>
+            </button>
+          ))}
+        </div>
+        <p className="mt-1.5 text-[11.5px] text-subtle">Aplica-se só ao checkout deste produto, depois de publicar. Não altera preços nem pagamentos.</p>
+      </div>
       {(["primaryColor", "backgroundColor"] as const).map((k) => (
         <Field key={k} label={k === "primaryColor" ? "Cor principal (botão e destaques)" : "Cor de fundo"} name={k}>
           {(p) => (

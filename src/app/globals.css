@@ -12,6 +12,7 @@
   --color-surface: #111316;
   --color-surface-2: #16191d;
   --color-surface-3: #1c2025;
+  --color-surface-hover: #252a31;
   --color-line: #23272d;
   --color-line-strong: #30353c;
   --color-fg: #eceef1;
@@ -76,6 +77,68 @@
   }
   input[type="date"]::-webkit-calendar-picker-indicator {
     filter: invert(0.8);
+  }
+}
+
+
+/* ───────────── Modo claro do PAINEL ─────────────
+   Só se aplica a páginas com a estrutura do painel ([data-app-shell]); checkouts, páginas de obrigado,
+   upsells e páginas de pagamento públicas mantêm sempre o tema escolhido para cada produto. */
+@layer base {
+  html[data-theme="light"]:has([data-app-shell]) {
+    color-scheme: light;
+    --color-ink: #ffffff;
+    --color-canvas: #f4f5f7;
+    --color-surface: #ffffff;
+    --color-surface-2: #f6f7f9;
+    --color-surface-3: #eef0f3;
+    --color-surface-hover: #e4e7ec;
+    --color-line: #e3e6eb;
+    --color-line-strong: #cdd2da;
+    --color-fg: #14171c;
+    --color-muted: #535b67;
+    --color-subtle: #7a828e;
+    --color-accent: #4d7a0b;
+    --color-accent-strong: #3f6609;
+    --color-accent-soft: rgb(101 163 13 / 0.12);
+    --color-accent-ink: #ffffff;
+    --color-success: #15803d;
+    --color-warning: #b45309;
+    --color-danger: #dc2626;
+    --color-info: #2563eb;
+    --color-demo: #c2410c;
+    --shadow-card: 0 1px 2px rgb(16 24 40 / 0.06), 0 0 0 1px rgb(16 24 40 / 0.02);
+    --shadow-pop: 0 12px 32px -8px rgb(16 24 40 / 0.18), 0 0 0 1px rgb(16 24 40 / 0.06);
+  }
+  @media (prefers-color-scheme: light) {
+    html[data-theme="system"]:has([data-app-shell]) {
+      color-scheme: light;
+      --color-ink: #ffffff;
+      --color-canvas: #f4f5f7;
+      --color-surface: #ffffff;
+      --color-surface-2: #f6f7f9;
+      --color-surface-3: #eef0f3;
+      --color-surface-hover: #e4e7ec;
+      --color-line: #e3e6eb;
+      --color-line-strong: #cdd2da;
+      --color-fg: #14171c;
+      --color-muted: #535b67;
+      --color-subtle: #7a828e;
+      --color-accent: #4d7a0b;
+      --color-accent-strong: #3f6609;
+      --color-accent-soft: rgb(101 163 13 / 0.12);
+      --color-accent-ink: #ffffff;
+      --color-success: #15803d;
+      --color-warning: #b45309;
+      --color-danger: #dc2626;
+      --color-info: #2563eb;
+      --color-demo: #c2410c;
+      --shadow-card: 0 1px 2px rgb(16 24 40 / 0.06), 0 0 0 1px rgb(16 24 40 / 0.02);
+      --shadow-pop: 0 12px 32px -8px rgb(16 24 40 / 0.18), 0 0 0 1px rgb(16 24 40 / 0.06);
+    }
+  }
+  html[data-theme="light"]:has([data-app-shell]) input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: none;
   }
 }
 

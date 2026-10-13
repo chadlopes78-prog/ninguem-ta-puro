@@ -12,8 +12,11 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ListFilters } from "@/components/filters/list-filters";
 import { RowMenu } from "@/components/ui/row-menu";
 import { NewFunnelButton } from "@/components/funnels/new-funnel-button";
+import { NewWizardFunnelButton } from "@/components/funnels/new-wizard-funnel-button";
+import { prisma } from "@/server/db";
+import { ArrowRight } from "lucide-react";
 import { STEP_ICON, STEP_TINT } from "@/components/funnels/step-visuals";
-import { createFunnelAction, deactivateFunnelAction, deleteFunnelAction, duplicateFunnelAction, activateFunnelAction } from "./actions";
+import { createFunnelAction, createWizardFunnelAction, deactivateFunnelAction, deleteFunnelAction, duplicateFunnelAction, activateFunnelAction } from "./actions";
 
 export const metadata: Metadata = { title: "Funis de vendas" };
 
@@ -23,14 +26,22 @@ export default async function FunnelsPage({ searchParams }: { searchParams: Prom
   await requireUser();
   const sp = await searchParams;
   const { isDemo, settings } = await getScope();
-  const funnels = await listFunnels({ isDemo, q: sp.q?.slice(0, 100), status: sp.status });
+  const [funnels, products] = await Promise.all([
+    listFunnels({ isDemo, q: sp.q?.slice(0, 100), status: sp.status }),
+    prisma.product.findMany({ where: { isDemo, status: { not: "ARCHIVED" } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+  ]);
 
   return (
     <>
       <PageHeader
         title={<span className="flex flex-wrap items-center gap-3">Funis de vendas {isDemo && <DemoBadge />}</span>}
-        description="Percursos de compra com upsells, downsells e ofertas adicionais."
-        actions={<NewFunnelButton action={createFunnelAction} />}
+        description="Defina o que acontece depois de cada compra: upsell e página de obrigado."
+        actions={
+          <>
+            <NewFunnelButton action={createFunnelAction} label="Funil avançado" />
+            <NewWizardFunnelButton action={createWizardFunnelAction} products={products} />
+          </>
+        }
       />
       <div className="mb-4">
         <ListFilters
@@ -43,8 +54,8 @@ export default async function FunnelsPage({ searchParams }: { searchParams: Prom
           <EmptyState
             icon={Workflow}
             title={sp.q || sp.status ? "Nenhum funil encontrado" : "Sem funis"}
-            description={sp.q || sp.status ? undefined : "Crie um funil para encadear checkout, upsells, downsells e página de obrigado."}
-            action={!sp.q && !sp.status ? <NewFunnelButton action={createFunnelAction} label="Criar funil" /> : undefined}
+            description={sp.q || sp.status ? undefined : "Escolha um produto e defina o que acontece depois do pagamento: um upsell ou uma página de obrigado."}
+            action={!sp.q && !sp.status ? <NewWizardFunnelButton action={createWizardFunnelAction} products={products} label="Criar funil" /> : undefined}
           />
         </Card>
       ) : (
@@ -71,6 +82,19 @@ export default async function FunnelsPage({ searchParams }: { searchParams: Prom
                       ]}
                     />
                   </div>
+                  {f.product ? (
+                    <div className="mt-4 flex flex-wrap items-center gap-1.5 text-[12.5px]" aria-label="Fluxo do funil" data-testid="funnel-card-flow">
+                      <span className="rounded-full border border-line bg-surface-2 px-2.5 py-1 font-medium text-fg">{f.product.name}</span>
+                      {types.includes("UPSELL") && (
+                        <>
+                          <ArrowRight className="h-3.5 w-3.5 text-subtle" aria-hidden="true" />
+                          <span className="rounded-full border border-line bg-surface-2 px-2.5 py-1 text-muted">Upsell</span>
+                        </>
+                      )}
+                      <ArrowRight className="h-3.5 w-3.5 text-subtle" aria-hidden="true" />
+                      <span className="rounded-full border border-line bg-surface-2 px-2.5 py-1 text-muted">Página de obrigado</span>
+                    </div>
+                  ) : (
                   <div className="mt-4 flex flex-wrap gap-1.5" aria-label="Tipos de etapa">
                     {types.map((t) => {
                       const Icon = STEP_ICON[t];
@@ -81,6 +105,7 @@ export default async function FunnelsPage({ searchParams }: { searchParams: Prom
                       );
                     })}
                   </div>
+                  )}
                   <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-5 text-[12.5px] text-subtle">
                     {STATUS[f.status]}
                     <span>
