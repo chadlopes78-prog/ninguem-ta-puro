@@ -6,6 +6,18 @@ import { assertId, formToObject, guarded, parseForm } from "@/server/actions";
 import { manualOrderSchema } from "@/server/validation/schemas";
 import { changeOrderStatus, createManualOrder, ORDER_STATUSES } from "@/server/services/orders";
 import { z } from "zod";
+import { resolveUncertainPayment } from "@/server/services/payment-flow";
+
+/** Pagamento "por verificar" (ex.: E2Payments sem resposta): o dono confirma depois de verificar no painel do fornecedor. */
+export async function resolveUncertainPaymentAction(id: string, outcome: "paid" | "failed") {
+  return guarded(async ({ isDemo, user }) => {
+    if (isDemo || (outcome !== "paid" && outcome !== "failed")) return { ok: false, error: "Operação inválida." };
+    const r = await resolveUncertainPayment(assertId(id), outcome, user.email);
+    if (!r.ok) return r;
+    revalidatePath("/pedidos");
+    return { ok: true, message: outcome === "paid" ? "Pagamento confirmado. O acesso ao produto foi libertado." : "Pagamento marcado como não concluído." };
+  });
+}
 
 export async function changeOrderStatusAction(id: string, to: OrderStatus) {
   return guarded(async ({ isDemo, user }) => {

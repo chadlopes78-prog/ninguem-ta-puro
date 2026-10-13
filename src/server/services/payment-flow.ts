@@ -4,10 +4,10 @@ import { randomBytes } from "crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db";
 import { newOrderCode } from "@/lib/ids";
-import { getActivePaymentProvider, getProvider } from "@/server/payments/registry";
+import { getActivePaymentProviders, getProvider } from "@/server/payments/registry";
 import { resolveAppBaseUrl } from "@/server/app-url";
 import { applyPaymentStatus, audit } from "@/server/payments/confirm";
-import type { PaymentProvider } from "@/server/payments/types";
+import type { PaymentMethodOption, PaymentProvider } from "@/server/payments/types";
 import { consumeCouponUse } from "./coupons";
 import { computeOrderTotals } from "./order-logic";
 import { upsertCustomer } from "./orders";
@@ -33,6 +33,49 @@ export function maskPhone(phone: string): string {
 
 const token = () => randomBytes(18).toString("base64url");
 
+/** Opção de pagamento apresentada no checkout. O id identifica o gateway: "epay" (página alojada) ou "e2payments:mpesa". */
+export interface PaymentOptionView {
+  id: string;
+  providerId: string;
+  providerName: string;
+  label: string;
+  requiresPhone: boolean;
+  hosted: { methodsLabel: string; isTest: boolean } | null;
+}
+
+export function listPaymentOptions(providers: PaymentProvider[]): PaymentOptionView[] {
+  return providers.flatMap((p): PaymentOptionView[] =>
+    p.checkoutMode === "hosted"
+      ? [{ id: p.id, providerId: p.id, providerName: p.displayName, label: p.displayName, requiresPhone: false, hosted: { methodsLabel: p.hostedMethodsLabel ?? "carteira móvel", isTest: p.environment() === "test" } }]
+      : p.methods().map((m) => ({ id: `${p.id}:${m.id}`, providerId: p.id, providerName: p.displayName, label: m.label, requiresPhone: m.requiresPhone, hosted: null })),
+  );
+}
+
+/** Traduz a opção escolhida no browser para um gateway ativo. Nunca aceita um gateway inativo ou desconhecido. */
+export function resolvePaymentOption(providers: PaymentProvider[], optionId: string | undefined): { provider: PaymentProvider; method: PaymentMethodOption | null } | null {
+  const id = (optionId ?? "").trim();
+  if (id) {
+    const [pid, mid] = id.includes(":") ? id.split(":", 2) : [id, ""];
+    const byId = providers.find((p) => p.id === pid);
+    if (byId) {
+      if (byId.checkoutMode === "hosted") return mid ? null : { provider: byId, method: null };
+      const m = byId.methods().find((x) => x.id === mid);
+      return m ? { provider: byId, method: m } : null;
+    }
+    // compatibilidade: id simples de método quando só existe um gateway direto (ex.: "mpesa")
+    if (!id.includes(":")) {
+      const direct = providers.filter((p) => p.checkoutMode === "direct");
+      if (direct.length === 1) {
+        const m = direct[0].methods().find((x) => x.id === id);
+        if (m) return { provider: direct[0], method: m };
+      }
+    }
+    return null;
+  }
+  // sem escolha: só é aceite quando existe uma única opção alojada (ex.: apenas EPay ativa)
+  return providers.length === 1 && providers[0].checkoutMode === "hosted" ? { provider: providers[0], method: null } : null;
+}
+
 export type StartPaymentOutcome =
   | { kind: "payments_unavailable"; message: string }
   | { kind: "invalid"; fieldErrors: Record<string, string> }
@@ -46,20 +89,22 @@ export async function startRealPayment(
   coupon: { couponId: string | null; discountCents: number },
   sessionId: string | null,
 ): Promise<StartPaymentOutcome> {
-  const provider = getActivePaymentProvider();
-  if (!provider) return { kind: "payments_unavailable", message: "O processamento de pagamentos ainda não está configurado. Nenhum valor foi cobrado e nenhum dado de pagamento foi recolhido." };
-  if (!provider.supportedCurrencies.includes(c.offer.currency)) {
+  const active = await getActivePaymentProviders();
+  if (active.length === 0) return { kind: "payments_unavailable", message: "Não existem métodos de pagamento disponíveis neste momento. Nenhum valor foi cobrado e nenhum dado de pagamento foi recolhido." };
+  const supported = active.filter((p) => p.supportedCurrencies.includes(c.offer.currency));
+  if (supported.length === 0) {
     return { kind: "payments_unavailable", message: "Este produto não pode ser pago online: a moeda não é suportada (apenas MZN)." };
   }
 
-  // Checkout alojado (EPay): o método é escolhido na página do fornecedor. Checkout direto: escolhido aqui.
-  let method: { id: string; requiresPhone: boolean } | null = null;
-  if (provider.checkoutMode === "direct") {
-    method = provider.methods().find((m) => m.id === input.method) ?? null;
-    if (!method) return { kind: "invalid", fieldErrors: { method: "Escolha um método de pagamento" } };
-  }
+  // Cada pagamento vai exclusivamente para o gateway da opção escolhida (validada contra os gateways ativos).
+  const selected = resolvePaymentOption(supported, input.method);
+  if (!selected) return { kind: "invalid", fieldErrors: { method: "Escolha um método de pagamento" } };
+  const { provider, method } = selected;
   const phone = method?.requiresPhone ? normalizeMzPhone(input.phone) : null;
   if (method?.requiresPhone && !phone) return { kind: "invalid", fieldErrors: { phone: "Introduza um número móvel moçambicano válido (ex.: 84 123 4567)" } };
+  if (phone && method?.phonePrefixes?.length && !method.phonePrefixes.some((pre) => phone.startsWith(pre))) {
+    return { kind: "invalid", fieldErrors: { phone: `O número ${method.label} deve começar por ${method.phonePrefixes.join(" ou ")}.` } };
+  }
 
   const idem = input.idempotencyKey && /^[A-Za-z0-9_-]{16,64}$/.test(input.idempotencyKey) ? input.idempotencyKey : null;
   if (!idem) return { kind: "invalid", fieldErrors: { _form: "Pedido inválido. Atualize a página e tente novamente." } };
@@ -224,8 +269,9 @@ async function refreshOne(orderId: string): Promise<void> {
   const payment = await prisma.payment.findFirst({ where: { orderId, status: { in: ["CREATED", "PENDING"] } }, orderBy: { createdAt: "desc" } });
   if (!payment) return;
   if (payment.lastCheckedAt && Date.now() - payment.lastCheckedAt.getTime() < STATUS_CHECK_INTERVAL_MS) return;
-  const provider = getProvider(payment.provider);
-  if (!provider || !provider.isConfigured()) return;
+  const provider = await getProvider(payment.provider);
+  // Nota: um gateway desativado continua a confirmar pagamentos já iniciados (só deixa de aceitar novos).
+  if (!provider || !provider.isConfigured() || !provider.getStatus) return;
   // marca a verificação antes da chamada para limitar pedidos concorrentes
   const claimed = await prisma.payment.updateMany({
     where: { id: payment.id, OR: [{ lastCheckedAt: null }, { lastCheckedAt: { lt: new Date(Date.now() - STATUS_CHECK_INTERVAL_MS) } }] },
@@ -282,6 +328,8 @@ export async function getPaymentView(publicToken: string, opts: { refresh?: bool
     continueUrl: full.status === "PENDING" && p?.status === "PENDING" ? (p.redirectUrl ?? null) : null,
     isTestPayment: full.isTestPayment,
     uncertain: Boolean(p?.failureReason?.startsWith("Estado incerto")),
+    // Fornecedor sem consulta de estado (E2Payments): a loja verifica manualmente, nunca automaticamente "pago"
+    manualReview: Boolean(p?.failureReason?.startsWith("Estado incerto")) && !(await getProvider(p!.provider))?.getStatus,
     // A ligação de acesso só existe depois de o pagamento estar confirmado
     accessToken: state === "paid" ? (full.delivery?.token ?? null) : null,
     checkout: full.checkout,
@@ -321,4 +369,33 @@ export async function reconcilePendingPayments(limit = 30): Promise<{ checked: n
     if (o && o.status !== "PENDING") changed++;
   }
   return { checked: pending.length, changed };
+}
+
+/** Pagamento sem resposta do fornecedor e sem consulta de estado documentada (ex.: E2Payments): precisa de verificação manual. */
+export async function needsManualVerification(payment: { provider: string; status: string; failureReason: string | null }): Promise<boolean> {
+  if (!["CREATED", "PENDING"].includes(payment.status) || !payment.failureReason?.startsWith("Estado incerto")) return false;
+  const provider = await getProvider(payment.provider);
+  return Boolean(provider && !provider.getStatus);
+}
+
+/**
+ * Resolução manual pelo dono da loja, depois de verificar a transação no painel do fornecedor.
+ * Só se aplica a pagamentos "por verificar" de fornecedores sem consulta de estado; fica registada na auditoria.
+ * O comprador nunca tem acesso a esta operação.
+ */
+export async function resolveUncertainPayment(orderId: string, outcome: "paid" | "failed", actor: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const order = await prisma.order.findFirst({ where: { id: orderId, isDemo: false }, include: { payments: { orderBy: { createdAt: "desc" }, take: 1 } } });
+  const payment = order?.payments[0];
+  if (!order || !payment || order.status !== "PENDING" || !(await needsManualVerification(payment))) {
+    return { ok: false, error: "Este pagamento não está por verificar." };
+  }
+  const r = await applyPaymentStatus(
+    payment.provider,
+    { externalId: payment.externalId, reference: payment.idempotencyKey, state: outcome, amountCents: outcome === "paid" ? payment.amountCents : null, currency: outcome === "paid" ? payment.currency : null, feeCents: null, rawStatus: `manual_${outcome}` },
+    "manual-verification",
+  );
+  if (r.result === "rejected") return { ok: false, error: r.reason ?? "Não foi possível atualizar o pagamento." };
+  // a transição já fica na auditoria da encomenda (manual-verification:<fornecedor>); aqui regista-se quem a fez
+  await prisma.integrationLog.create({ data: { provider: payment.provider, level: "info", message: `Pagamento ${order.code} marcado como ${outcome === "paid" ? "pago" : "não pago"} após verificação manual por ${actor}.`.slice(0, 500) } });
+  return { ok: true };
 }

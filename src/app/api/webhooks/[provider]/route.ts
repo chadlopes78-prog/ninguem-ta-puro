@@ -6,8 +6,9 @@ import { handleWebhook } from "@/server/payments/webhooks";
 // por isso nenhum evento externo pode alterar pedidos nesta fase.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ provider: string }> }) {
   const { provider: id } = await params;
-  const provider = /^[a-z0-9-]{2,30}$/.test(id) ? getProvider(id) : null;
-  if (!provider || !provider.isConfigured()) return NextResponse.json({ error: "provider not configured" }, { status: 404 });
+  // Um gateway desativado continua a receber confirmações de pagamentos já iniciados.
+  const provider = /^[a-z0-9-]{2,30}$/.test(id) ? await getProvider(id) : null;
+  if (!provider || !provider.isConfigured() || provider.acceptsWebhooks === false) return NextResponse.json({ error: "provider not configured" }, { status: 404 });
   const raw = await req.text();
   if (raw.length > 512_000) return NextResponse.json({ error: "payload too large" }, { status: 413 });
   try {

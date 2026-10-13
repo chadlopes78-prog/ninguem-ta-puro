@@ -491,8 +491,14 @@ model IntegrationConfig {
   provider      String                 @unique
   status        IntegrationStatus      @default(NOT_CONFIGURED)
   environment   IntegrationEnvironment @default(SANDBOX)
-  /// Apenas configuração pública/não secreta. Segredos vivem em variáveis de ambiente.
+  /// Apenas configuração pública/não secreta (ex.: IDs de carteira).
   publicConfig  Json                   @default("{}")
+  /// Gateway disponível para NOVOS pagamentos. Desativar nunca apaga credenciais nem bloqueia confirmações.
+  enabled       Boolean                @default(true)
+  /// Credenciais introduzidas na aba Integrações, cifradas (AES-256-GCM, INTEGRATIONS_ENCRYPTION_KEY). Nunca em texto simples.
+  secretConfig  String?
+  /// Último teste de ligação bem-sucedido
+  verifiedAt    DateTime?
   lastCheckedAt DateTime?
   lastError     String?
   createdAt     DateTime               @default(now())

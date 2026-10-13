@@ -1,19 +1,19 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-12 · Sessão 6 (checkout gerado automaticamente por produto + Personalização do Checkout)
+Última atualização: 2026-10-13 · Sessão 7 (E2Payments como segundo gateway, EPay preservada)
 
 ## Estado geral
 
-As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN** e tem a **integração de pagamentos EPay implementada conforme a documentação oficial** (checkout alojado, aviso assinado, consulta de estado, cancelamento, idempotência, entrega após confirmação, auditoria). Para ficar ativa só falta definir `EPAY_SECRET_KEY` no servidor e fazer o teste no sandbox da EPay, porque os servidores da EPay não são acessíveis a partir do ambiente de desenvolvimento.
+As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN** e tem **dois gateways de pagamento independentes: EPay e E2Payments** (sessão 7). A **integração EPay está implementada conforme a documentação oficial** (checkout alojado, aviso assinado, consulta de estado, cancelamento, idempotência, entrega após confirmação, auditoria). Para ficar ativa só falta definir `EPAY_SECRET_KEY` no servidor e fazer o teste no sandbox da EPay, porque os servidores da EPay não são acessíveis a partir do ambiente de desenvolvimento.
 
 | Verificação | Comando | Resultado (última execução) |
 |---|---|---|
 | Lint | `npm run lint` | ✅ 0 erros, 0 avisos |
 | Tipos TypeScript | `npm run typecheck` | ✅ sem erros |
-| Testes unitários + integração | `npm test` | ✅ 156/156 (11 ficheiros; 15 de checkout por produto/personalização) |
-| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 42/42 (9 de pagamentos, 4 de personalização) |
+| Testes unitários + integração | `npm test` | ✅ 174/174 (12 ficheiros; 18 de gateways EPay + E2Payments) |
+| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 45/45 (9 de pagamentos, 4 de personalização, 3 de gateways) |
 | Build de produção | `npm run build` | ✅ sem erros |
-| Fuga de segredos | build com `EPAY_SECRET_KEY` fictícia + `grep` em `.next/` e log | ✅ valor ausente do bundle do browser, do output do servidor e do log; nenhuma variável `NEXT_PUBLIC_`; `.env` com segredos fora do Git |
+| Fuga de segredos | build com `EPAY_SECRET_KEY`, `E2PAYMENTS_CLIENT_ID/SECRET` e `INTEGRATIONS_ENCRYPTION_KEY` fictícias + `grep` em `.next/` e log | ✅ valor ausente do bundle do browser, do output do servidor e do log; nenhuma variável `NEXT_PUBLIC_`; `.env` com segredos fora do Git |
 
 ## Fases
 
@@ -26,6 +26,67 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | 5 — Operação | ✅ Concluída | Pedidos (filtros, detalhe, transições), clientes, cupões (com testador), relatórios |
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
+
+## Gateways de pagamento: EPay + E2Payments (sessão 7)
+
+### Análise prévia (antes de alterar código)
+- **EPay**: adaptador em `src/server/payments/providers/epay.ts` (checkout alojado, aviso assinado `X-EducavelPay-Signature`, consulta `GET /payments/{id}`, cancelamento). A credencial está só na variável de ambiente `EPAY_SECRET_KEY` (Vercel). Os pedidos são criados por `startRealPayment` (`payment-flow.ts`), que guarda `Order.provider`, `Payment.provider/method/externalId/idempotencyKey`. As confirmações passam por `applyPaymentStatus` (`confirm.ts`), de forma idempotente, vindas do webhook `/api/webhooks/[provider]`, da consulta de estado ou da reconciliação.
+- **Pontos de risco identificados**: o registo de fornecedores escolhia "o primeiro configurado" (só um gateway de cada vez) e o checkout só sabia apresentar um fornecedor. Ambos foram generalizados **sem alterar o ficheiro da EPay**: `epay.ts` não foi modificado.
+
+### O que foi implementado
+- **E2Payments** (`src/server/payments/providers/e2payments.ts`): token OAuth (`client_credentials`) e depois `POST /v1/c2b/{mpesa|emola}-payment/{wallet_id}`, conforme o SDK e a aplicação oficiais da Explicador. Ver **docs/e2payments-api.md**: o site da documentação não estava acessível a partir do ambiente, e esse ficheiro lista o que foi e o que não foi confirmado.
+- **Confirmação E2Payments**: a chamada é síncrona e só um 200/201 dessa chamada autenticada servidor-a-servidor marca o pedido como pago.
+  - 400: recusado.
+  - 401/403: nada é cobrado e o gateway passa a "Erro de configuração", saindo do checkout até um novo teste de ligação.
+  - Tempo esgotado, falha de rede ou 5xx: o pagamento fica **"por verificar"** e nunca é marcado como pago automaticamente. O dono resolve-o no pedido ("Confirmar como pago" ou "Não foi pago") depois de verificar no painel da E2Payments; a resolução fica auditada.
+  - Não há webhooks nem consulta de estado documentados, por isso `/api/webhooks/e2payments` responde 404.
+- **Vários gateways** (`src/server/payments/gateways.ts`, `registry.ts`):
+  - cada gateway tem um estado `enabled` próprio (`IntegrationConfig.enabled`);
+  - o checkout usa os gateways **ativados e configurados**; a E2Payments exige ainda a ligação verificada e nenhum erro;
+  - cada opção identifica o gateway (`epay`, `e2payments:mpesa`, `e2payments:emola`) e o servidor só cobra no gateway escolhido, se estiver ativo.
+- **Desativar** um gateway bloqueia apenas novos pagamentos. As credenciais, a configuração e o histórico ficam, e os webhooks, consultas e reconciliação de pagamentos já iniciados continuam a funcionar.
+- **Credenciais E2Payments**: variáveis de ambiente (prioritárias) ou formulário na aba Integrações.
+  - No formulário, ficam **cifradas (AES-256-GCM)** na BD com `INTEGRATIONS_ENCRYPTION_KEY`; sem essa chave nada é guardado.
+  - O Client Secret nunca é devolvido ao browser e o Client ID aparece mascarado (`••••1234`).
+  - Os registos de integração não contêm valores.
+- **Aba Integrações → "Gateways de Pagamento"**: dois cartões (EPay e E2Payments) com:
+  - estado: Ativo, Inativo, Credenciais por configurar, Erro de configuração ou Ligação não verificada;
+  - estado das credenciais;
+  - botões Ativar e Desativar;
+  - Testar ligação (E2Payments) ou Verificar configuração (EPay, cuja API não documenta um teste);
+  - formulário de credenciais da E2Payments.
+
+  **Ativar a E2Payments executa o teste de ligação**: não basta carregar no botão.
+- **Checkout**:
+  - **Apenas EPay ativa**: apresentação igual à anterior.
+  - **Ambos ativos**: o comprador escolhe "EPay — M-Pesa, e-Mola ou IZI", "M-Pesa via E2Payments" ou "e-Mola via E2Payments".
+  - **Nenhum ativo**: aparece "Não existem métodos de pagamento disponíveis" e o servidor recusa qualquer tentativa sem criar encomendas.
+  - Na E2Payments, o número é validado por operadora (84/85 ou 86/87) e aparece "Confirme o pagamento no telemóvel…" enquanto se espera pela resposta.
+- **Base de dados**: migração aditiva `20261013120000_payment_gateways` (colunas `enabled`, `secretConfig`, `verifiedAt`). O registo existente da EPay fica com `enabled = true`; nenhum pedido ou pagamento é alterado. A reversão está documentada no próprio ficheiro.
+- **Rastreabilidade**: cada pedido mostra o gateway (EPay/E2Payments), o método, a referência, o estado e as datas de criação e confirmação, e o motivo de falha sem dados sensíveis.
+
+### Testes (cenários pedidos)
+| # | Cenário | Onde |
+|---|---|---|
+| 1 | EPay continua a funcionar com a configuração existente | `gateways.test.ts` + os 24 testes EPay existentes inalterados (`epay.test.ts`) |
+| 2 | Credenciais E2Payments não alteram a EPay | `gateways.test.ts` (registo EPay idêntico antes/depois, `EPAY_SECRET_KEY` intacta) |
+| 3 | Ativar E2Payments (com ligação verificada) permite usá-la | `gateways.test.ts` (pedido conforme o SDK: URL, cabeçalhos, corpo) |
+| 4 | Desativar E2Payments impede novos pagamentos | `gateways.test.ts` (nenhuma chamada nem encomenda) |
+| 5 | Desativar EPay preserva a configuração | `gateways.test.ts` |
+| 6 | Ambos ativos: o comprador escolhe, cada pagamento vai só ao gateway escolhido | `gateways.test.ts` |
+| 7 | Nenhum ativo: sem pagamentos inválidos | `gateways.test.ts` |
+| 8 | Transação associada ao gateway correto | `gateways.test.ts` (`Order.provider`, `Payment.provider`) |
+| 9 | Pendentes não ficam pagos indevidamente | `gateways.test.ts` (tempo esgotado → por verificar; página de estado/reconciliação não confirma) |
+| 10 | Confirmação conforme cada fornecedor | EPay: aviso assinado (`gateways.test.ts`, `epay.test.ts`); E2Payments: 200/201, 400, 401/403, tempo esgotado |
+| 11 | Credenciais fora do frontend e dos logs | `gateways.test.ts` + E2E 07 (HTML sem o segredo) + build com segredos fictícios sem fugas |
+| 12 | Pagamentos anteriores mantêm o gateway (e confirmam com gateway desativado) | `gateways.test.ts` |
+| 13 | Checkout responsivo | E2E 04 (larguras de referência) + E2E 07 (375 px) + verificação visual com os dois gateways |
+| 14 | Restantes recursos | suite completa: 174 testes unitários/integração e 45 E2E |
+
+**Dependem de credenciais reais (não executáveis neste ambiente, que não acede às APIs):** o teste de ligação real e um pagamento real M-Pesa e e-Mola na E2Payments, e o teste no sandbox ou um pagamento real na EPay.
+
+### Ficheiros principais
+`src/server/payments/providers/e2payments.ts`, `src/server/payments/gateways.ts`, `src/server/payments/registry.ts`, `src/server/secret-box.ts`, `src/server/services/integrations.ts`, `src/server/services/payment-flow.ts` (opções e resolução manual), `src/app/(app)/integracoes/*`, `src/components/integrations/e2payments-form.tsx`, `src/components/checkouts/checkout-view.tsx`, `prisma/migrations/20261013120000_payment_gateways`, `docs/e2payments-api.md`, `tests/integration/gateways.test.ts`, `e2e/07-integrations.spec.ts`.
 
 ## Checkout automático por produto e Personalização do Checkout (sessão 6)
 
@@ -272,6 +333,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 7 (2026-10-13)**: E2Payments adicionada como segundo gateway sem alterar a EPay (`epay.ts` intacto). Ativação e desativação independentes, credenciais cifradas, checkout com vários gateways, pagamentos "por verificar" com resolução manual auditada. Documentação oficial inacessível a partir do ambiente: implementação baseada no SDK e na aplicação oficiais da Explicador (docs/e2payments-api.md). 174 testes unitários/integração e 45 E2E a passar; build OK; sem fugas de segredos.
 - **Sessão 6b (2026-10-12)**: aba renomeada para "Personalizar Checkout" e sem links (só escolher o produto e personalizar); link do checkout com "Copiar link" na lista de Produtos; 156 testes unitários/integração e 42 E2E a passar.
 - **Sessão 6 (2026-10-12)**: checkout principal gerado automaticamente com cada produto (link legível estável, sem duplicados, recuperação/backfill, migração que preserva links); página "Personalização do Checkout" com cartões por produto; editor visual por blocos com rascunho, pré-visualização e publicação; secção "Link de Checkout" no produto; 156 testes unitários/integração e 42 E2E a passar; build OK; verificação visual em computador e telemóvel.
 - **Sessão 5 (2026-10-12)**: deteção automática do endereço do site na Vercel (`src/server/app-url.ts`): APP_BASE_URL → VERCEL_PROJECT_PRODUCTION_URL → domínio do pedido; 141 testes unitários/integração e 38 E2E a passar.

@@ -13,7 +13,7 @@ import { getDeliveryView, getPaymentView, normalizeMzPhone, refreshPaymentStatus
 import { changeOrderStatus } from "@/server/services/orders";
 import { handleWebhook } from "@/server/payments/webhooks";
 import { testLocalProvider } from "@/server/payments/providers/test-local";
-import { getActivePaymentProvider, getProvider } from "@/server/payments/registry";
+import { getActivePaymentProviders, getProvider } from "@/server/payments/registry";
 
 const SECRET = "segredo-apenas-para-testes";
 
@@ -285,14 +285,14 @@ describe("restrições de configuração", () => {
     expect(await prisma.order.count()).toBe(0);
   });
 
-  it("fornecedor de teste só existe na base de dados de testes e com a variável explícita", () => {
-    expect(getActivePaymentProvider()?.id).toBe("teste-local");
+  it("fornecedor de teste só existe na base de dados de testes e com a variável explícita", async () => {
+    expect((await getActivePaymentProviders())[0]?.id).toBe("teste-local");
     process.env.NTP_ENABLE_TEST_PROVIDER = "false";
-    expect(getActivePaymentProvider()).toBeNull();
+    expect(await getActivePaymentProviders()).toHaveLength(0);
     process.env.NTP_ENABLE_TEST_PROVIDER = "true";
     const url = process.env.DATABASE_URL;
     process.env.DATABASE_URL = "postgresql://x@localhost/producao";
-    expect(getProvider("teste-local")).toBeNull();
+    expect(await getProvider("teste-local")).toBeNull();
     process.env.DATABASE_URL = url;
   });
 });

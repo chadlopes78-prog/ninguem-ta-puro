@@ -62,7 +62,12 @@ export default async function PaymentStatusPage({ params, searchParams }: { para
             Continuar para o pagamento
           </a>
         )}
-        {view.uncertain && view.state === "pending" && (
+        {view.manualReview && view.state === "pending" && (
+          <p className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm" data-testid="manual-review">
+            Não recebemos a resposta do processador a tempo. Se aprovou o pagamento no telemóvel, não pague novamente: a loja vai verificar a transação e libertar o acesso. Em caso de dúvida, contacte o suporte com o código da encomenda.
+          </p>
+        )}
+        {view.uncertain && !view.manualReview && view.state === "pending" && (
           <p className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm">
             Não foi possível confirmar o estado junto do processador. Se já aprovou o pagamento, aguarde a confirmação; caso contrário, contacte o suporte com o código da encomenda.
           </p>

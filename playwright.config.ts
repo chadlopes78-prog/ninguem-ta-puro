@@ -30,6 +30,6 @@ export default defineConfig({
     reuseExistingServer: false,
     timeout: 120_000,
     // Fornecedor de pagamentos de TESTE local (não é a EPay) — só funciona com a base de dados ntp_test
-    env: { ...testEnv, INSECURE_COOKIES: "true", NODE_ENV: "production", NTP_ENABLE_TEST_PROVIDER: "true", TEST_PROVIDER_SECRET: "segredo-e2e-apenas-testes", APP_BASE_URL: `http://localhost:${PORT}` },
+    env: { ...testEnv, INSECURE_COOKIES: "true", NODE_ENV: "production", NTP_ENABLE_TEST_PROVIDER: "true", TEST_PROVIDER_SECRET: "segredo-e2e-apenas-testes", APP_BASE_URL: `http://localhost:${PORT}`, INTEGRATIONS_ENCRYPTION_KEY: "chave-de-cifra-apenas-para-e2e-0123456789" },
   },
 });

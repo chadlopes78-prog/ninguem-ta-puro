@@ -5,7 +5,7 @@ import { publicCheckoutSchema } from "@/server/validation/schemas";
 import { flattenErrors, type FieldErrors } from "@/server/validation/common";
 import { advanceToInteractive, decide, nextKey, type Decision } from "@/lib/funnels/simulate";
 import { OFFER_STEP_TYPES, type GraphNode } from "@/lib/funnels/types";
-import { getActivePaymentProvider } from "@/server/payments/registry";
+import { paymentsEnabled } from "@/server/payments/registry";
 import { startRealPayment } from "./payment-flow";
 import { consumeCouponUse, evaluateCouponCode } from "./coupons";
 import { getPublicCheckout } from "./checkouts";
@@ -96,8 +96,7 @@ export async function submitCheckout(publicId: string, raw: Record<string, unkno
 
   if (!c.isDemo) {
     // Modo real: sem processador configurado, não se cria cobrança nem se aprova nada.
-    const provider = getActivePaymentProvider();
-    if (!provider) {
+    if (!(await paymentsEnabled())) {
       await trackEvent({ type: EVENT_TYPES.CHECKOUT_PAYMENT_UNAVAILABLE, isDemo: false, checkoutId: c.id, sessionId: session?.id });
       return { kind: "payments_unavailable", message: PAYMENTS_UNAVAILABLE_MESSAGE };
     }

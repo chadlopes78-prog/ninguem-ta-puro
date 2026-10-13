@@ -8,6 +8,8 @@ export interface PaymentMethodOption {
   label: string;
   /** Métodos de carteira móvel exigem o número de telefone do comprador */
   requiresPhone: boolean;
+  /** Prefixos aceites pela carteira (ex.: M-Pesa 84/85), quando o fornecedor os indica */
+  phonePrefixes?: readonly string[];
 }
 
 export interface ChargeRequest {
@@ -88,8 +90,10 @@ export interface PaymentProvider {
   createCharge(req: ChargeRequest): Promise<ChargeResult>;
   /** Cancela no fornecedor um pagamento ainda pendente (opcional). */
   cancel?(externalId: string, reason: string): Promise<{ ok: true } | { ok: false; alreadyPaid: boolean; reason: string }>;
-  /** Consulta oficial do estado da transação. */
-  getStatus(externalId: string | null, reference: string): Promise<NormalizedStatus>;
+  /** Consulta oficial do estado da transação (só quando o fornecedor a documenta). */
+  getStatus?(externalId: string | null, reference: string): Promise<NormalizedStatus>;
+  /** false quando o fornecedor não documenta notificações: o endpoint de webhooks responde 404. */
+  acceptsWebhooks?: boolean;
   /** Verifica a autenticidade da notificação exatamente como documentado pelo fornecedor. */
   verifySignature(rawBody: string, headers: Headers): boolean;
   parseEvent(rawBody: string, headers: Headers): NormalizedPaymentEvent;
@@ -99,5 +103,7 @@ export interface PaymentProvider {
 
 /** Catálogo informativo de fornecedores (sem APIs nem credenciais inventadas). */
 export const PROVIDER_CATALOG = [
-  { id: "epay", name: "EPay (Moçambique)", regions: "Moçambique · MZN", methods: "M-Pesa, e-Mola e IZI (página de pagamento da EPay)" },
+  { id: "epay", name: "EPay", description: "Processamento de pagamentos através da EPay.", regions: "Moçambique · MZN", methods: "M-Pesa, e-Mola e IZI (página de pagamento da EPay)" },
+  { id: "e2payments", name: "E2Payments", description: "Processamento de pagamentos através da E2Payments.", regions: "Moçambique · MZN", methods: "M-Pesa e e-Mola (confirmação no telemóvel do comprador)" },
 ] as const;
+export type GatewayId = (typeof PROVIDER_CATALOG)[number]["id"];

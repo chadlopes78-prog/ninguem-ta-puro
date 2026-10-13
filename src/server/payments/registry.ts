@@ -1,20 +1,32 @@
 import type { PaymentProvider } from "./types";
-import { epayProvider } from "./providers/epay";
 import { testLocalProvider, testProviderAllowed } from "./providers/test-local";
+import { acceptsNewPayments, gatewayRows, providerFor } from "./gateways";
 
-// Fornecedores conhecidos. Só é usado para cobrar um fornecedor que reporte isConfigured() === true.
-function providers(): PaymentProvider[] {
-  return testProviderAllowed() ? [testLocalProvider, epayProvider] : [epayProvider];
+/**
+ * Gateways que aceitam NOVOS pagamentos neste momento (ativados, configurados e, na E2Payments, com ligação verificada).
+ * Ordem estável: EPay primeiro (comportamento anterior), depois E2Payments.
+ */
+export async function getActivePaymentProviders(): Promise<PaymentProvider[]> {
+  if (testProviderAllowed() && testLocalProvider.isConfigured()) return [testLocalProvider];
+  const rows = await gatewayRows();
+  const out: PaymentProvider[] = [];
+  for (const id of ["epay", "e2payments"] as const) {
+    const p = providerFor(id, rows);
+    if (acceptsNewPayments(id, p, rows.get(id))) out.push(p);
+  }
+  return out;
 }
 
-export function getActivePaymentProvider(): PaymentProvider | null {
-  return providers().find((p) => p.isConfigured()) ?? null;
+/**
+ * Instância de um fornecedor pelo id, esteja ou não ativado. Usado para confirmar pagamentos já iniciados
+ * (consultas de estado, notificações, cancelamentos): desativar um gateway não bloqueia estas operações.
+ */
+export async function getProvider(id: string): Promise<PaymentProvider | null> {
+  if (id === testLocalProvider.id) return testProviderAllowed() ? testLocalProvider : null;
+  if (id !== "epay" && id !== "e2payments") return null;
+  return providerFor(id, await gatewayRows());
 }
 
-export function getProvider(id: string): PaymentProvider | null {
-  return providers().find((p) => p.id === id) ?? null;
-}
-
-export function paymentsEnabled(): boolean {
-  return getActivePaymentProvider() !== null;
+export async function paymentsEnabled(): Promise<boolean> {
+  return (await getActivePaymentProviders()).length > 0;
 }

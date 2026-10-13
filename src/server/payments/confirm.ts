@@ -5,7 +5,7 @@ import type { OrderStatus, PaymentStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/server/db";
 import type { NormalizedStatus } from "./types";
 
-export type ConfirmSource = "webhook" | "status-check" | "charge-response";
+export type ConfirmSource = "webhook" | "status-check" | "charge-response" | "manual-verification";
 export type ConfirmResult = "processed" | "unchanged" | "ignored" | "rejected";
 
 const PAYMENT_STATUS: Record<NormalizedStatus["state"], PaymentStatus> = {

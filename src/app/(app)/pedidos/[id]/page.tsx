@@ -16,12 +16,16 @@ import { Badge, DemoBadge } from "@/components/ui/badge";
 import { Alert } from "@/components/ui/alert";
 import { ActionButton } from "@/components/ui/action-button";
 import { OrderStatusBadge } from "@/components/orders/status";
-import { changeOrderStatusAction } from "../actions";
+import { changeOrderStatusAction, resolveUncertainPaymentAction } from "../actions";
+import { needsManualVerification } from "@/server/services/payment-flow";
+import { e2Reference } from "@/server/payments/providers/e2payments";
 
 export const metadata: Metadata = { title: "Pedido" };
 
 const PAYMENT_LABEL: Record<PaymentStatus, string> = { CREATED: "Criado", PENDING: "Pendente", PAID: "Pago", FAILED: "Falhado", CANCELED: "Cancelado", EXPIRED: "Expirado" };
 const PAYMENT_TONE: Record<PaymentStatus, Tone> = { CREATED: "neutral", PENDING: "warning", PAID: "success", FAILED: "danger", CANCELED: "neutral", EXPIRED: "neutral" };
+
+const GATEWAY_NAMES: Record<string, string> = { epay: "EPay", e2payments: "E2Payments", "teste-local": "Fornecedor de teste" };
 
 const KIND = { MAIN: "Principal", ORDER_BUMP: "Oferta adicional", UPSELL: "Upsell", DOWNSELL: "Downsell" } as const;
 
@@ -43,6 +47,8 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
     throw e;
   });
   const tz = settings.timezone;
+  const manualIds = new Set<string>();
+  if (!isDemo && o.status === "PENDING") for (const p of o.payments) if (await needsManualVerification(p)) manualIds.add(p.id);
   const m = (c: number) => formatMoney(c, o.currency);
   const can = (to: "APPROVED" | "DECLINED" | "REFUNDED" | "CANCELED") => canTransition(o.status, to, { isDemo }).ok;
 
@@ -132,7 +138,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
                   {o.payments.map((p) => (
                     <li key={p.id} className="rounded-[var(--radius-md)] border border-line p-3">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium">{p.provider} · {p.method ?? "—"}</span>
+                        <span className="font-medium">{GATEWAY_NAMES[p.provider] ?? p.provider} · {p.method ?? "—"}</span>
                         <Badge tone={PAYMENT_TONE[p.status]}>{PAYMENT_LABEL[p.status]}</Badge>
                       </div>
                       <p className="mt-1 text-muted tabular">{m(p.amountCents)}{p.phoneMasked ? ` · ${p.phoneMasked}` : ""}</p>
@@ -140,6 +146,21 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
                       {p.environment && <p className="text-[11.5px] text-subtle">Ambiente: {p.environment === "test" ? "teste (sandbox)" : "produção"}</p>}
                       {p.failureReason && <p className="mt-1 text-[12px] text-warning">{p.failureReason}</p>}
                       <p className="mt-1 text-[11.5px] text-subtle">Criado {formatDate(p.createdAt, tz, true)}{p.confirmedAt ? ` · confirmado ${formatDate(p.confirmedAt, tz, true)}` : ""}</p>
+                      {manualIds.has(p.id) && (
+                        <div className="mt-3 rounded-[var(--radius-md)] border border-warning/30 bg-warning/[0.06] p-3" data-testid="manual-verification">
+                          <p className="text-[12.5px] text-warning">
+                            Sem resposta da {GATEWAY_NAMES[p.provider] ?? p.provider}: o comprador pode ter confirmado no telemóvel. Verifique a transação no painel do fornecedor (referência {e2Reference(o.code)}) e indique o resultado.
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <ActionButton size="sm" action={resolveUncertainPaymentAction.bind(null, o.id, "paid")} confirm={{ title: "Confirmar pagamento", description: "Confirme apenas se viu a transação concluída no painel do fornecedor. O acesso ao produto será libertado.", confirmLabel: "Confirmar pago" }}>
+                              Confirmar como pago
+                            </ActionButton>
+                            <ActionButton size="sm" variant="secondary" action={resolveUncertainPaymentAction.bind(null, o.id, "failed")} confirm={{ title: "Marcar como não pago", description: "A encomenda fica recusada e nada é entregue.", confirmLabel: "Marcar não pago", danger: true }}>
+                              Não foi pago
+                            </ActionButton>
+                          </div>
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>

@@ -142,12 +142,12 @@ export async function changeOrderStatus(id: string, to: OrderStatus, isDemo: boo
   if (!isDemo && to === "CANCELED") {
     const pending = await prisma.payment.findMany({ where: { orderId: id, status: { in: ["CREATED", "PENDING"] }, externalId: { not: null } } });
     for (const p of pending) {
-      const provider = getProvider(p.provider);
+      const provider = await getProvider(p.provider);
       if (!provider?.cancel) continue;
       const r = await provider.cancel(p.externalId!, `Encomenda ${order.code} cancelada na loja`);
       if (!r.ok) {
         if (r.alreadyPaid) {
-          const st = await provider.getStatus(p.externalId, p.idempotencyKey).catch(() => null);
+          const st = provider.getStatus ? await provider.getStatus(p.externalId, p.idempotencyKey).catch(() => null) : null;
           if (st) await applyPaymentStatus(provider.id, st, "status-check");
           throw new DomainError("O processador indica que este pagamento já foi pago: a encomenda não foi cancelada e o estado foi atualizado. Para devolver o dinheiro, peça o reembolso no painel da EPay.");
         }

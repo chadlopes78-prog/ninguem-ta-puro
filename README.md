@@ -1,6 +1,6 @@
 # Ninguém Tá Puro
 
-Plataforma privada de vendas digitais em **metical moçambicano (MZN)**: produtos, checkouts, funis com upsells/downsells, encomendas, clientes, cupões e analytics. Pagamentos reais pela **EPay** (M-Pesa, e-Mola, IZI) — ativos assim que `EPAY_SECRET_KEY` estiver definida no servidor. Referência da API: [docs/epay-api.md](./docs/epay-api.md).
+Plataforma privada de vendas digitais em **metical moçambicano (MZN)**: produtos, checkouts, funis com upsells/downsells, encomendas, clientes, cupões e analytics. Pagamentos reais por dois gateways independentes, ativados e desativados em **Integrações → Gateways de Pagamento**: **EPay** (M-Pesa, e-Mola, IZI; `EPAY_SECRET_KEY`) e **E2Payments** (M-Pesa, e-Mola; credenciais no servidor ou no painel, cifradas). Referências: [docs/epay-api.md](./docs/epay-api.md) e [docs/e2payments-api.md](./docs/e2payments-api.md).
 
 Cada produto recebe automaticamente o seu checkout e um link público estável (ex.: `/checkout/handwriting-heroes`). O link está na aba **Produtos** (botão Copiar link). O aspeto de cada checkout é editado na aba **Personalizar Checkout** (editor visual com rascunho e publicação); o preço, a moeda e o pagamento vêm sempre do servidor.
 
@@ -49,7 +49,9 @@ npm run dev
 | `APP_BASE_URL` | sim (produção) | URL público HTTPS — retorno do comprador e notificações de pagamento |
 | `DEMO_TOOLS_ENABLED` | não | `true` permite gerar dados de demonstração. Manter `false` em produção |
 | `INSECURE_COOKIES` | não | `true` apenas para testes locais em HTTP com `NODE_ENV=production` |
-| `EPAY_SECRET_KEY` | para pagamentos | Chave secreta da EPay `sk_test_…` (sandbox) ou `sk_live_…` (produção). Só no servidor |
+| `EPAY_SECRET_KEY` | para EPay | Chave secreta da EPay `sk_test_…` (sandbox) ou `sk_live_…` (produção). Só no servidor |
+| `E2PAYMENTS_CLIENT_ID`, `E2PAYMENTS_CLIENT_SECRET`, `E2PAYMENTS_MPESA_WALLET_ID`, `E2PAYMENTS_EMOLA_WALLET_ID` | opcional | Credenciais da E2Payments (alternativa ao formulário da aba Integrações). Só no servidor |
+| `INTEGRATIONS_ENCRYPTION_KEY` | para guardar credenciais no painel | Valor aleatório longo (≥ 32 caracteres) usado para cifrar as credenciais introduzidas na aba Integrações |
 | `NTP_ENABLE_TEST_PROVIDER`, `TEST_PROVIDER_SECRET` | só testes | Fornecedor de pagamentos fictício; só funciona com a BD `ntp_test` |
 
 Nenhum segredo é exposto ao frontend.

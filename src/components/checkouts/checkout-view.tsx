@@ -10,10 +10,15 @@ import type { PurchaseOutcome } from "@/server/services/purchase";
 import type { CheckoutDesign, DesignBlock } from "@/lib/checkout-design";
 import { CheckoutBlock } from "./checkout-blocks";
 
-export interface CheckoutPaymentMethod {
+/** Opção de pagamento de um gateway ativo. id: "epay" (página alojada) ou "e2payments:mpesa" (direto). */
+export interface CheckoutPaymentOption {
   id: string;
+  providerId: string;
+  providerName: string;
   label: string;
   requiresPhone: boolean;
+  /** Pagamento numa página alojada pelo fornecedor (ex.: EPay) */
+  hosted: { methodsLabel: string; isTest: boolean } | null;
 }
 
 export interface CheckoutViewData {
@@ -37,10 +42,8 @@ export interface CheckoutViewData {
   currency: CurrencyCode;
   isDemo: boolean;
   businessName: string;
-  /** Métodos do fornecedor ativo quando são escolhidos neste checkout (modo direto) */
-  paymentMethods?: CheckoutPaymentMethod[];
-  /** Pagamento numa página alojada pelo fornecedor (ex.: EPay) */
-  hostedPayment?: { provider: string; methodsLabel: string; isTest: boolean } | null;
+  /** Opções dos gateways ativos (EPay e/ou E2Payments). Vazio = sem métodos disponíveis. */
+  paymentOptions?: CheckoutPaymentOption[];
 }
 
 type CouponState = { code: string; discountCents: number; totalCents: number } | null;
@@ -81,11 +84,14 @@ export function CheckoutView({
   const sessionId = useRef<string | undefined>(undefined);
   // Chave de idempotência por carregamento da página: reenvios/duplo clique não criam encomendas duplicadas
   const idempotencyKey = useRef<string>("");
-  const methods = data.paymentMethods ?? [];
-  const [method, setMethod] = useState(methods[0]?.id ?? "");
-  const selectedMethod = methods.find((m) => m.id === method);
-  const hosted = !data.isDemo ? (data.hostedPayment ?? null) : null;
-  const payable = !data.isDemo && (methods.length > 0 || Boolean(hosted));
+  const options = !data.isDemo ? (data.paymentOptions ?? []) : [];
+  const [method, setMethod] = useState(options[0]?.id ?? "");
+  const selectedMethod = options.find((m) => m.id === method) ?? null;
+  // Só um gateway alojado ativo (ex.: apenas EPay): mantém-se a apresentação anterior, sem escolha
+  const onlyHosted = options.length === 1 && options[0].hosted ? { ...options[0].hosted, provider: options[0].providerName } : null;
+  const hosted = selectedMethod?.hosted ? { ...selectedMethod.hosted, provider: selectedMethod.providerName } : null;
+  const payable = options.length > 0;
+  const multiProvider = new Set(options.map((o) => o.providerId)).size > 1;
 
   const newIdempotencyKey = () => {
     const bytes = new Uint8Array(18);
@@ -160,7 +166,7 @@ export function CheckoutView({
     }
     if (coupon) input.coupon = coupon.code;
     if (payable) {
-      if (!hosted) input.method = method;
+      input.method = method;
       input.idempotencyKey = idempotencyKey.current;
     }
     setNotice(null);
@@ -277,7 +283,7 @@ export function CheckoutView({
             </div>
             {field("name", "Nome completo", { autoComplete: "name", placeholder: "O seu nome" }, true)}
             {field("email", "Email", { type: "email", autoComplete: "email", placeholder: "voce@exemplo.com", inputMode: "email" }, true)}
-            {data.collectPhone && (!payable || hosted) && field("phone", "Telefone", { type: "tel", autoComplete: "tel", placeholder: "84 123 4567" }, data.requirePhone)}
+            {data.collectPhone && !selectedMethod?.requiresPhone && field("phone", "Telefone", { type: "tel", autoComplete: "tel", placeholder: "84 123 4567" }, data.requirePhone)}
             {data.collectDocument && field("document", "Documento (CPF/NIF)", { autoComplete: "off" }, data.requireDocument)}
 
             {data.allowCoupons && (
@@ -329,41 +335,53 @@ export function CheckoutView({
               </div>
             )}
 
-            {hosted ? (
+            {onlyHosted ? (
               <div className={cn("rounded-xl border p-4", dark ? "border-white/12 bg-white/[0.03]" : "border-black/10 bg-black/[0.02]")} data-testid="hosted-payment">
                 <p className="flex items-center gap-2 text-sm font-medium">
-                  <ShieldCheck className="h-4 w-4" aria-hidden="true" /> Pagamento seguro com {hosted.methodsLabel}
+                  <ShieldCheck className="h-4 w-4" aria-hidden="true" /> Pagamento seguro com {onlyHosted.methodsLabel}
                 </p>
                 <p className={cn("mt-1 text-[12.5px]", muted)}>
-                  Ao continuar, será encaminhado para a página de pagamento da {hosted.provider}, onde escolhe o método e confirma no telemóvel. A compra só fica concluída depois de o pagamento ser confirmado. Esta página nunca pede dados de cartão.
+                  Ao continuar, será encaminhado para a página de pagamento da {onlyHosted.provider}, onde escolhe o método e confirma no telemóvel. A compra só fica concluída depois de o pagamento ser confirmado. Esta página nunca pede dados de cartão.
                 </p>
-                {hosted.isTest && <p className="mt-2 text-[12px] font-semibold text-amber-500">Ambiente de teste da {hosted.provider}: nenhum dinheiro real é cobrado.</p>}
+                {onlyHosted.isTest && <p className="mt-2 text-[12px] font-semibold text-amber-500">Ambiente de teste da {onlyHosted.provider}: nenhum dinheiro real é cobrado.</p>}
               </div>
             ) : payable ? (
-              <fieldset className="flex flex-col gap-3">
+              <fieldset className="flex flex-col gap-3" data-testid="payment-options">
                 <legend className="mb-1 text-[13px] font-medium">Método de pagamento</legend>
-                <div className="grid grid-cols-2 gap-2">
-                  {methods.map((m) => (
+                <div className="grid grid-cols-1 gap-2 min-[380px]:grid-cols-2">
+                  {options.map((m) => (
                     <label
                       key={m.id}
                       className={cn(
-                        "flex min-h-12 cursor-pointer items-center gap-2.5 rounded-[10px] border px-3 text-sm font-medium transition-colors",
+                        "flex min-h-12 cursor-pointer items-center gap-2.5 rounded-[10px] border px-3 py-2 text-sm font-medium transition-colors",
                         method !== m.id && (dark ? "border-white/12 opacity-75 hover:opacity-100" : "border-black/15 opacity-75 hover:opacity-100"),
+                        m.hosted && options.length % 2 === 1 && "min-[380px]:col-span-2",
                       )}
                       style={method === m.id ? { borderColor: data.primaryColor } : undefined}
                     >
-                      <input type="radio" name="method" value={m.id} checked={method === m.id} onChange={() => setMethod(m.id)} className="h-4 w-4" style={{ accentColor: data.primaryColor }} />
-                      {m.label}
+                      <input type="radio" name="method" value={m.id} checked={method === m.id} onChange={() => setMethod(m.id)} className="h-4 w-4 shrink-0" style={{ accentColor: data.primaryColor }} />
+                      <span className="min-w-0">
+                        <span className="block">{m.hosted ? `${m.providerName} — ${m.hosted.methodsLabel}` : m.label}</span>
+                        {multiProvider && !m.hosted && <span className={cn("block text-[11.5px] font-normal", muted)}>via {m.providerName}</span>}
+                      </span>
                     </label>
                   ))}
                 </div>
                 {errors.method && <p role="alert" className="text-[12.5px] font-medium text-red-500">{errors.method}</p>}
                 {selectedMethod?.requiresPhone &&
                   field("phone", `Número ${selectedMethod.label} para pagamento`, { type: "tel", autoComplete: "tel", inputMode: "tel", placeholder: "84 123 4567" }, true)}
-                <p className={cn("flex gap-2 text-[12px]", muted)}>
-                  <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                  Receberá um pedido de confirmação no telemóvel. A compra só fica concluída depois de o pagamento ser confirmado pelo processador. Esta página nunca pede dados de cartão.
-                </p>
+                {hosted ? (
+                  <p className={cn("flex gap-2 text-[12px]", muted)} data-testid="hosted-payment">
+                    <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    Será encaminhado para a página de pagamento da {hosted.provider}, onde escolhe o método e confirma no telemóvel. A compra só fica concluída depois de o pagamento ser confirmado.
+                    {hosted.isTest ? " Ambiente de teste: nenhum dinheiro real é cobrado." : ""}
+                  </p>
+                ) : (
+                  <p className={cn("flex gap-2 text-[12px]", muted)}>
+                    <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    Receberá um pedido de confirmação no telemóvel. A compra só fica concluída depois de o pagamento ser confirmado pelo processador. Esta página nunca pede dados de cartão.
+                  </p>
+                )}
               </fieldset>
             ) : (
               <div className={cn("rounded-xl border border-dashed p-4", dark ? "border-white/15" : "border-black/15")}>
@@ -371,7 +389,7 @@ export function CheckoutView({
                   <ShieldCheck className="h-4 w-4" aria-hidden="true" /> Métodos de pagamento
                 </p>
                 <p className={cn("mt-1 text-[12.5px]", muted)}>
-                  Os métodos de pagamento serão apresentados aqui quando o processador for configurado. Esta página nunca pede dados de cartão.
+                  Não existem métodos de pagamento disponíveis de momento. Nenhum valor pode ser cobrado nesta página. Esta página nunca pede dados de cartão.
                 </p>
               </div>
             )}
@@ -406,8 +424,13 @@ export function CheckoutView({
               className="flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[15px] font-semibold transition-[filter,transform] hover:brightness-105 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
               style={{ background: data.primaryColor, color: onPrimary }}
             >
-              {pending ? (hosted ? "A preparar o pagamento…" : "A processar…") : data.buttonText}
+              {pending ? (onlyHosted || hosted ? "A preparar o pagamento…" : selectedMethod ? "A aguardar confirmação no telemóvel…" : "A processar…") : data.buttonText}
             </button>
+            {pending && selectedMethod && !selectedMethod.hosted && (
+              <p className={cn("text-center text-[12.5px]", muted)} role="status" data-testid="awaiting-phone">
+                Confirme o pagamento no telemóvel ({selectedMethod.label}). Pode demorar até 2 minutos — não feche esta página.
+              </p>
+            )}
             {data.isDemo && <p className={cn("text-center text-[12px]", muted)}>Compra simulada: será criado apenas um pedido de demonstração.</p>}
           </form>
         </section>

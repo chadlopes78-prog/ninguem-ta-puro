@@ -14,7 +14,7 @@ import { changeOrderStatus } from "@/server/services/orders";
 import { getDashboardData } from "@/server/services/metrics";
 import { handleWebhook } from "@/server/payments/webhooks";
 import { EPAY_API_BASE_URL, EPAY_SIGNATURE_HEADER, epayProvider } from "@/server/payments/providers/epay";
-import { getActivePaymentProvider } from "@/server/payments/registry";
+import { getActivePaymentProviders } from "@/server/payments/registry";
 import { resolveRange } from "@/lib/dates";
 import { centsToDecimalString, decimalStringToCents } from "@/lib/money";
 
@@ -127,10 +127,10 @@ describe("conversões monetárias da API", () => {
 });
 
 describe("configuração", () => {
-  it("ativa com chave de teste; produção exige HTTPS; formato inválido é recusado; segredo nunca exposto", () => {
+  it("ativa com chave de teste; produção exige HTTPS; formato inválido é recusado; segredo nunca exposto", async () => {
     expect(epayProvider.isConfigured()).toBe(true);
     expect(epayProvider.environment()).toBe("test");
-    expect(getActivePaymentProvider()?.id).toBe("epay");
+    expect((await getActivePaymentProviders())[0]?.id).toBe("epay");
 
     process.env.EPAY_SECRET_KEY = LIVE_KEY;
     process.env.APP_BASE_URL = "http://loja.local";
@@ -142,7 +142,7 @@ describe("configuração", () => {
     process.env.EPAY_SECRET_KEY = "chave-sem-prefixo";
     expect(epayProvider.isConfigured()).toBe(false);
     delete process.env.EPAY_SECRET_KEY;
-    expect(getActivePaymentProvider()).toBeNull();
+    expect(await getActivePaymentProviders()).toHaveLength(0);
 
     process.env.EPAY_SECRET_KEY = LIVE_KEY;
     const checks = JSON.stringify(epayProvider.configChecks());

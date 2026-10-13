@@ -1,13 +1,16 @@
 import type { Metadata } from "next";
 import { getPublicCheckout } from "@/server/services/checkouts";
 import { getSettings } from "@/server/services/settings";
-import { getActivePaymentProvider } from "@/server/payments/registry";
+import { getActivePaymentProviders } from "@/server/payments/registry";
+import { listPaymentOptions } from "@/server/services/payment-flow";
 import { publicDesign } from "@/server/services/checkout-design";
 import { CheckoutView } from "@/components/checkouts/checkout-view";
 import { Unavailable } from "@/components/public/unavailable";
 import { applyCouponAction, submitCheckoutAction } from "./actions";
 
 export const dynamic = "force-dynamic";
+// A E2Payments só responde depois de o comprador confirmar no telemóvel (o SDK oficial espera até 180 s).
+export const maxDuration = 180;
 
 export async function generateMetadata({ params }: { params: Promise<{ publicId: string }> }): Promise<Metadata> {
   const r = await getPublicCheckout((await params).publicId);
@@ -20,13 +23,9 @@ export default async function PublicCheckoutPage({ params }: { params: Promise<{
   if (r.state !== "ok") return <Unavailable />;
   const c = r.checkout;
   const settings = await getSettings();
-  const provider = c.isDemo ? null : getActivePaymentProvider();
-  const providerOk = Boolean(provider && provider.supportedCurrencies.includes(c.offer.currency));
-  const paymentMethods = providerOk && provider!.checkoutMode === "direct" ? provider!.methods() : [];
-  const hostedPayment =
-    providerOk && provider!.checkoutMode === "hosted"
-      ? { provider: provider!.displayName, methodsLabel: provider!.hostedMethodsLabel ?? "carteira móvel", isTest: provider!.environment() === "test" }
-      : null;
+  // Apenas gateways ativos e configurados que aceitem a moeda do produto
+  const providers = c.isDemo ? [] : (await getActivePaymentProviders()).filter((p) => p.supportedCurrencies.includes(c.offer.currency));
+  const paymentOptions = listPaymentOptions(providers);
   return (
     <CheckoutView
       design={publicDesign(c)}
@@ -51,8 +50,7 @@ export default async function PublicCheckoutPage({ params }: { params: Promise<{
         currency: c.offer.currency,
         isDemo: c.isDemo,
         businessName: settings.businessName,
-        paymentMethods,
-        hostedPayment,
+        paymentOptions,
       }}
       submitAction={submitCheckoutAction.bind(null, c.publicId)}
       couponAction={applyCouponAction.bind(null, c.publicId)}
