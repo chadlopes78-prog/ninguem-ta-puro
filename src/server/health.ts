@@ -7,6 +7,8 @@ export interface SystemHealth {
   ok: boolean;
   database: DbState;
   env: { DATABASE_URL: boolean; APP_BASE_URL: boolean; EPAY_SECRET_KEY: boolean };
+  /** Versão publicada (commit curto), para confirmar se um deploy ficou ativo. */
+  version: string;
 }
 
 /** Estado da instalação, sem nunca revelar valores de variáveis ou detalhes internos. */
@@ -26,5 +28,6 @@ export async function getSystemHealth(): Promise<SystemHealth> {
       database = "unreachable";
     }
   }
-  return { ok: database === "ok", database, env };
+  const version = (process.env.VERCEL_GIT_COMMIT_SHA ?? "").slice(0, 7) || "local";
+  return { ok: database === "ok", database, env, version };
 }
