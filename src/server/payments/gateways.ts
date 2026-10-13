@@ -8,7 +8,7 @@ import { prisma } from "@/server/db";
 import { decryptSecret, encryptSecret, secretStorageAvailable } from "@/server/secret-box";
 import { staticAppBaseUrl } from "@/server/app-url";
 import { epayProvider } from "./providers/epay";
-import { createE2PaymentsProvider, WALLET_ID_RE, type E2Credentials } from "./providers/e2payments";
+import { createE2PaymentsProvider, sanitizeCredential, WALLET_ID_RE, type E2Credentials } from "./providers/e2payments";
 import type { GatewayId, PaymentProvider } from "./types";
 
 /** Estado inicial quando ainda não existe registo: a EPay mantém o comportamento atual (ativa). */
@@ -44,8 +44,8 @@ interface E2SecretConfig {
 }
 
 function envE2(): E2Credentials | null {
-  const clientId = process.env.E2PAYMENTS_CLIENT_ID?.trim();
-  const clientSecret = process.env.E2PAYMENTS_CLIENT_SECRET?.trim();
+  const clientId = sanitizeCredential(process.env.E2PAYMENTS_CLIENT_ID);
+  const clientSecret = sanitizeCredential(process.env.E2PAYMENTS_CLIENT_SECRET);
   if (!clientId || !clientSecret) return null;
   const wallet = (v: string | undefined) => (v && WALLET_ID_RE.test(v.trim().replace(/^#/, "")) ? v.trim().replace(/^#/, "") : null);
   return { clientId, clientSecret, mpesaWalletId: wallet(process.env.E2PAYMENTS_MPESA_WALLET_ID), emolaWalletId: wallet(process.env.E2PAYMENTS_EMOLA_WALLET_ID), source: "env" };
@@ -111,7 +111,7 @@ export async function saveE2Credentials(input: { clientId?: string; clientSecret
   const rows = await gatewayRows();
   const row = rows.get("e2payments");
   const current = readSecret(row);
-  const clean = (v: string | undefined) => (v ?? "").trim();
+  const clean = (v: string | undefined) => sanitizeCredential(v);
   const wallet = (v: string | undefined) => clean(v).replace(/^#/, "");
   const clientId = clean(input.clientId) || current?.clientId || "";
   const clientSecret = clean(input.clientSecret) || current?.clientSecret || "";
@@ -160,4 +160,17 @@ export function acceptsNewPayments(id: GatewayId, provider: PaymentProvider, row
 
 export function providerFor(id: GatewayId, rows: Map<string, IntegrationConfig>): PaymentProvider {
   return id === "epay" ? epayProvider : buildE2Provider(rows.get("e2payments"));
+}
+
+/** Troca o Client ID e o Client Secret guardados no painel (quando o teste de ligação mostra que foram trocados). */
+export async function swapStoredE2Credentials(): Promise<boolean> {
+  const row = (await gatewayRows()).get("e2payments");
+  const current = readSecret(row);
+  if (!current || e2CredentialsFromEnv()) return false;
+  await prisma.integrationConfig.update({
+    where: { provider: "e2payments" },
+    data: { secretConfig: encryptSecret(JSON.stringify({ clientId: current.clientSecret, clientSecret: current.clientId } satisfies E2SecretConfig)) },
+  });
+  await prisma.integrationLog.create({ data: { provider: "e2payments", level: "info", message: "Client ID e Client Secret estavam trocados; corrigidos automaticamente (valores não registados)." } });
+  return true;
 }

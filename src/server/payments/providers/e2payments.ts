@@ -52,6 +52,27 @@ export function e2Amount(amountCents: number): number {
   return amountCents % 100 === 0 ? amountCents / 100 : Number((amountCents / 100).toFixed(2));
 }
 
+/**
+ * Limpa um valor colado do painel: espaços (incl. não separáveis), caracteres invisíveis e aspas à volta.
+ * Copiar de páginas web ou mensagens acrescenta muitas vezes estes caracteres, que fazem a E2Payments rejeitar a credencial.
+ */
+export function sanitizeCredential(v: string | null | undefined): string {
+  return (v ?? "")
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, "")
+    .replace(/\u00A0/g, " ")
+    .trim()
+    .replace(/^["'“”‘’`]+|["'“”‘’`]+$/g, "")
+    .trim();
+}
+
+/** Erro devolvido pelo servidor OAuth (ex.: "invalid_client: Client authentication failed"). Nunca contém segredos. */
+function oauthError(json: unknown): string | null {
+  if (!json || typeof json !== "object") return null;
+  const j = json as Record<string, unknown>;
+  const parts = [j.error, j.error_description ?? j.message, j.hint].filter((x): x is string => typeof x === "string" && x.length > 0);
+  return parts.length ? [...new Set(parts)].join(": ").slice(0, 200) : null;
+}
+
 function apiMessage(json: unknown): string | null {
   return json && typeof json === "object" && "message" in json && typeof (json as { message: unknown }).message === "string" ? (json as { message: string }).message.slice(0, 200) : null;
 }
@@ -80,7 +101,7 @@ export async function requestToken(creds: Pick<E2Credentials, "clientId" | "clie
     return { ok: false, status: null, reason: e instanceof Error && e.name === "TimeoutError" ? "tempo de resposta excedido" : "falha de rede" };
   }
   const json = await readJson(res);
-  if (res.status !== 200) return { ok: false, status: res.status, reason: apiMessage(json) ?? `HTTP ${res.status}` };
+  if (res.status !== 200) return { ok: false, status: res.status, reason: oauthError(json) ?? `HTTP ${res.status}` };
   const j = (json ?? {}) as { token_type?: unknown; access_token?: unknown };
   if (typeof j.token_type !== "string" || typeof j.access_token !== "string" || !j.access_token) return { ok: false, status: 200, reason: "resposta de autenticação sem token" };
   return { ok: true, authorization: `${j.token_type} ${j.access_token}` };
@@ -93,7 +114,14 @@ export interface E2ProviderHooks {
   origin?: string | null;
 }
 
-export function createE2PaymentsProvider(creds: E2Credentials | null, hooks: E2ProviderHooks = {}): PaymentProvider & { testConnection(): Promise<{ ok: boolean; message: string }> } {
+export interface ConnectionTest {
+  ok: boolean;
+  message: string;
+  /** As credenciais só funcionam com o Client ID e o Client Secret trocados (foram colados nos campos errados). */
+  swapped?: boolean;
+}
+
+export function createE2PaymentsProvider(creds: E2Credentials | null, hooks: E2ProviderHooks = {}): PaymentProvider & { testConnection(): Promise<ConnectionTest> } {
   const wallets = (): E2Method[] => (["mpesa", "emola"] as const).filter((m) => (m === "mpesa" ? creds?.mpesaWalletId : creds?.emolaWalletId));
   const configured = () => Boolean(creds?.clientId && creds.clientSecret && wallets().length > 0);
 
@@ -123,13 +151,21 @@ export function createE2PaymentsProvider(creds: E2Credentials | null, hooks: E2P
       return opt;
     }),
 
-    async testConnection() {
+    async testConnection(): Promise<ConnectionTest> {
       if (!creds?.clientId || !creds.clientSecret) return { ok: false, message: "Introduza o Client ID e o Client Secret." };
       if (wallets().length === 0) return { ok: false, message: "Indique pelo menos uma carteira (M-Pesa ou e-Mola)." };
       const t = await requestToken(creds);
       if (t.ok) return { ok: true, message: "Ligação verificada: a E2Payments aceitou as credenciais." };
-      if (t.status === 401 || t.status === 400) return { ok: false, message: "A E2Payments rejeitou o Client ID ou o Client Secret." };
-      return { ok: false, message: `Não foi possível contactar a E2Payments (${t.reason}). Tente novamente.` };
+      if (t.status === 401 || t.status === 400) {
+        // Engano frequente: Client ID e Client Secret colados nos campos trocados. Testa-se a combinação inversa.
+        const swapped = await requestToken({ clientId: creds.clientSecret, clientSecret: creds.clientId });
+        if (swapped.ok) return { ok: true, swapped: true, message: "Ligação verificada. O Client ID e o Client Secret estavam nos campos trocados." };
+        return {
+          ok: false,
+          message: `A E2Payments rejeitou as credenciais (HTTP ${t.status}${t.reason && t.reason !== `HTTP ${t.status}` ? ` — ${t.reason}` : ""}). Confirme no painel da E2Payments (Credenciais) que copiou o Client ID e o Client Secret completos e da mesma credencial, e que esta está ativa.`,
+        };
+      }
+      return { ok: false, message: `Não foi possível contactar a E2Payments (${t.status ? `HTTP ${t.status}` : t.reason}). Tente novamente.` };
     },
 
     async createCharge(req: ChargeRequest): Promise<ChargeResult> {

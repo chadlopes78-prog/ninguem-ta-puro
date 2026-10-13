@@ -9,6 +9,7 @@ import {
   isEnabled,
   providerFor,
   saveE2Credentials,
+  swapStoredE2Credentials,
   GATEWAY_STATUS_LABELS,
 } from "@/server/payments/gateways";
 import { createE2PaymentsProvider } from "@/server/payments/providers/e2payments";
@@ -67,7 +68,14 @@ export async function testGatewayConnection(id: GatewayId): Promise<{ ok: boolea
   const row = rows.get("e2payments");
   // instância sem o gancho de erro: o resultado é tratado aqui
   const provider = createE2PaymentsProvider(e2Credentials(row));
-  const r = await provider.testConnection();
+  let r = await provider.testConnection();
+  if (r.ok && r.swapped) {
+    // Corrige o que está guardado no painel; nas variáveis de ambiente o dono tem de trocar os valores.
+    const fixed = await swapStoredE2Credentials();
+    r = fixed
+      ? { ok: true, message: "Ligação verificada. O Client ID e o Client Secret estavam nos campos trocados e foram corrigidos automaticamente." }
+      : { ok: false, message: "As credenciais só funcionam trocadas: troque os valores de E2PAYMENTS_CLIENT_ID e E2PAYMENTS_CLIENT_SECRET no alojamento." };
+  }
   await prisma.integrationConfig.upsert({
     where: { provider: "e2payments" },
     create: { provider: "e2payments", enabled: false, status: r.ok ? "CONFIGURED" : "ERROR", verifiedAt: r.ok ? new Date() : null, lastError: r.ok ? null : r.message, lastCheckedAt: new Date() },

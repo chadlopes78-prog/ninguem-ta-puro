@@ -251,6 +251,38 @@ describe("3–4. ativar e desativar a E2Payments", () => {
     expect(await activeIds()).toEqual(["epay"]);
   });
 
+  it("mostra o erro devolvido pela E2Payments quando as credenciais são rejeitadas", async () => {
+    await configureE2();
+    e2Token = () => ({ status: 401, body: { error: "invalid_client", error_description: "Client authentication failed", message: "Client authentication failed" } });
+    const r = await testGatewayConnection("e2payments");
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain("HTTP 401 — invalid_client: Client authentication failed");
+    expect(r.message).not.toContain(E2_SECRET);
+    // tentou também a combinação inversa, sem nunca registar valores
+    expect(e2Calls().filter((c) => c.url.endsWith("/oauth/token")).length).toBeGreaterThanOrEqual(2);
+    expect(JSON.stringify(await prisma.integrationLog.findMany())).not.toContain(E2_SECRET);
+  });
+
+  it("Client ID e Client Secret colados trocados: deteta e corrige automaticamente", async () => {
+    // a E2Payments só aceita a combinação correta
+    e2Token = (c) =>
+      c.body?.client_id === E2_ID && c.body?.client_secret === E2_SECRET
+        ? { status: 200, body: { token_type: "Bearer", access_token: "tok_abc" } }
+        : { status: 401, body: { error: "invalid_client", message: "Client authentication failed" } };
+    expect((await updateE2Credentials({ clientId: E2_SECRET, clientSecret: E2_ID, mpesaWalletId: "111111" })).ok).toBe(true);
+    const row = await prisma.integrationConfig.findUniqueOrThrow({ where: { provider: "e2payments" } });
+    expect(JSON.parse(decryptSecret(row.secretConfig)!)).toEqual({ clientId: E2_ID, clientSecret: E2_SECRET });
+    expect(row.verifiedAt).not.toBeNull();
+    expect((await setGatewayEnabled("e2payments", true)).ok).toBe(true);
+    expect(await activeIds()).toEqual(["epay", "e2payments"]);
+  });
+
+  it("remove espaços invisíveis e aspas coladas com as credenciais", async () => {
+    expect((await updateE2Credentials({ clientId: `\u200B "${E2_ID}"\u00A0`, clientSecret: `'${E2_SECRET}'\uFEFF`, mpesaWalletId: " #111111 " })).ok).toBe(true);
+    const row = await prisma.integrationConfig.findUniqueOrThrow({ where: { provider: "e2payments" } });
+    expect(JSON.parse(decryptSecret(row.secretConfig)!)).toEqual({ clientId: E2_ID, clientSecret: E2_SECRET });
+  });
+
   it("desativar impede novos pagamentos mas mantém credenciais", async () => {
     await activateE2();
     const { slug } = await product();

@@ -334,6 +334,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 7c (2026-10-13)**: "A E2Payments rejeitou o Client ID ou o Client Secret" — o teste de ligação passa a mostrar o erro exato devolvido pela E2Payments (ex.: `invalid_client`), deteta e corrige automaticamente Client ID/Secret colados nos campos trocados (os exemplos oficiais da Explicador mostram formatos contraditórios) e remove espaços invisíveis/aspas coladas; 177 testes a passar.
 - **Sessão 7b (2026-10-13)**: credenciais da E2Payments configuráveis no site sem nenhuma variável na Vercel (cifra com chave derivada do segredo do servidor quando `INTEGRATIONS_ENCRYPTION_KEY` não existe); 174 testes e 45 E2E a passar.
 - **Sessão 7 (2026-10-13)**: E2Payments adicionada como segundo gateway sem alterar a EPay (`epay.ts` intacto). Ativação e desativação independentes, credenciais cifradas, checkout com vários gateways, pagamentos "por verificar" com resolução manual auditada. Documentação oficial inacessível a partir do ambiente: implementação baseada no SDK e na aplicação oficiais da Explicador (docs/e2payments-api.md). 174 testes unitários/integração e 45 E2E a passar; build OK; sem fugas de segredos.
 - **Sessão 6b (2026-10-12)**: aba renomeada para "Personalizar Checkout" e sem links (só escolher o produto e personalizar); link do checkout com "Copiar link" na lista de Produtos; 156 testes unitários/integração e 42 E2E a passar.
