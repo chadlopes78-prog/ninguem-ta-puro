@@ -37,7 +37,13 @@ const epayCalls = () => calls.filter((c) => c.url.startsWith("https://checkout.e
 beforeAll(() => {
   vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
     const headers = Object.fromEntries(Object.entries((init.headers ?? {}) as Record<string, string>).map(([k, v]) => [k.toLowerCase(), v]));
-    const call: Call = { url, method: init.method ?? "GET", headers, body: init.body ? JSON.parse(String(init.body)) : null };
+    const raw = init.body ? String(init.body) : null;
+    let body: Record<string, unknown> | null = null;
+    if (raw) body = headers["content-type"]?.includes("x-www-form-urlencoded") ? Object.fromEntries(new URLSearchParams(raw)) : JSON.parse(raw);
+    // autenticação HTTP Basic: as credenciais vêm no cabeçalho
+    const basic = headers.authorization?.startsWith("Basic ") ? Buffer.from(headers.authorization.slice(6), "base64").toString().split(":").map(decodeURIComponent) : null;
+    if (basic && body) body = { ...body, client_id: basic[0], client_secret: basic[1], via: "basic" };
+    const call: Call = { url, method: init.method ?? "GET", headers, body };
     calls.push(call);
     let r: { status: number; body: unknown };
     if (url === "https://e2payments.explicador.co.mz/oauth/token") r = e2Token(call);
@@ -275,6 +281,37 @@ describe("3–4. ativar e desativar a E2Payments", () => {
     expect(row.verifiedAt).not.toBeNull();
     expect((await setGatewayEnabled("e2payments", true)).ok).toBe(true);
     expect(await activeIds()).toEqual(["epay", "e2payments"]);
+  });
+
+  it("se o servidor só aceitar formulário ou HTTP Basic (formas OAuth padrão), a ligação funciona na mesma", async () => {
+    for (const accepted of ["form", "basic"] as const) {
+      await resetTestDb();
+      calls = [];
+      e2Token = (c) => {
+        const isForm = c.headers["content-type"]?.includes("x-www-form-urlencoded");
+        const ok = c.body?.client_id === E2_ID && c.body?.client_secret === E2_SECRET && (accepted === "basic" ? c.body?.via === "basic" : isForm && c.body?.via !== "basic");
+        return ok ? { status: 200, body: { token_type: "Bearer", access_token: `tok_${accepted}` } } : { status: 401, body: { error: "invalid_client", message: "Client authentication failed" } };
+      };
+      await configureE2();
+      expect((await testGatewayConnection("e2payments")).ok).toBe(true);
+      expect((await setGatewayEnabled("e2payments", true)).ok).toBe(true);
+      const { slug } = await product();
+      const r = await buy(slug, { method: "e2payments:mpesa", phone: "841234567" });
+      if (r.kind !== "payment_started") throw new Error(r.kind);
+      expect((await orderOf(r.token)).status).toBe("APPROVED");
+      expect(e2Calls().find((c) => c.url.includes("/v1/c2b/"))!.headers.authorization).toBe(`Bearer tok_${accepted}`);
+    }
+  });
+
+  it("segredo copiado mascarado ou cifrado é identificado sem contactar a E2Payments", async () => {
+    await updateE2Credentials({ clientId: E2_ID, clientSecret: "$2y$10$abcdefghijklmnopqrstuv", mpesaWalletId: "111111" });
+    calls = [];
+    const r = await testGatewayConnection("e2payments");
+    expect(r.ok).toBe(false);
+    expect(r.message).toContain("valor cifrado");
+    expect(calls).toHaveLength(0);
+    expect((await updateE2Credentials({ clientSecret: "abc•••••xyz", mpesaWalletId: "111111" })).ok).toBe(true);
+    expect((await testGatewayConnection("e2payments")).message).toContain("mascarado");
   });
 
   it("remove espaços invisíveis e aspas coladas com as credenciais", async () => {

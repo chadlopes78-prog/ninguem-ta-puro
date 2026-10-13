@@ -87,24 +87,65 @@ async function readJson(res: Response): Promise<unknown> {
 
 export type TokenResult = { ok: true; authorization: string } | { ok: false; status: number | null; reason: string };
 
-export async function requestToken(creds: Pick<E2Credentials, "clientId" | "clientSecret">): Promise<TokenResult> {
+/**
+ * Formas de enviar as credenciais ao servidor OAuth da E2Payments (/oauth/token, grant client_credentials).
+ * 1. JSON no corpo — a forma dos exemplos oficiais (SDK PHP e aplicação de exemplo);
+ * 2. formulário (application/x-www-form-urlencoded) — a forma da especificação OAuth 2.0 (RFC 6749 §4.4);
+ * 3. HTTP Basic (client_id:client_secret) — a outra forma de autenticação de cliente da RFC 6749 §2.3.1.
+ * Tenta-se a seguinte só quando a anterior é recusada (400/401); o primeiro sucesso é usado.
+ */
+const TOKEN_VARIANTS = ["json", "form", "basic"] as const;
+type TokenVariant = (typeof TOKEN_VARIANTS)[number];
+
+function tokenRequest(variant: TokenVariant, creds: Pick<E2Credentials, "clientId" | "clientSecret">): RequestInit {
+  const base = { method: "POST", signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS), cache: "no-store" as const };
+  if (variant === "json") {
+    return { ...base, headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ grant_type: "client_credentials", client_id: creds.clientId, client_secret: creds.clientSecret }) };
+  }
+  if (variant === "form") {
+    return { ...base, headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" }, body: new URLSearchParams({ grant_type: "client_credentials", client_id: creds.clientId, client_secret: creds.clientSecret }).toString() };
+  }
+  const basic = Buffer.from(`${encodeURIComponent(creds.clientId)}:${encodeURIComponent(creds.clientSecret)}`).toString("base64");
+  return { ...base, headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json", Authorization: `Basic ${basic}` }, body: new URLSearchParams({ grant_type: "client_credentials" }).toString() };
+}
+
+async function requestTokenVariant(variant: TokenVariant, creds: Pick<E2Credentials, "clientId" | "clientSecret">): Promise<TokenResult> {
   let res: Response;
   try {
-    res = await fetch(`${E2PAYMENTS_BASE_URL}/oauth/token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ grant_type: "client_credentials", client_id: creds.clientId, client_secret: creds.clientSecret }),
-      signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
-      cache: "no-store",
-    });
+    res = await fetch(`${E2PAYMENTS_BASE_URL}/oauth/token`, tokenRequest(variant, creds));
   } catch (e) {
     return { ok: false, status: null, reason: e instanceof Error && e.name === "TimeoutError" ? "tempo de resposta excedido" : "falha de rede" };
   }
   const json = await readJson(res);
   if (res.status !== 200) return { ok: false, status: res.status, reason: oauthError(json) ?? `HTTP ${res.status}` };
   const j = (json ?? {}) as { token_type?: unknown; access_token?: unknown };
-  if (typeof j.token_type !== "string" || typeof j.access_token !== "string" || !j.access_token) return { ok: false, status: 200, reason: "resposta de autenticação sem token" };
-  return { ok: true, authorization: `${j.token_type} ${j.access_token}` };
+  if (typeof j.access_token !== "string" || !j.access_token) return { ok: false, status: 200, reason: "resposta de autenticação sem token" };
+  // token_type documentado como "Bearer"; se faltar, usa-se Bearer (tipo do único esquema OAuth descrito)
+  return { ok: true, authorization: `${typeof j.token_type === "string" && j.token_type ? j.token_type : "Bearer"} ${j.access_token}` };
+}
+
+export async function requestToken(creds: Pick<E2Credentials, "clientId" | "clientSecret">): Promise<TokenResult> {
+  let first: TokenResult | null = null;
+  for (const v of TOKEN_VARIANTS) {
+    const r = await requestTokenVariant(v, creds);
+    if (r.ok) return r;
+    first ??= r;
+    // só faz sentido tentar outra forma quando o servidor recusou as credenciais
+    if (r.status !== 400 && r.status !== 401) return r;
+  }
+  return first!;
+}
+
+/**
+ * Valores que nunca podem funcionar: o segredo copiado mascarado (••••, ****) ou já cifrado/hash
+ * (ex.: "$2y$10$…", que o painel pode mostrar depois de criada a credencial).
+ */
+export function credentialProblem(creds: Pick<E2Credentials, "clientId" | "clientSecret">): string | null {
+  for (const [label, v] of [["Client ID", creds.clientId], ["Client Secret", creds.clientSecret]] as const) {
+    if (/[•*…]/.test(v)) return `O ${label} parece ter sido copiado mascarado (com • ou *). Copie o valor completo no painel da E2Payments.`;
+    if (/^\$2[aby]\$\d{2}\$/.test(v)) return `O ${label} colado é um valor cifrado (começa por "$2y$"), não a credencial. No painel da E2Payments, gere uma nova credencial e copie o segredo no momento em que é mostrado.`;
+  }
+  return null;
 }
 
 export interface E2ProviderHooks {
@@ -154,6 +195,8 @@ export function createE2PaymentsProvider(creds: E2Credentials | null, hooks: E2P
     async testConnection(): Promise<ConnectionTest> {
       if (!creds?.clientId || !creds.clientSecret) return { ok: false, message: "Introduza o Client ID e o Client Secret." };
       if (wallets().length === 0) return { ok: false, message: "Indique pelo menos uma carteira (M-Pesa ou e-Mola)." };
+      const problem = credentialProblem(creds);
+      if (problem) return { ok: false, message: problem };
       const t = await requestToken(creds);
       if (t.ok) return { ok: true, message: "Ligação verificada: a E2Payments aceitou as credenciais." };
       if (t.status === 401 || t.status === 400) {
@@ -162,7 +205,7 @@ export function createE2PaymentsProvider(creds: E2Credentials | null, hooks: E2P
         if (swapped.ok) return { ok: true, swapped: true, message: "Ligação verificada. O Client ID e o Client Secret estavam nos campos trocados." };
         return {
           ok: false,
-          message: `A E2Payments rejeitou as credenciais (HTTP ${t.status}${t.reason && t.reason !== `HTTP ${t.status}` ? ` — ${t.reason}` : ""}). Confirme no painel da E2Payments (Credenciais) que copiou o Client ID e o Client Secret completos e da mesma credencial, e que esta está ativa.`,
+          message: `A E2Payments rejeitou as credenciais (HTTP ${t.status}${t.reason && t.reason !== `HTTP ${t.status}` ? ` — ${t.reason}` : ""}). Já foram testados o envio em JSON, em formulário e por autenticação HTTP Basic, e também com os campos trocados. Confirme no painel da E2Payments (Credenciais) que o Client ID e o Client Secret pertencem à mesma credencial e que esta está ativa; em caso de dúvida, gere uma nova credencial e cole os dois valores.`,
         };
       }
       return { ok: false, message: `Não foi possível contactar a E2Payments (${t.status ? `HTTP ${t.status}` : t.reason}). Tente novamente.` };

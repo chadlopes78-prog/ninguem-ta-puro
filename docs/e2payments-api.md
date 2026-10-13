@@ -33,6 +33,7 @@ O site da documentação (`https://e2payments.explicador.co.mz/docs`, referênci
 | **Consulta do estado** de uma transação | Não documentada → sem consulta automática. Um pagamento sem resposta (tempo esgotado, falha de rede, 5xx) fica **"por verificar"**: nunca é marcado como pago automaticamente. O dono confirma-o no pedido depois de verificar no painel da E2Payments. |
 | Formato completo da resposta de sucesso (ID da transação) | Não é usado. Só o código HTTP 200/201 da chamada autenticada conta como confirmação. A referência guardada é a nossa (`reference`, ex.: `NTPAB23CD45`). |
 | Ambiente de testes (sandbox) | Não documentado → as credenciais são tratadas como **produção** (os pagamentos contam como receita). |
+| Forma de enviar as credenciais ao `/oauth/token` | A referência oficial diz que existem vários métodos para obter tokens, mas só documenta um. A plataforma tenta, por esta ordem: JSON (exemplos oficiais), formulário `application/x-www-form-urlencoded` (RFC 6749 §4.4) e HTTP Basic (RFC 6749 §2.3.1), cada um também com o Client ID e o Client Secret trocados. Usa a primeira que a E2Payments aceitar. |
 | Validade do token, limites de pedidos, formato decimal do valor | O token é pedido a cada pagamento (como no SDK). O valor é enviado em meticais (`1500`, `247.9`). |
 
 ## Antes de usar em produção
