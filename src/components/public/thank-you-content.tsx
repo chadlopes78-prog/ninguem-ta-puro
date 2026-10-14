@@ -18,6 +18,8 @@ export interface ThankYouContentProps {
   totalCents?: number;
   currency: CurrencyCode;
   button: { label: string; href: string; external: boolean } | null;
+  /** Suporte via WhatsApp do vendedor (aparece ACIMA do botão de acesso) */
+  support?: { href: string; label: string } | null;
   buttonKind?: "pdf" | "link" | "whatsapp" | "access" | null;
   upsells?: { description: string; totalCents: number; status: string; accessHref: string | null }[];
   upsellNote?: string | null;
@@ -112,6 +114,23 @@ export function ThankYouContent(p: ThankYouContentProps) {
           <div className={cn("w-full rounded-2xl border p-5 text-left", card)}>
             <p className={cn("text-[12px] font-semibold uppercase tracking-[0.12em]", muted)}>Próximos passos</p>
             <p className="mt-2 whitespace-pre-line text-[14.5px] leading-relaxed">{d.instructions}</p>
+          </div>
+        )}
+
+        {(p.support || p.button) && confirmed && (
+          <div className={cn("flex w-full flex-col gap-3", center ? "items-center" : "items-start")} data-testid="thank-you-actions">
+            {p.support && (
+              <a
+                href={p.preview ? undefined : p.support.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-disabled={p.preview || undefined}
+                className={cn("inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border px-6 py-3 text-[15px] font-semibold transition-colors sm:w-auto sm:min-w-72", dark ? "border-white/15 hover:bg-white/5" : "border-black/15 hover:bg-black/5")}
+                data-testid="thank-you-whatsapp"
+              >
+                <MessageCircle className="h-4.5 w-4.5 text-[#25D366]" aria-hidden="true" /> {p.support.label}
+              </a>
+            )}
           </div>
         )}
 

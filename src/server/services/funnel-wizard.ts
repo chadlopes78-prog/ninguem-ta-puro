@@ -4,6 +4,7 @@ import "server-only";
 import { prisma } from "@/server/db";
 import { buildWizardGraph, upsellFromGraph, wizardSchema, type UpsellConfig, type WizardInput } from "@/lib/funnels/wizard";
 import { defaultThankYouAction, defaultThankYouDesign, parseThankYouAction, parseThankYouDesign, type ThankYouAction, type ThankYouDesign } from "@/lib/thank-you";
+import { internalPageHasContent, normalizeWhatsApp } from "@/lib/product-setup";
 import { flattenErrors } from "@/server/validation/common";
 import { ensurePrimaryCheckout, checkoutPath } from "./primary-checkout";
 import { activateFunnel, createFunnel, getFunnelRecord, saveFunnel, toGraph } from "./funnels";
@@ -27,8 +28,20 @@ export async function createWizardFunnel(productId: string, scope: Scope) {
   await prisma.$transaction([
     prisma.funnel.update({ where: { id: funnel.id }, data: { productId: product.id } }),
     prisma.thankYouPage.create({ data: { funnelId: funnel.id, design: defaultThankYouDesign(), action: defaultThankYouAction() } }),
+    // o primeiro funil de um produto passa a ser o principal
+    prisma.product.updateMany({ where: { id: product.id, mainFunnelId: null }, data: { mainFunnelId: funnel.id } }),
   ]);
   return funnel;
+}
+
+export interface WizardSetup {
+  support: { phone: string; message: string };
+  delivery: {
+    method: "EXTERNAL_LINK" | "INTERNAL_PAGE" | null;
+    url: string;
+    page: { title: string; welcome: string; instructions: string; bodyText: string; buttonText: string; resourceUrl: string; fileId: string | null };
+  };
+  isMain: boolean;
 }
 
 export interface WizardState {
@@ -39,6 +52,7 @@ export interface WizardState {
   afterPayment: "upsell" | "thank_you";
   upsell: UpsellConfig | null;
   thankYou: { design: ThankYouDesign; action: ThankYouAction | null; fileId: string | null };
+  setup: WizardSetup;
 }
 
 export async function getWizardFunnel(id: string, scope: Scope) {
@@ -46,7 +60,7 @@ export async function getWizardFunnel(id: string, scope: Scope) {
   if (!f.productId) return null; // funil avançado: usa o editor visual
   const [page, product] = await Promise.all([
     prisma.thankYouPage.findUnique({ where: { funnelId: f.id } }),
-    prisma.product.findFirst({ where: { id: f.productId, ...own(scope) }, include: { offers: { where: { isDefault: true }, take: 1 }, files: { select: { id: true, filename: true, sizeBytes: true, createdAt: true }, orderBy: { createdAt: "desc" } } } }),
+    prisma.product.findFirst({ where: { id: f.productId, ...own(scope) }, include: { offers: { where: { isDefault: true }, take: 1 }, deliveryPage: true, files: { select: { id: true, filename: true, sizeBytes: true, createdAt: true }, orderBy: { createdAt: "desc" } } } }),
   ]);
   if (!product) throw new NotFoundError("Produto");
   const checkout = await ensurePrimaryCheckout(product.id);
@@ -60,6 +74,23 @@ export async function getWizardFunnel(id: string, scope: Scope) {
     afterPayment: upsell ? "upsell" : "thank_you",
     upsell,
     thankYou: { design: parseThankYouDesign(page?.design), action: parseThankYouAction(page?.action), fileId: page?.fileId ?? null },
+    setup: {
+      support: { phone: product.supportWhatsApp ?? "", message: product.supportMessage ?? "" },
+      delivery: {
+        method: product.deliveryMethod,
+        url: product.deliveryUrl ?? "",
+        page: {
+          title: product.deliveryPage?.title ?? "O seu produto está pronto",
+          welcome: product.deliveryPage?.welcome ?? "",
+          instructions: product.deliveryPage?.instructions ?? "",
+          bodyText: product.deliveryPage?.bodyText ?? "",
+          buttonText: product.deliveryPage?.buttonText ?? "ACEDER AO MEU PRODUTO",
+          resourceUrl: product.deliveryPage?.resourceUrl ?? "",
+          fileId: product.deliveryPage?.fileId ?? null,
+        },
+      },
+      isMain: product.mainFunnelId === null || product.mainFunnelId === f.id,
+    },
   };
   return { state, product, checkout: { id: checkout.id, path: checkoutPath(checkout), isActive: checkout.isActive } };
 }
@@ -90,20 +121,63 @@ export async function saveWizardFunnel(id: string, raw: unknown, scope: Scope): 
     const file = await prisma.productFile.findFirst({ where: { id: input.thankYou.fileId, productId: product.id } });
     if (!file) return { ok: false, error: "O PDF selecionado não pertence ao produto inicial.", fieldErrors: { "thankYou.fileId": "PDF inválido" } };
   }
+  // Ficheiro da página de entrega: tem de ser um ficheiro DESTE produto (IDs alterados no browser são recusados)
+  const pageFileId = input.delivery.page.fileId;
+  if (pageFileId && !(await prisma.productFile.findFirst({ where: { id: pageFileId, productId: product.id } }))) {
+    return { ok: false, error: "O ficheiro escolhido não pertence a este produto.", fieldErrors: { "delivery.page.fileId": "Ficheiro inválido" } };
+  }
+  // Um funil não pode mudar de produto enquanto for o principal de um produto publicado
+  if (f.productId !== product.id) {
+    const mainOf = await prisma.product.findFirst({ where: { mainFunnelId: f.id, status: "PUBLISHED", ...own(scope) } });
+    if (mainOf) return { ok: false, error: `Este funil é o principal do produto publicado “${mainOf.name}”. Despublique-o ou associe outro funil antes de mudar o produto.`, fieldErrors: { productId: "Funil em uso" } };
+  }
+  // Produto publicado: a configuração obrigatória não pode ficar incompleta
+  if (product.status === "PUBLISHED" && (product.mainFunnelId === f.id || product.mainFunnelId === null)) {
+    if (!input.support.phone) return { ok: false, error: "O produto está publicado: o número de suporte WhatsApp é obrigatório.", fieldErrors: { "support.phone": "Obrigatório" } };
+    if (!input.delivery.method) return { ok: false, error: "O produto está publicado: escolha o método de entrega.", fieldErrors: { "delivery.method": "Obrigatório" } };
+    if (input.delivery.method === "EXTERNAL_LINK" && !input.delivery.url) return { ok: false, error: "O produto está publicado: indique o link de acesso ao produto.", fieldErrors: { "delivery.url": "Obrigatório" } };
+    if (input.delivery.method === "INTERNAL_PAGE" && !internalPageHasContent({ fileId: pageFileId, resourceUrl: input.delivery.page.resourceUrl || null, bodyText: input.delivery.page.bodyText })) {
+      return { ok: false, error: "O produto está publicado: a página de entrega precisa de um ficheiro, um link ou conteúdo.", fieldErrors: { "delivery.page.bodyText": "Configure o conteúdo entregue" } };
+    }
+  }
 
   const checkout = await ensurePrimaryCheckout(product.id);
   const graph = buildWizardGraph({ checkoutId: checkout.id, productName: product.name, afterPayment: input.afterPayment, upsell: input.upsell, thankYouTitle: input.thankYou.design.title });
   const productChanged = f.productId !== product.id;
   const { validation, deactivated } = await saveFunnel(id, { name: input.name, graph }, scope);
 
-  const usesPdf = input.thankYou.action.type === "product" && input.thankYou.action.delivery === "pdf";
+  const existingPage = await prisma.thankYouPage.findUnique({ where: { funnelId: id } });
+  const action = input.thankYou.action ?? parseThankYouAction(existingPage?.action) ?? defaultThankYouAction();
+  const usesPdf = action.type === "product" && action.delivery === "pdf";
+  // sem `action` no pedido (novo editor), o PDF da configuração anterior mantém-se
+  const legacyFileId = input.thankYou.action ? (usesPdf ? input.thankYou.fileId : null) : (existingPage?.fileId ?? null);
+  const phone = input.support.phone ? normalizeWhatsApp(input.support.phone) : null;
+  const d = input.delivery;
   await prisma.$transaction(async (tx) => {
     await tx.funnel.update({ where: { id }, data: { productId: product.id } });
     await tx.thankYouPage.upsert({
       where: { funnelId: id },
-      create: { funnelId: id, design: input.thankYou.design, action: input.thankYou.action, fileId: usesPdf ? input.thankYou.fileId : null },
-      update: { design: input.thankYou.design, action: input.thankYou.action, fileId: usesPdf ? input.thankYou.fileId : null },
+      create: { funnelId: id, design: input.thankYou.design, action, fileId: legacyFileId },
+      update: { design: input.thankYou.design, action, fileId: legacyFileId },
     });
+    // Suporte e entrega pertencem ao PRODUTO (servem a página de obrigado e a página de entrega)
+    const becomesMain = input.isMain || product.mainFunnelId === null || product.mainFunnelId === id;
+    await tx.product.update({
+      where: { id: product.id },
+      data: {
+        supportWhatsApp: phone,
+        supportMessage: input.support.message || null,
+        deliveryMethod: d.method,
+        ...(d.method === "EXTERNAL_LINK" ? { deliveryUrl: d.url || null } : {}),
+        ...(becomesMain ? { mainFunnelId: id } : {}),
+      },
+    });
+    if (d.method === "INTERNAL_PAGE") {
+      const pageData = { title: d.page.title, welcome: d.page.welcome, instructions: d.page.instructions, bodyText: d.page.bodyText, buttonText: d.page.buttonText, resourceUrl: d.page.resourceUrl || null, fileId: d.page.fileId };
+      await tx.deliveryPage.upsert({ where: { productId: product.id }, create: { productId: product.id, ...pageData }, update: pageData });
+    }
+    // O produto anterior deixa de ter este funil como principal
+    if (productChanged) await tx.product.updateMany({ where: { mainFunnelId: id, id: { not: product.id }, ...own(scope) }, data: { mainFunnelId: null } });
     // O checkout antigo deixa de encaminhar para este funil quando o produto inicial muda
     if (productChanged) await tx.checkout.updateMany({ where: { funnelId: id, id: { not: checkout.id } }, data: { funnelId: null } });
   });
@@ -119,12 +193,9 @@ export async function saveWizardFunnel(id: string, raw: unknown, scope: Scope): 
 export async function activateWizardFunnel(id: string, scope: Scope): Promise<FunnelValidation> {
   const f = await getFunnelRecord(id, scope);
   if (f.productId) {
+    // a página de obrigado é obrigatória; o botão de acesso segue a entrega do produto (validada na publicação)
     const page = await prisma.thankYouPage.findUnique({ where: { funnelId: id } });
-    const action = parseThankYouAction(page?.action);
-    if (!action) return { valid: false, errors: [{ level: "error", message: "Configure o destino do botão da página de obrigado." }], warnings: [] };
-    if (action.type === "product" && action.delivery === "pdf" && !page?.fileId) {
-      return { valid: false, errors: [{ level: "error", message: "Carregue o PDF do produto na página de obrigado." }], warnings: [] };
-    }
+    if (!page) return { valid: false, errors: [{ level: "error", message: "Configure a página de obrigado do funil." }], warnings: [] };
   }
   return activateFunnel(id, scope);
 }
@@ -132,6 +203,8 @@ export async function activateWizardFunnel(id: string, scope: Scope): Promise<Fu
 /** Desativa e desliga o checkout: novas compras deixam de seguir este funil (compras já feitas mantêm o percurso). */
 export async function deactivateWizardFunnel(id: string, scope: Scope) {
   await getFunnelRecord(id, scope);
+  const mainOf = await prisma.product.findFirst({ where: { mainFunnelId: id, status: "PUBLISHED", ...own(scope) } });
+  if (mainOf) throw new DomainError(`Este é o funil principal do produto publicado “${mainOf.name}”: despublique o produto antes de desativar o funil.`);
   await prisma.$transaction([
     prisma.funnel.update({ where: { id }, data: { status: "INACTIVE" } }),
     prisma.checkout.updateMany({ where: { funnelId: id, ...own(scope) }, data: { funnelId: null } }),

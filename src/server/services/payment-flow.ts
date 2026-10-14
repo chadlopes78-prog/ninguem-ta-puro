@@ -3,6 +3,8 @@
 import { randomBytes } from "crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db";
+import { accessTarget } from "./delivery";
+import { supportLink } from "@/lib/product-setup";
 import { newOrderCode } from "@/lib/ids";
 import { getActivePaymentProviders, getProvider } from "@/server/payments/registry";
 import { resolveAppBaseUrl } from "@/server/app-url";
@@ -356,7 +358,7 @@ export async function getDeliveryView(deliveryToken: string) {
   if (!/^[A-Za-z0-9_-]{30,40}$/.test(deliveryToken)) return null;
   const d = await prisma.delivery.findUnique({
     where: { token: deliveryToken },
-    include: { order: { include: { items: { include: { product: { select: { name: true, deliveryUrl: true, supportEmail: true } } } } } } },
+    include: { order: { include: { items: { include: { product: { select: { id: true, name: true, deliveryUrl: true, deliveryMethod: true, supportEmail: true, supportWhatsApp: true, supportMessage: true } } } } } } },
   });
   // Acesso só para encomendas pagas (reembolsos revogam o acesso)
   if (!d || d.order.status !== "APPROVED" || d.order.isDemo) return null;
@@ -364,7 +366,12 @@ export async function getDeliveryView(deliveryToken: string) {
   return {
     code: d.order.code,
     ownerId: d.order.ownerId,
-    items: d.order.items.map((i) => ({ name: i.product.name, url: i.product.deliveryUrl, support: i.product.supportEmail })),
+    // acesso de cada produto conforme o método de entrega escolhido (página interna ou link externo)
+    items: d.order.items.map((i) => {
+      const target = accessTarget(i.product, deliveryToken);
+      const legacyUrl = !i.product.deliveryMethod && i.product.deliveryUrl ? i.product.deliveryUrl : null;
+      return { name: i.product.name, url: target?.href ?? legacyUrl, internal: target?.kind === "internal", support: supportLink(i.product.supportWhatsApp, i.product.supportMessage) };
+    }),
   };
 }
 

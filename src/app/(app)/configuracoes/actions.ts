@@ -3,17 +3,21 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { formToObject, guarded, parseForm } from "@/server/actions";
-import { settingsSchema } from "@/server/validation/schemas";
-import { demoToolsEnabled, setDemoMode, updateSettings } from "@/server/services/settings";
+import { cookies } from "next/headers";
+import { accountSettingsSchema } from "@/server/validation/schemas";
+import { demoToolsEnabled, setDemoMode, updateAccountSettings } from "@/server/services/settings";
+import { LOCALE_COOKIE } from "@/lib/panel-theme";
 import { clearDemoData, seedDemoData } from "@/server/services/demo";
 import { changePassword } from "@/server/auth/service";
 
 export async function saveSettingsAction(fd: FormData) {
   return guarded(async ({ user }) => {
-    const p = parseForm(settingsSchema, formToObject(fd));
+    const p = parseForm(accountSettingsSchema, formToObject(fd));
     if (!p.ok) return p.result;
     // configurações da conta autenticada (nunca de outra conta)
-    await updateSettings(user.id, p.data);
+    await updateAccountSettings(user.id, p.data);
+    // idioma da página (atributo lang) — lido pelo layout raiz
+    (await cookies()).set(LOCALE_COOKIE, p.data.locale, { path: "/", sameSite: "lax", maxAge: 365 * 24 * 3600 });
     revalidatePath("/", "layout");
     return { ok: true, message: "Configurações guardadas." };
   });
@@ -48,14 +52,14 @@ export async function clearDemoAction() {
 
 const pwSchema = z
   .object({ current: z.string().min(1, "Obrigatório"), next: z.string().min(10, "Mínimo de 10 caracteres").max(200), confirm: z.string() })
-  .refine((v) => v.next === v.confirm, { path: ["confirm"], message: "As passwords não coincidem" });
+  .refine((v) => v.next === v.confirm, { path: ["confirm"], message: "As palavras-passe não coincidem" });
 
 export async function changePasswordAction(fd: FormData) {
   return guarded(async ({ user }) => {
     const p = parseForm(pwSchema, formToObject(fd));
     if (!p.ok) return p.result;
     const ok = await changePassword(user.id, p.data.current, p.data.next);
-    if (!ok) return { ok: false, error: "Password atual incorreta.", fieldErrors: { current: "Password atual incorreta" } };
-    return { ok: true, message: "Password alterada. Todas as sessões foram terminadas — inicie sessão novamente." };
+    if (!ok) return { ok: false, error: "Palavra-passe atual incorreta.", fieldErrors: { current: "Palavra-passe atual incorreta" } };
+    return { ok: true, message: "Palavra-passe alterada. Todas as sessões foram terminadas — inicie sessão novamente." };
   });
 }

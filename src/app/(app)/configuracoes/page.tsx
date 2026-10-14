@@ -7,7 +7,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert } from "@/components/ui/alert";
 import { ActionButton } from "@/components/ui/action-button";
-import { PasswordForm, SettingsForm } from "@/components/settings/settings-form";
+import { SecurityCard, SettingsForm } from "@/components/settings/settings-form";
 import { changePasswordAction, clearDemoAction, saveSettingsAction, seedDemoAction, setDemoModeAction } from "./actions";
 import { PushSettings } from "@/components/notifications/push-settings";
 import { getVapidKeys } from "@/server/notifications/push";
@@ -24,21 +24,11 @@ export default async function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Configurações" description={`Sessão iniciada como ${user.email}`} />
+      <PageHeader title="Configurações" description="A sua conta, preferências e segurança." />
       <div className="grid gap-5">
-        <SettingsForm
-          action={saveSettingsAction}
-          initial={{
-            businessName: s.businessName,
-            logoUrl: s.logoUrl ?? "",
-            ownerName: s.ownerName ?? "",
-            ownerEmail: s.ownerEmail ?? "",
-            supportEmail: s.supportEmail ?? "",
-            defaultCurrency: s.defaultCurrency,
-            locale: s.locale,
-            timezone: s.timezone,
-          }}
-        />
+        <SettingsForm action={saveSettingsAction} initial={{ email: user.email, name: user.name, defaultCurrency: s.defaultCurrency, locale: s.locale, timezone: s.timezone }} />
+
+        <SecurityCard changeAction={changePasswordAction} />
 
         <Card id="notificacoes" className="scroll-mt-6">
           <CardHeader title="Notificações e Alertas" description="Alertas de vendas, pagamentos e reembolsos no painel e por notificação push (Android, iPhone e computador)." />
@@ -99,12 +89,6 @@ export default async function SettingsPage() {
           </CardBody>
         </Card>
 
-        <Card>
-          <CardHeader title="Segurança" description="Alterar a password termina todas as sessões ativas." />
-          <CardBody>
-            <PasswordForm action={changePasswordAction} />
-          </CardBody>
-        </Card>
       </div>
     </>
   );

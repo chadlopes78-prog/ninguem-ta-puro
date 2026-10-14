@@ -70,17 +70,23 @@ export async function getProduct(id: string, scope: Scope) {
   return product;
 }
 
-function productData(input: ProductInput) {
+/**
+ * Dados do produto vindos do formulário. O estado PUBLICADO nunca é escrito aqui: só publishProduct() o faz,
+ * depois da validação centralizada. O link de entrega e o email de suporte só mudam quando são enviados
+ * (a entrega e o suporte WhatsApp configuram-se no funil do produto).
+ */
+function productData(input: ProductInput, currentStatus?: ProductStatus) {
+  const status: ProductStatus = input.status === "PUBLISHED" ? (currentStatus === "PUBLISHED" ? "PUBLISHED" : (currentStatus ?? "DRAFT")) : input.status;
   return {
     name: input.name,
     description: input.description,
     imageUrl: input.imageUrl ?? null,
     type: input.type,
     category: input.category ?? null,
-    status: input.status,
+    status,
     salesPageUrl: input.salesPageUrl ?? null,
-    supportEmail: input.supportEmail ?? null,
-    deliveryUrl: input.deliveryUrl ?? null,
+    ...(input.supportEmail !== undefined ? { supportEmail: input.supportEmail } : {}),
+    ...(input.deliveryUrl !== undefined ? { deliveryUrl: input.deliveryUrl } : {}),
   };
 }
 
@@ -95,7 +101,9 @@ export async function createProduct(input: ProductInput, scope: Scope) {
       return await prisma.$transaction(async (tx) => {
         const product = await tx.product.create({
           data: {
-            ...productData(input),
+            // um produto novo nunca nasce publicado: fica em rascunho até cumprir os requisitos
+            ...productData(input, "DRAFT"),
+            ...(input.deliveryUrl ? { deliveryMethod: "EXTERNAL_LINK" as const } : {}),
             ...own(scope),
             offers: {
               create: {
@@ -124,8 +132,12 @@ export async function updateProduct(id: string, input: ProductInput, scope: Scop
   const existing = await getProduct(id, scope);
   if (existing.status === "ARCHIVED") throw new DomainError("Produtos arquivados não podem ser editados. Restaure-o primeiro.");
   const defaultOffer = existing.offers.find((o) => o.isDefault);
-  return prisma.$transaction(async (tx) => {
-    const product = await tx.product.update({ where: { id }, data: productData(input) });
+  const wantsPublish = input.status === "PUBLISHED" && existing.status !== "PUBLISHED";
+  const updated = await prisma.$transaction(async (tx) => {
+    const product = await tx.product.update({
+      where: { id },
+      data: { ...productData(input, existing.status), ...(input.deliveryUrl && !existing.deliveryMethod ? { deliveryMethod: "EXTERNAL_LINK" as const } : {}) },
+    });
     // O checkout principal acompanha o nome/descrição do produto enquanto não tiverem sido personalizados.
     // O endereço (slug) nunca muda, para não invalidar links já partilhados.
     const primary = await tx.checkout.findUnique({ where: { primaryProductId: id } });
@@ -144,6 +156,28 @@ export async function updateProduct(id: string, input: ProductInput, scope: Scop
     else await tx.offer.create({ data: { ...offerData, productId: id, name: "Preço principal", isDefault: true } });
     return product;
   });
+  // Publicar a partir do formulário passa pela mesma validação do botão "Publicar" (os outros dados ficam guardados)
+  if (wantsPublish) return publishProduct(id, scope);
+  return updated;
+}
+
+/**
+ * Publica um produto: validação centralizada no servidor (funil, página de obrigado, suporte WhatsApp,
+ * entrega…), ativa o funil principal no checkout principal e só depois marca o produto como publicado.
+ * Lança PublishBlockedError com a lista do que falta.
+ */
+export async function publishProduct(id: string, scope: Scope) {
+  const { assertPublishable } = await import("./product-readiness");
+  const r = await assertPublishable(id, scope);
+  const primary = await ensurePrimaryCheckout(id);
+  if (!primary.isActive) await prisma.checkout.update({ where: { id: primary.id }, data: { isActive: true } });
+  if (r.mainFunnelId) {
+    // as compras do checkout principal seguem o funil principal (página de obrigado e entrega corretas)
+    const { activateWizardFunnel } = await import("./funnel-wizard");
+    const v = await activateWizardFunnel(r.mainFunnelId, scope);
+    if (!v.valid) throw new DomainError(v.errors[0]?.message ?? "Não foi possível ativar o funil principal.");
+  }
+  return prisma.product.update({ where: { id }, data: { status: "PUBLISHED", archivedAt: null } });
 }
 
 export async function setProductStatus(id: string, status: ProductStatus, scope: Scope) {
@@ -151,6 +185,7 @@ export async function setProductStatus(id: string, status: ProductStatus, scope:
   if (status === "PUBLISHED" && !existing.offers.some((o) => o.isActive)) {
     throw new DomainError("Não é possível publicar um produto sem ofertas ativas.");
   }
+  if (status === "PUBLISHED") return existing.status === "PUBLISHED" ? existing : publishProduct(id, scope);
   return prisma.product.update({
     where: { id },
     data: { status, archivedAt: status === "ARCHIVED" ? new Date() : null },

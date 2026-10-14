@@ -13,14 +13,20 @@ import { useToast } from "@/components/ui/toast";
 export function NewWizardFunnelButton({
   action,
   products,
-  label = "Novo funil",
+  label = "Criar funil",
+  initialProductId,
+  testId = "new-wizard-funnel",
 }: {
   action: (productId: string) => Promise<ActionResult<{ id: string }>>;
   products: { id: string; name: string }[];
   label?: string;
+  /** Vindo de "Completar configuração" de um produto: abre já com esse produto escolhido */
+  initialProductId?: string;
+  testId?: string;
 }) {
-  const [open, setOpen] = useState(false);
-  const [productId, setProductId] = useState(products[0]?.id ?? "");
+  const preselected = initialProductId && products.some((p) => p.id === initialProductId) ? initialProductId : undefined;
+  const [open, setOpen] = useState(Boolean(preselected));
+  const [productId, setProductId] = useState(preselected ?? products[0]?.id ?? "");
   const [pending, start] = useTransition();
   const router = useRouter();
   const toast = useToast();
@@ -33,14 +39,14 @@ export function NewWizardFunnelButton({
     });
   return (
     <>
-      <Button onClick={() => setOpen(true)} data-testid="new-wizard-funnel">
+      <Button onClick={() => setOpen(true)} data-testid={testId}>
         <Plus className="h-4 w-4" /> {label}
       </Button>
-      <Modal open={open} onClose={() => setOpen(false)} title="Novo funil" description="Escolha o produto inicial. O funil usa o checkout que já foi gerado para esse produto.">
+      <Modal open={open} onClose={() => setOpen(false)} title="Criar funil" description="Selecione um produto da sua conta. A seguir configura o fluxo de compra, a página de obrigado, o suporte WhatsApp e a entrega.">
         {products.length === 0 ? (
           <p className="text-sm text-muted">Ainda não tem produtos. Crie primeiro um produto em Produtos.</p>
         ) : (
-          <Field label="Selecionar produto inicial">
+          <Field label="Produto">
             {(p) => (
               <Select {...p} value={productId} onChange={(e) => setProductId(e.target.value)} autoFocus>
                 {products.map((x) => (

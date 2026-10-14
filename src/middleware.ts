@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 // Primeira barreira: sem cookie de sessão, rotas privadas redirecionam para /login.
 // A validação real da sessão é feita no servidor (requireUser) em cada página e ação.
-const PUBLIC_PREFIXES = ["/login", "/setup", "/registo", "/checkout/", "/oferta/", "/obrigado/", "/pagamento/", "/acesso/", "/api/public/", "/api/webhooks/", "/api/health", "/api/push/receipt", "/api/cron/", "/sw.js", "/manifest.webmanifest", "/icons/", "/indisponivel"];
+const PUBLIC_PREFIXES = ["/login", "/setup", "/registo", "/checkout/", "/oferta/", "/obrigado/", "/pagamento/", "/acesso/", "/entrega/", "/recuperar", "/redefinir/", "/api/public/", "/api/webhooks/", "/api/health", "/api/push/receipt", "/api/cron/", "/sw.js", "/manifest.webmanifest", "/icons/", "/indisponivel"];
 
 export function middleware(req: NextRequest) {
   const { pathname, search } = req.nextUrl;

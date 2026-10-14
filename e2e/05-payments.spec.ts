@@ -1,7 +1,7 @@
 // Fluxo de pagamento real no navegador com o fornecedor de TESTE local (não é a EPay).
 import { createHmac } from "crypto";
 import { expect, test, type Page } from "@playwright/test";
-import { login, mzn, toast } from "./helpers";
+import { completeAndPublish, login, mzn, toast } from "./helpers";
 
 const SECRET = "segredo-e2e-apenas-testes";
 let checkoutPath = "";
@@ -33,8 +33,6 @@ test.describe.serial("pagamentos (fornecedor de teste local)", () => {
     await page.getByLabel("Descrição").fill("Produto digital pago em meticais.");
     await page.getByLabel("Tipo").selectOption("EBOOK");
     await page.getByLabel("Preço", { exact: true }).fill("1.250,00");
-    await page.getByLabel("Estado").selectOption("PUBLISHED");
-    await page.getByLabel("URL de entrega/acesso").fill("https://conteudo.exemplo.co.mz/ebook");
     await page.getByRole("button", { name: "Criar produto" }).click();
     await toast(page, "Produto criado");
     await expect(page).toHaveURL(/\/produtos\/[a-z0-9]{20,}\?criado=1$/);
@@ -46,6 +44,8 @@ test.describe.serial("pagamentos (fornecedor de teste local)", () => {
     await page.getByLabel("Texto do botão de compra").fill("Pagar agora");
     await page.getByTestId("publish").click();
     await toast(page, /publicad/i);
+    // configuração obrigatória (funil, página de obrigado, WhatsApp e entrega) e publicação pelo fluxo real
+    await completeAndPublish(page, "Ebook Moçambique", { deliveryUrl: "https://conteudo.exemplo.co.mz/ebook" });
   });
 
   test("checkout mostra MZN e métodos; pagamento fica pendente; visitar a página não marca como pago", async ({ page }) => {
@@ -77,11 +77,12 @@ test.describe.serial("pagamentos (fornecedor de teste local)", () => {
     const dup = await request.post("/api/webhooks/teste-local", { data: body, headers: { "content-type": "application/json", "x-test-signature": sig } });
     expect(dup.status()).toBe(200);
 
+    // confirmado: a página de estado encaminha para a página de obrigado do funil do produto
     await page.goto(statusUrl);
-    await expect(page.getByTestId("payment-state")).toHaveAttribute("data-state", "paid");
-    await page.getByTestId("access-link").click();
-    await expect(page.getByRole("heading", { name: "Os seus produtos" })).toBeVisible();
-    await expect(page.getByTestId("delivery-link")).toHaveAttribute("href", "https://conteudo.exemplo.co.mz/ebook");
+    await expect(page).toHaveURL(/\/obrigado\//);
+    await expect(page.getByTestId("thank-you")).toHaveAttribute("data-state", "confirmed");
+    await expect(page.getByTestId("thank-you-whatsapp")).toHaveAttribute("href", "https://wa.me/258841234567");
+    await expect(page.getByTestId("thank-you-button")).toHaveAttribute("href", "https://conteudo.exemplo.co.mz/ebook");
 
     // sessão de administrador já iniciada em externalIdFor
     await page.goto(`/pedidos?q=${code}`);
@@ -93,8 +94,9 @@ test.describe.serial("pagamentos (fornecedor de teste local)", () => {
 
   test("a página de estado atualiza sozinha quando a consulta oficial confirma", async ({ page }) => {
     await buy(page, "84 111 2221"); // termina em 1 → consulta de estado devolve pago
-    await expect(page.getByTestId("payment-state")).toHaveAttribute("data-state", "paid", { timeout: 30_000 });
-    await expect(page.getByTestId("access-link")).toBeVisible();
+    await expect(page).toHaveURL(/\/obrigado\//, { timeout: 30_000 });
+    await expect(page.getByTestId("thank-you")).toHaveAttribute("data-state", "confirmed");
+    await expect(page.getByTestId("thank-you-button")).toBeVisible();
   });
 
   test("pagamento recusado mostra falha e opção de tentar novamente", async ({ page }) => {

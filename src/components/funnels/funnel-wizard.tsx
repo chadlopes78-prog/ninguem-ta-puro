@@ -2,23 +2,20 @@
 
 // Assistente de funis: Produto inicial → (Upsell) → Página de obrigado.
 // Toda a validação definitiva acontece no servidor; aqui apenas se organiza a configuração por etapas.
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
   Check,
-  FileText,
   Gift,
-  Loader2,
   MessageCircle,
   Monitor,
   Package,
+  PackageOpen,
   PartyPopper,
   Smartphone,
-  Trash2,
-  Upload,
 } from "lucide-react";
 import type { ActionResult } from "@/server/validation/common";
 import type { ProductStatus } from "@prisma/client";
@@ -27,12 +24,12 @@ import {
   DARK_PRESET,
   LIGHT_PRESET,
   THANK_YOU_FONTS,
-  buttonLabel,
-  normalizeWhatsApp,
-  whatsappLink,
   type ThankYouAction,
   type ThankYouDesign,
 } from "@/lib/thank-you";
+import { supportLink, type DeliveryPageInput } from "@/lib/product-setup";
+import type { WizardSetup } from "@/server/services/funnel-wizard";
+import { DeliveryStep, RequirementsPanel, SupportStep, type RequirementView } from "./product-setup-steps";
 import { formatMoney, type CurrencyCode } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -85,18 +82,21 @@ interface Props {
       action: ThankYouAction | null;
       fileId: string | null;
     };
+    setup: WizardSetup;
   };
+  /** Requisitos de publicação do produto (estado guardado, calculado no servidor) */
+  readiness: { stageLabel: string; published: boolean; requirements: RequirementView[] };
+  publishAction: () => Promise<ActionResult<unknown>>;
   products: WizardProduct[];
   baseUrl: string;
   businessName: string;
-  supportEmail: string | null;
   saveAction: (payload: unknown) => Promise<ActionResult<unknown>>;
   activateAction: () => Promise<ActionResult<unknown>>;
   deactivateAction: () => Promise<ActionResult<unknown>>;
   deleteFileAction: (fileId: string) => Promise<ActionResult<unknown>>;
 }
 
-type Step = "product" | "after" | "upsell" | "thank_you";
+type Step = "product" | "after" | "upsell" | "thank_you" | "support" | "delivery";
 
 const EMPTY_UPSELL: UpsellConfig = {
   productId: "",
@@ -278,34 +278,23 @@ export function FunnelWizard(props: Props) {
   const [design, setDesign] = useState<ThankYouDesign>(
     props.initial.thankYou.design,
   );
-  const initialAction = props.initial.thankYou.action;
-  const [actionType, setActionType] = useState<"product" | "whatsapp">(
-    initialAction?.type ?? "product",
-  );
-  const [delivery, setDelivery] = useState<"pdf" | "link">(
-    initialAction?.type === "product" ? initialAction.delivery : "link",
-  );
-  const [productUrl, setProductUrl] = useState(
-    initialAction?.type === "product" ? initialAction.url : "",
-  );
-  const [waPhone, setWaPhone] = useState(
-    initialAction?.type === "whatsapp" ? initialAction.phone : "",
-  );
-  const [waMessage, setWaMessage] = useState(
-    initialAction?.type === "whatsapp"
-      ? initialAction.message
-      : "Olá! Acabei de comprar o vosso produto e preciso de ajuda com o acesso.",
-  );
-  const [buttonText, setButtonText] = useState(initialAction?.buttonText ?? "");
-  const [fileId, setFileId] = useState<string | null>(
-    props.initial.thankYou.fileId,
-  );
+  const [support, setSupport] = useState(props.initial.setup.support);
+  const [deliveryMethod, setDeliveryMethod] = useState(props.initial.setup.delivery.method);
+  const [deliveryUrl, setDeliveryUrl] = useState(props.initial.setup.delivery.url);
+  const [deliveryPage, setDeliveryPage] = useState<DeliveryPageInput>(props.initial.setup.delivery.page);
+  const [isMain, setIsMain] = useState(props.initial.setup.isMain);
   const [files, setFiles] = useState<Record<string, WizardProduct["files"]>>(
     () => Object.fromEntries(props.products.map((p) => [p.id, p.files])),
   );
   const [uploading, setUploading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [step, setStep] = useState<Step>("product");
+  // ligações diretas dos requisitos (ex.: /funis/<id>#suporte) abrem o passo correspondente
+  useEffect(() => {
+    const h = window.location.hash.slice(1);
+    const map: Record<string, Step> = { suporte: "support", entrega: "delivery", obrigado: "thank_you" };
+    if (map[h]) setStep(map[h]);
+  }, []);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const product = props.products.find((p) => p.id === productId) ?? null;
@@ -317,33 +306,16 @@ export function FunnelWizard(props: Props) {
     upsellProduct?.offers.find((o) => o.id === upsell.offerId) ?? null;
   const productFiles = files[productId] ?? [];
 
-  const action: ThankYouAction =
-    actionType === "whatsapp"
-      ? { type: "whatsapp", phone: waPhone, message: waMessage, buttonText }
-      : {
-          type: "product",
-          delivery,
-          url: delivery === "link" ? productUrl : "",
-          buttonText,
-        };
-  const waPreview = useMemo(
-    () =>
-      actionType === "whatsapp" && normalizeWhatsApp(waPhone)
-        ? whatsappLink(waPhone, waMessage)
-        : null,
-    [actionType, waPhone, waMessage],
-  );
-
+  const supportPreview = supportLink(support.phone, support.message);
   const payload = {
     name,
     productId,
     afterPayment,
     upsell: afterPayment === "upsell" ? upsell : undefined,
-    thankYou: {
-      design,
-      action,
-      fileId: actionType === "product" && delivery === "pdf" ? fileId : null,
-    },
+    thankYou: { design, fileId: null },
+    support,
+    delivery: { method: deliveryMethod, url: deliveryUrl, page: deliveryPage },
+    isMain,
   };
 
   const steps: { key: Step; label: string; icon: React.ElementType }[] = [
@@ -353,6 +325,8 @@ export function FunnelWizard(props: Props) {
       ? [{ key: "upsell" as const, label: "Upsell", icon: Gift }]
       : []),
     { key: "thank_you", label: "Página de obrigado", icon: PartyPopper },
+    { key: "support", label: "Suporte WhatsApp", icon: MessageCircle },
+    { key: "delivery", label: "Entrega do produto", icon: PackageOpen },
   ];
 
   const err = (k: string) => errors[k];
@@ -368,7 +342,9 @@ export function FunnelWizard(props: Props) {
         if (!r.ok) {
           setErrors(r.fieldErrors ?? {});
           const keys = Object.keys(r.fieldErrors ?? {});
-          if (keys.some((k) => k.startsWith("upsell"))) setStep("upsell");
+          if (keys.some((k) => k.startsWith("support"))) setStep("support");
+          else if (keys.some((k) => k.startsWith("delivery"))) setStep("delivery");
+          else if (keys.some((k) => k.startsWith("upsell"))) setStep("upsell");
           else if (keys.some((k) => k.startsWith("thankYou")))
             setStep("thank_you");
           else if (keys.includes("productId") || keys.includes("name"))
@@ -428,7 +404,7 @@ export function FunnelWizard(props: Props) {
         ...all,
         [productId]: [j.file!, ...(all[productId] ?? [])],
       }));
-      setFileId(j.file.id);
+      setDeliveryPage((pg) => ({ ...pg, fileId: j.file!.id }));
       toast(
         "PDF carregado. Fica privado: só compradores com a compra confirmada o podem descarregar.",
       );
@@ -451,15 +427,11 @@ export function FunnelWizard(props: Props) {
         ...all,
         [productId]: (all[productId] ?? []).filter((x) => x.id !== id),
       }));
-      if (fileId === id) setFileId(null);
+      if (deliveryPage.fileId === id) setDeliveryPage((pg) => ({ ...pg, fileId: null }));
       toast("PDF eliminado.");
     });
 
-  const previewButton = {
-    label: buttonLabel(action) || "Aceder ao meu produto",
-    href: "#",
-    external: false,
-  };
+  const previewButton = deliveryMethod ? { label: "Aceder ao meu produto", href: "#", external: false } : null;
   const sampleItems =
     product && mainOffer
       ? [
@@ -573,6 +545,22 @@ export function FunnelWizard(props: Props) {
         </ol>
       </nav>
 
+      {/* Requisitos de publicação (estado guardado no servidor) */}
+      <RequirementsPanel
+        requirements={props.readiness.requirements}
+        stageLabel={props.readiness.stageLabel}
+        onJump={(key) =>
+          setStep(key === "whatsapp" ? "support" : key === "delivery" || key === "deliveryContent" ? "delivery" : key === "thankYou" ? "thank_you" : "product")
+        }
+        publish={
+          !props.readiness.published ? (
+            <Button size="sm" onClick={() => save(props.publishAction)} disabled={pending} data-testid="wizard-publish">
+              Guardar e publicar produto
+            </Button>
+          ) : null
+        }
+      />
+
       {/* ETAPA 1 — Produto inicial */}
       {step === "product" && (
         <Card>
@@ -588,7 +576,7 @@ export function FunnelWizard(props: Props) {
                   value={productId}
                   onChange={(e) => {
                     setProductId(e.target.value);
-                    setFileId(null);
+                    setDeliveryPage((pg) => ({ ...pg, fileId: null }));
                   }}
                   data-testid="wizard-product"
                 >
@@ -979,215 +967,26 @@ export function FunnelWizard(props: Props) {
           <div className="flex flex-col gap-5">
             <Card>
               <CardHeader
-                title="Destino do botão principal"
-                description="O botão só aparece ao comprador quando o pagamento está confirmado."
+                title="Botões da página de obrigado"
+                description="Aparecem ao cliente só depois do pagamento confirmado, por esta ordem."
               />
-              <CardBody className="grid grid-cols-1 gap-4">
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <ChoiceCard
-                    selected={actionType === "product"}
-                    onClick={() => setActionType("product")}
-                    icon={Package}
-                    title="Aceder ao produto"
-                    text="Entregar um PDF protegido ou enviar para o link do produto."
-                    testId="action-product"
-                  />
-                  <ChoiceCard
-                    selected={actionType === "whatsapp"}
-                    onClick={() => setActionType("whatsapp")}
-                    icon={MessageCircle}
-                    title="Levar ao WhatsApp"
-                    text="Abre uma conversa com a mensagem que definir."
-                    testId="action-whatsapp"
-                  />
+              <CardBody className="grid grid-cols-1 gap-2 text-[13px]" data-testid="thank-you-buttons-info">
+                <p className="flex items-center gap-2">
+                  <MessageCircle className="h-4 w-4 shrink-0 text-[#25D366]" aria-hidden="true" />
+                  <span>
+                    <strong>1.º Suporte WhatsApp</strong> — «Precisa de ajuda? Fale connosco no WhatsApp» ({supportPreview ? "número configurado" : "configure o número no passo Suporte WhatsApp"}).
+                  </span>
+                </p>
+                <p className="flex items-center gap-2">
+                  <Package className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+                  <span>
+                    <strong>2.º Aceder ao meu produto</strong> — {deliveryMethod === "EXTERNAL_LINK" ? "abre o link externo configurado" : deliveryMethod === "INTERNAL_PAGE" ? "abre a página de entrega da plataforma" : "configure o método no passo Entrega do produto"}.
+                  </span>
+                </p>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setStep("support")}>Configurar suporte</Button>
+                  <Button variant="outline" size="sm" onClick={() => setStep("delivery")}>Configurar entrega</Button>
                 </div>
-
-                {actionType === "product" ? (
-                  <div className="grid grid-cols-1 gap-4">
-                    <div className="grid grid-cols-1 gap-1.5">
-                      <p className="text-[13px] font-medium">
-                        Como pretende disponibilizar o produto?
-                      </p>
-                      <Segmented
-                        label="Forma de entrega"
-                        value={delivery}
-                        onChange={setDelivery}
-                        options={[
-                          { value: "pdf", label: "Entregar um ficheiro PDF" },
-                          { value: "link", label: "Aceder através de um link" },
-                        ]}
-                      />
-                    </div>
-                    {delivery === "pdf" ? (
-                      <div
-                        className="grid grid-cols-1 gap-3"
-                        data-testid="pdf-section"
-                      >
-                        <input
-                          ref={fileInput}
-                          type="file"
-                          accept="application/pdf"
-                          className="sr-only"
-                          id="pdf-upload"
-                          onChange={(e) =>
-                            e.target.files?.[0] && upload(e.target.files[0])
-                          }
-                          data-testid="pdf-input"
-                        />
-                        <label
-                          htmlFor="pdf-upload"
-                          className={cn(
-                            "flex cursor-pointer items-center justify-center gap-2 rounded-[var(--radius-lg)] border border-dashed border-line-strong bg-surface-2 px-4 py-5 text-sm text-muted hover:border-accent/50 hover:text-fg",
-                            uploading && "pointer-events-none opacity-60",
-                          )}
-                        >
-                          {uploading ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
-                            <Upload className="h-4 w-4" />
-                          )}{" "}
-                          {uploading
-                            ? "A carregar…"
-                            : "Carregar PDF (máx. 4 MB)"}
-                        </label>
-                        {productFiles.length > 0 && (
-                          <ul
-                            className="flex flex-col gap-2"
-                            aria-label="PDFs do produto"
-                          >
-                            {productFiles.map((f) => (
-                              <li
-                                key={f.id}
-                                className={cn(
-                                  "flex items-center gap-3 rounded-[var(--radius-md)] border px-3 py-2",
-                                  fileId === f.id
-                                    ? "border-accent bg-accent-soft"
-                                    : "border-line",
-                                )}
-                              >
-                                <input
-                                  type="radio"
-                                  name="pdf"
-                                  checked={fileId === f.id}
-                                  onChange={() => setFileId(f.id)}
-                                  aria-label={`Usar ${f.filename}`}
-                                  style={{ accentColor: "var(--color-accent)" }}
-                                />
-                                <FileText
-                                  className="h-4 w-4 shrink-0 text-muted"
-                                  aria-hidden="true"
-                                />
-                                <span className="min-w-0 flex-1 truncate text-sm">
-                                  {f.filename}
-                                </span>
-                                <span className="text-[12px] text-subtle">
-                                  {f.sizeBytes < 1024
-                                    ? `${f.sizeBytes} B`
-                                    : f.sizeBytes < 1048576
-                                      ? `${Math.round(f.sizeBytes / 1024)} KB`
-                                      : `${(f.sizeBytes / 1048576).toFixed(1).replace(".", ",")} MB`}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => removeFile(f.id)}
-                                  className="grid h-8 w-8 place-items-center rounded text-subtle hover:text-danger"
-                                  aria-label={`Eliminar ${f.filename}`}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                        {err("thankYou.fileId") && (
-                          <p
-                            role="alert"
-                            className="text-[12px] font-medium text-danger"
-                          >
-                            {err("thankYou.fileId")}
-                          </p>
-                        )}
-                        <p className="text-[12px] text-subtle">
-                          O PDF fica privado: não tem endereço público. Só quem
-                          tem a compra confirmada o pode descarregar, através do
-                          seu acesso pessoal.
-                        </p>
-                      </div>
-                    ) : (
-                      <Field
-                        label="Link do produto"
-                        error={err("thankYou.action.url")}
-                        hint="Link externo: o comprador sai da plataforma. Se a área exigir login, explique-o nas instruções."
-                      >
-                        {(p) => (
-                          <Input
-                            {...p}
-                            value={productUrl}
-                            onChange={(e) => setProductUrl(e.target.value)}
-                            placeholder="https://area-de-membros.exemplo.com/curso"
-                            data-testid="product-url"
-                          />
-                        )}
-                      </Field>
-                    )}
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 gap-4">
-                    <Field
-                      label="Número de WhatsApp"
-                      error={err("thankYou.action.phone")}
-                      hint="Com indicativo (258…) ou número moçambicano (84…)."
-                    >
-                      {(p) => (
-                        <Input
-                          {...p}
-                          value={waPhone}
-                          onChange={(e) => setWaPhone(e.target.value)}
-                          inputMode="tel"
-                          placeholder="84 123 4567"
-                          data-testid="wa-phone"
-                        />
-                      )}
-                    </Field>
-                    <Field label="Mensagem inicial">
-                      {(p) => (
-                        <Textarea
-                          {...p}
-                          value={waMessage}
-                          onChange={(e) => setWaMessage(e.target.value)}
-                          maxLength={500}
-                          rows={3}
-                        />
-                      )}
-                    </Field>
-                    {waPreview && (
-                      <p
-                        className="break-all text-[12px] text-subtle"
-                        data-testid="wa-preview"
-                      >
-                        Link gerado: {waPreview}
-                      </p>
-                    )}
-                    <p className="text-[12px] text-subtle">
-                      O botão apenas abre a conversa; a mensagem é enviada pelo
-                      comprador.
-                    </p>
-                  </div>
-                )}
-                <Field label="Texto do botão">
-                  {(p) => (
-                    <Input
-                      {...p}
-                      value={buttonText}
-                      onChange={(e) => setButtonText(e.target.value)}
-                      maxLength={60}
-                      placeholder={buttonLabel({
-                        ...action,
-                        buttonText: "",
-                      } as ThankYouAction)}
-                    />
-                  )}
-                </Field>
               </CardBody>
             </Card>
 
@@ -1416,10 +1215,47 @@ export function FunnelWizard(props: Props) {
                   items={sampleItems}
                   currency={mainOffer?.currency ?? "MZN"}
                   button={previewButton}
-                  buttonKind={actionType === "whatsapp" ? "whatsapp" : delivery}
-                  supportEmail={props.supportEmail}
+                  buttonKind={deliveryMethod === "EXTERNAL_LINK" ? "link" : "access"}
+                  support={supportPreview ? { href: supportPreview, label: "Precisa de ajuda? Fale connosco no WhatsApp" } : null}
                 />
               </DevicePreview>
+            </CardBody>
+          </Card>
+        </div>
+      )}
+      {/* ETAPA — Suporte via WhatsApp */}
+      {step === "support" && (
+        <div className="grid max-w-3xl grid-cols-1 gap-5">
+          <SupportStep phone={support.phone} message={support.message} onChange={setSupport} error={err("support.phone")} />
+        </div>
+      )}
+
+      {/* ETAPA — Entrega do produto */}
+      {step === "delivery" && (
+        <div className="grid max-w-3xl grid-cols-1 gap-5">
+          <DeliveryStep
+            method={deliveryMethod}
+            url={deliveryUrl}
+            page={deliveryPage}
+            onMethod={setDeliveryMethod}
+            onUrl={setDeliveryUrl}
+            onPage={(patch) => setDeliveryPage((pg) => ({ ...pg, ...patch }))}
+            files={productFiles}
+            uploading={uploading}
+            onUpload={upload}
+            onRemoveFile={removeFile}
+            errors={errors}
+            productName={product?.name ?? "Produto"}
+            supportOk={Boolean(supportPreview)}
+          />
+          <Card>
+            <CardBody>
+              <Checkbox
+                label="Funil principal deste produto"
+                description="As compras do checkout principal seguem este funil (página de obrigado e entrega)."
+                checked={isMain}
+                onChange={(e) => setIsMain(e.target.checked)}
+              />
             </CardBody>
           </Card>
         </div>

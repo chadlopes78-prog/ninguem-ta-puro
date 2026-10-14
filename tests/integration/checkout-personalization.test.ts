@@ -3,7 +3,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/server/db";
 import { resetTestDb, testOwner } from "../helpers/db";
 import { productSchema } from "@/server/validation/schemas";
-import { createProduct, duplicateProduct, getProduct, setProductStatus, updateProduct } from "@/server/services/products";
+import { duplicateProduct, getProduct, setProductStatus, updateProduct } from "@/server/services/products";
+import { createProduct, makeReady } from "../helpers/products";
 import { deleteCheckout, duplicateCheckout, getPublicCheckout } from "@/server/services/checkouts";
 import { backfillPrimaryCheckouts, checkoutPath, ensurePrimaryCheckout, slugify } from "@/server/services/primary-checkout";
 import { discardDraft, getEditorState, listCheckoutPersonalization, publicDesign, publishDesign, saveDraft } from "@/server/services/checkout-design";
@@ -212,6 +213,9 @@ describe("9–10. preço e moeda do servidor; pagamento continua funcional", () 
     const p = await createProduct(input({ status: "DRAFT" }), S);
     expect((await getPublicCheckout("handwriting-heroes")).state).toBe("unavailable");
     expect((await submitCheckout("handwriting-heroes", { name: "Ana Comprador", email: "a@b.co.mz" })).kind).toBe("unavailable");
+    // sem a configuração obrigatória a publicação é recusada; depois de completa, publica
+    await expect(setProductStatus(p.id, "PUBLISHED", S)).rejects.toThrow("Produto incompleto");
+    await makeReady(p.id, S);
     await setProductStatus(p.id, "PUBLISHED", S);
     expect((await getPublicCheckout("handwriting-heroes")).state).toBe("ok");
     await setProductStatus(p.id, "ARCHIVED", S);

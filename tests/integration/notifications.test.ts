@@ -10,7 +10,7 @@ import { prisma } from "@/server/db";
 import { resetTestDb, testOwner } from "../helpers/db";
 import { createUser } from "@/server/auth/service";
 import { productSchema } from "@/server/validation/schemas";
-import { createProduct } from "@/server/services/products";
+import { createProduct } from "../helpers/products";
 import { submitCheckout } from "@/server/services/purchase";
 import { handleWebhook } from "@/server/payments/webhooks";
 import { applyPaymentStatus } from "@/server/payments/confirm";

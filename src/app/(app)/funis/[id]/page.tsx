@@ -13,6 +13,9 @@ import { getSettings } from "@/server/services/settings";
 import { resolveAppBaseUrl } from "@/server/app-url";
 import { FunnelWizard } from "@/components/funnels/funnel-wizard";
 import { own } from "@/server/scope";
+import { getReadiness } from "@/server/services/product-readiness";
+import { STAGE_LABELS } from "@/lib/product-setup";
+import { publishProductAction } from "../../produtos/actions";
 
 export const metadata: Metadata = { title: "Editor de funil" };
 
@@ -41,10 +44,13 @@ export default async function FunnelEditorPage({ params }: { params: Promise<{ i
       }),
     ]);
     if (!w) notFound();
+    const readiness = await getReadiness(w.state.productId, scope);
     return (
       <FunnelWizard
         funnel={{ id: f.id, name: f.name, status: f.status }}
-        initial={{ productId: w.state.productId, afterPayment: w.state.afterPayment, upsell: w.state.upsell, thankYou: w.state.thankYou }}
+        initial={{ productId: w.state.productId, afterPayment: w.state.afterPayment, upsell: w.state.upsell, thankYou: w.state.thankYou, setup: w.state.setup }}
+        readiness={{ stageLabel: STAGE_LABELS[readiness.stage], published: w.product.status === "PUBLISHED", requirements: readiness.requirements }}
+        publishAction={publishProductAction.bind(null, w.state.productId)}
         products={all.map((p) => ({
           id: p.id,
           name: p.name,
@@ -57,7 +63,6 @@ export default async function FunnelEditorPage({ params }: { params: Promise<{ i
         }))}
         baseUrl={baseUrl}
         businessName={settings.businessName}
-        supportEmail={settings.supportEmail}
         saveAction={saveWizardFunnelAction.bind(null, f.id)}
         activateAction={activateFunnelAction.bind(null, f.id)}
         deactivateAction={deactivateFunnelAction.bind(null, f.id)}

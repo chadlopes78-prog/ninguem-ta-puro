@@ -179,6 +179,18 @@ export const settingsSchema = z.object({
 });
 export type SettingsInput = z.infer<typeof settingsSchema>;
 
+/** Idiomas suportados: a interface está em português; a variante define o idioma da página e os formatos regionais. */
+export const SUPPORTED_LOCALES = { "pt-MZ": "Português (Moçambique)", "pt-PT": "Português (Portugal)", "pt-BR": "Português (Brasil)" } as const;
+
+/** Configurações pessoais da conta (página Configurações). O email da conta não é editável aqui. */
+export const accountSettingsSchema = z.object({
+  name: z.string().trim().min(2, "Indique o seu nome").max(80, "Máximo de 80 caracteres"),
+  locale: z.enum(["pt-MZ", "pt-PT", "pt-BR"], { errorMap: () => ({ message: "Idioma não suportado" }) }),
+  defaultCurrency: currencySchema,
+  timezone: settingsSchema.shape.timezone,
+});
+export type AccountSettingsInput = z.infer<typeof accountSettingsSchema>;
+
 export const publicCheckoutSchema = (opts: { requirePhone: boolean; requireDocument: boolean }) =>
   z.object({
     name: z.string().trim().min(3, "Introduza o seu nome completo").max(120),

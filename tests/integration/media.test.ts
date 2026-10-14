@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/server/db";
 import { resetTestDb, testOwner, testSeller } from "../helpers/db";
 import { productSchema } from "@/server/validation/schemas";
-import { createProduct } from "@/server/services/products";
+import { createProduct } from "../helpers/products";
 import { getEditorState, publishDesign, saveDraft } from "@/server/services/checkout-design";
 import { deleteMedia, listMedia, saveMedia, sniffImage, MAX_IMAGE_BYTES } from "@/server/services/media";
 import { newElement, type CheckoutDesign } from "@/lib/checkout-design";

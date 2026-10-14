@@ -15,6 +15,8 @@ import { advanceToInteractive, nextKey } from "@/lib/funnels/simulate";
 import { OFFER_STEP_TYPES, type FunnelGraph, type GraphNode } from "@/lib/funnels/types";
 import { buttonLabel, parseThankYouAction, parseThankYouDesign, whatsappLink, defaultThankYouDesign, type ThankYouDesign } from "@/lib/thank-you";
 import { getActivePaymentProviders } from "@/server/payments/registry";
+import { supportLink } from "@/lib/product-setup";
+import { accessTarget } from "./delivery";
 import { audit } from "@/server/payments/confirm";
 import { toGraph } from "./funnels";
 import { chargeWithProvider, maskPhone, normalizeMzPhone, refreshPaymentStatus, resolvePaymentOption, listPaymentOptions, type PaymentOptionView } from "./payment-flow";
@@ -278,7 +280,7 @@ export async function getThankYouView(publicToken: string, opts: { refresh?: boo
   const root = await prisma.order.findUnique({
     where: { id: rootId },
     include: {
-      items: { include: { product: { select: { id: true, name: true } } } },
+      items: { include: { product: { select: { id: true, name: true, deliveryMethod: true, deliveryUrl: true, supportWhatsApp: true, supportMessage: true } } } },
       delivery: { select: { token: true } },
       customer: { select: { name: true } },
       checkout: { select: { supportEmail: true, publicId: true, slug: true } },
@@ -293,11 +295,21 @@ export async function getThankYouView(publicToken: string, opts: { refresh?: boo
   const action = page ? parseThankYouAction(page.action) : null;
   const state: ThankYouState = root.status === "APPROVED" ? "confirmed" : root.status === "PENDING" ? "pending" : "failed";
 
-  // Botão principal: só existe com a compra confirmada
+  // Produto comprado (o do funil, senão o primeiro da encomenda): a entrega e o suporte são DESTE produto
+  const product = root.items.find((i) => i.product.id === root.funnel?.productId)?.product ?? root.items[0]?.product ?? null;
+
+  // Botões: só existem com a compra confirmada. Suporte WhatsApp (acima) + acesso ao produto (abaixo).
   let button: { label: string; href: string; external: boolean } | null = null;
   let buttonKind: "pdf" | "link" | "whatsapp" | "access" | null = null;
+  let support: { href: string; label: string } | null = null;
   if (state === "confirmed") {
-    if (action?.type === "whatsapp") [button, buttonKind] = [{ label: buttonLabel(action), href: whatsappLink(action.phone, action.message), external: true }, "whatsapp"];
+    const wa = product ? supportLink(product.supportWhatsApp, product.supportMessage) : null;
+    if (wa) support = { href: wa, label: "Precisa de ajuda? Fale connosco no WhatsApp" };
+    else if (action?.type === "whatsapp") support = { href: whatsappLink(action.phone, action.message), label: "Precisa de ajuda? Fale connosco no WhatsApp" };
+    const target = product ? accessTarget(product, root.delivery?.token ?? null) : null;
+    if (target) [button, buttonKind] = [{ label: "Aceder ao meu produto", href: target.href, external: target.external }, target.kind === "internal" ? "access" : "link"];
+    // configuração anterior (produtos sem método de entrega escolhido): mantém o comportamento antigo
+    else if (action?.type === "whatsapp") [button, buttonKind] = [root.delivery ? { label: "Aceder ao meu produto", href: `/acesso/${root.delivery.token}`, external: false } : null, root.delivery ? "access" : null];
     else if (action?.type === "product" && action.delivery === "link") [button, buttonKind] = [{ label: buttonLabel(action), href: action.url, external: true }, "link"];
     else if (action?.type === "product" && action.delivery === "pdf" && page?.fileId && root.delivery) [button, buttonKind] = [{ label: buttonLabel(action), href: `/acesso/${root.delivery.token}/ficheiro/${page.fileId}`, external: false }, "pdf"];
     else if (root.delivery) [button, buttonKind] = [{ label: "Aceder ao meu produto", href: `/acesso/${root.delivery.token}`, external: false }, "access"];
@@ -324,6 +336,7 @@ export async function getThankYouView(publicToken: string, opts: { refresh?: boo
     design,
     button,
     buttonKind,
+    support,
     actionType: action?.type ?? null,
     upsells,
     supportEmail: root.checkout?.supportEmail ?? null,

@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { prisma } from "@/server/db";
 import { resetTestDb, testOwner } from "../helpers/db";
 import { productSchema } from "@/server/validation/schemas";
-import { createProduct } from "@/server/services/products";
+import { createProduct } from "../helpers/products";
 import { submitCheckout } from "@/server/services/purchase";
 import { getPaymentView, listPaymentOptions, reconcilePendingPayments, refreshPaymentStatus, resolveUncertainPayment } from "@/server/services/payment-flow";
 import { listGateways, setGatewayEnabled, testGatewayConnection, updateE2Credentials } from "@/server/services/integrations";

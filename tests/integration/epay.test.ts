@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { prisma } from "@/server/db";
 import { resetTestDb, testOwner } from "../helpers/db";
 import { checkoutSchema, couponSchema, productSchema } from "@/server/validation/schemas";
-import { createProduct } from "@/server/services/products";
+import { createProduct } from "../helpers/products";
 import { createCheckout } from "@/server/services/checkouts";
 import { createCoupon } from "@/server/services/coupons";
 import { submitCheckout } from "@/server/services/purchase";

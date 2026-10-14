@@ -11,6 +11,9 @@ import { unreadCount, runNotificationJobs } from "@/server/notifications/service
 
 export const dynamic = "force-dynamic";
 
+/** Nome global da plataforma (não é configurável por utilizador). */
+const PLATFORM_NAME = "Ninguém Tá Puro";
+
 // As tarefas de notificações (push pendente, resumo diário) não precisam de correr em cada navegação:
 // no máximo uma vez a cada 5 minutos por instância (o cron diário continua a garantir a execução).
 const JOBS_INTERVAL_MS = 5 * 60_000;
@@ -32,7 +35,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
   const theme = isPanelTheme(user.themePreference) ? user.themePreference : "system";
   return (
-    <AppShell user={{ name: user.name, email: user.email }} businessName={settings.businessName} demoMode={settings.demoMode} logoutAction={logoutAction} theme={theme} saveTheme={setThemePreferenceAction} unread={unread} isOwner={isOwner} pendingApprovals={pendingApprovals}>
+    <AppShell user={{ name: user.name, email: user.email }} businessName={PLATFORM_NAME} demoMode={settings.demoMode} logoutAction={logoutAction} theme={theme} saveTheme={setThemePreferenceAction} unread={unread} isOwner={isOwner} pendingApprovals={pendingApprovals}>
       {children}
     </AppShell>
   );

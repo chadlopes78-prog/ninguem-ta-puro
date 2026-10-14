@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { login, mzn, toast } from "./helpers";
+import { completeAndPublish, errorToast, login, mzn, toast } from "./helpers";
 
 test.describe.serial("modo real: produto → checkout → link público (sem pagamentos)", () => {
   let checkoutPath = "";
@@ -24,7 +24,7 @@ test.describe.serial("modo real: produto → checkout → link público (sem pag
     await page.getByLabel("Tipo").selectOption("EBOOK");
     await page.getByLabel("Preço", { exact: true }).fill("197,00");
     await page.getByLabel("Moeda").selectOption("MZN");
-    await page.getByLabel("Estado").selectOption("DRAFT");
+    await expect(page.getByTestId("new-product-draft-note")).toBeVisible(); // um produto novo é sempre rascunho
     await page.getByRole("button", { name: "Criar produto" }).click();
     await toast(page, "Produto criado");
     await expect(page).toHaveURL(/\/produtos\/[a-z0-9]+\?criado=1$/);
@@ -41,9 +41,22 @@ test.describe.serial("modo real: produto → checkout → link público (sem pag
     await expect(page.getByLabel("Nome")).toHaveValue("Guia Digital Editado");
     await expect(page.getByLabel("Preço", { exact: true })).toHaveValue("247,90");
 
-    await page.getByRole("button", { name: "Publicar" }).click();
-    await toast(page, "Produto publicado");
+    // incompleto: a publicação é recusada (servidor) e é mostrado o que falta
+    await expect(page.getByTestId("product-requirements")).toContainText("Produto incompleto");
+    await expect(page.getByTestId("req-funnel")).toHaveAttribute("data-ok", "false");
+    await page.getByTestId("publish-product").click();
+    await errorToast(page, /Produto incompleto — não pode ser publicado/);
     await page.goto("/produtos");
+    await expect(page.getByTestId("product-stage").first()).toHaveAttribute("data-stage", "draft"); // configuração ainda não iniciada
+    await expect(page.getByTestId("product-incomplete").first()).toContainText("configure o funil, a página de obrigado e a entrega do produto antes de publicar");
+    // "Completar configuração" → aba Funis com o produto já escolhido
+    await page.getByTestId("complete-setup").first().click();
+    await expect(page).toHaveURL(/\/funis\?criar=/);
+    await expect(page.getByRole("dialog").getByRole("combobox")).toHaveValue(/[a-z0-9]+/);
+    await page.getByTestId("create-wizard-funnel").click();
+    await completeAndPublish(page, "Guia Digital Editado", { fromWizard: true, deliveryUrl: "https://conteudo.exemplo.co.mz/guia" });
+    await page.goto("/produtos");
+    await expect(page.getByTestId("product-stage").first()).toHaveAttribute("data-stage", "published");
     await expect(page.getByRole("link", { name: /Guia Digital Editado/ }).first()).toBeVisible();
     await expect(page.getByText(mzn("247,90")).first()).toBeVisible();
   });

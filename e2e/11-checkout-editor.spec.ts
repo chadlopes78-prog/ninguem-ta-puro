@@ -2,7 +2,7 @@
 // imagens, estilos, rascunho/publicação, telemóvel, compra de teste e isolamento.
 // Compras só com o fornecedor de TESTE local (nenhum pagamento real).
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { login, mzn, noHorizontalScroll, toast } from "./helpers";
+import { completeAndPublish, login, mzn, noHorizontalScroll, toast } from "./helpers";
 
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 let publicPath = "";
@@ -46,11 +46,12 @@ test.describe.serial("editor visual do checkout", () => {
     await page.getByLabel("Descrição").fill("Aprenda a montar páginas de venda que convertem, passo a passo.");
     await page.getByLabel("Tipo").selectOption("COURSE");
     await page.getByLabel("Preço", { exact: true }).fill("500,00");
-    await page.getByLabel("Estado").selectOption("PUBLISHED");
-    await page.getByLabel("URL de entrega/acesso").fill("https://conteudo.exemplo.co.mz/curso");
     await page.getByRole("button", { name: "Criar produto" }).click();
     await toast(page, "Produto criado");
     publicPath = new URL((await page.getByTestId("product-checkout-url").textContent())!.trim()).pathname;
+    const productUrl = page.url();
+    await completeAndPublish(page, "Curso Editor Visual", { deliveryUrl: "https://conteudo.exemplo.co.mz/curso" });
+    await page.goto(productUrl);
     await page.getByTestId("checkout-link-card").getByRole("link", { name: "Personalizar checkout" }).click();
     await expect(page.getByTestId("checkout-editor")).toBeVisible();
     editorUrl = new URL(page.url()).pathname;
@@ -190,10 +191,14 @@ test.describe.serial("editor visual do checkout", () => {
     await page.getByLabel(/Número M-Pesa/).fill("84 111 2221"); // termina em 1 → a consulta oficial confirma
     await page.getByRole("button", { name: "Finalizar compra" }).click();
     await expect(page).toHaveURL(/\/pagamento\/[A-Za-z0-9_-]+$/);
-    await expect(page.getByTestId("payment-state")).toHaveAttribute("data-state", "paid", { timeout: 30_000 });
-    await page.getByTestId("access-link").click();
-    await expect(page.getByRole("heading", { name: "Os seus produtos" })).toBeVisible();
-    await expect(page.getByTestId("delivery-link")).toHaveAttribute("href", "https://conteudo.exemplo.co.mz/curso");
+    // confirmado pela consulta oficial → página de obrigado do funil: WhatsApp acima do acesso ao produto
+    await expect(page).toHaveURL(/\/obrigado\//, { timeout: 30_000 });
+    await expect(page.getByTestId("thank-you")).toHaveAttribute("data-state", "confirmed");
+    const wa = page.getByTestId("thank-you-whatsapp");
+    const access = page.getByTestId("thank-you-button");
+    await expect(wa).toHaveAttribute("href", "https://wa.me/258841234567");
+    await expect(access).toHaveAttribute("href", "https://conteudo.exemplo.co.mz/curso");
+    expect((await wa.boundingBox())!.y).toBeLessThan((await access.boundingBox())!.y);
   });
 
   test("17. o editor e a biblioteca não dão acesso a checkouts ou imagens de outras contas", async ({ page, browser }) => {

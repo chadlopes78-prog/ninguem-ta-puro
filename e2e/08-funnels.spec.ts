@@ -21,17 +21,22 @@ test.describe.serial("funis: upsell e página de obrigado", () => {
   test("assistente: produto inicial → upsell → página de obrigado com WhatsApp", async ({ page }) => {
     await login(page);
     await page.goto("/funis");
-    await page.getByTestId("new-wizard-funnel").first().click();
-    await page.getByRole("dialog").getByRole("combobox").selectOption({ label: "Ebook Moçambique" });
-    await page.getByTestId("create-wizard-funnel").click();
+    // o funil principal do Ebook foi criado ao completar a configuração (05); a lista mostra o estado de cada requisito
+    const card = page.locator("li").filter({ has: page.getByRole("link", { name: /Funil — Ebook Moçambique/ }) });
+    const status = card.getByTestId("funnel-card-status");
+    await expect(status).toContainText("Ebook Moçambique");
+    await expect(status).toContainText("Link externo");
+    await expect(status).toContainText("Publicado");
+    await card.getByRole("link", { name: /Funil — Ebook Moçambique/ }).click();
     await expect(page).toHaveURL(/\/funis\/[a-z0-9]+$/);
     funnelUrl = page.url();
+    await expect(page.getByTestId("requirements-panel")).toContainText("7 de 7 concluídos");
 
     // Etapa 1: produto com o checkout já existente
-    const card = page.getByTestId("wizard-product-card");
-    await expect(card).toContainText("Ebook Moçambique");
-    await expect(card).toContainText(mzn("1250,00"));
-    await expect(card).toContainText("/checkout/ebook-mocambique");
+    const productCard = page.getByTestId("wizard-product-card");
+    await expect(productCard).toContainText("Ebook Moçambique");
+    await expect(productCard).toContainText(mzn("1250,00"));
+    await expect(productCard).toContainText("/checkout/ebook-mocambique");
 
     // Etapa 2: depois do pagamento → upsell
     await page.getByRole("button", { name: "Continuar" }).click();
@@ -46,16 +51,21 @@ test.describe.serial("funis: upsell e página de obrigado", () => {
     await page.getByTestId("preview-mobile").click();
     await expect(preview).toHaveAttribute("data-device", "mobile");
 
-    // Etapa 3: página de obrigado → WhatsApp
-    await page.getByRole("button", { name: "Página de obrigado" }).last().click();
-    await page.getByTestId("action-whatsapp").click();
-    await page.getByTestId("wa-phone").fill("84 123 4567");
-    await expect(page.getByTestId("wa-preview")).toContainText("https://wa.me/258841234567?text=Ol%C3%A1!");
+    // Etapa 3: página de obrigado — botões fixos: WhatsApp (acima) + acesso ao produto
+    await page.getByTestId("funnel-flow").getByRole("button", { name: /Página de obrigado/ }).click();
     await expect(page.getByTestId("thank-you-title")).toHaveText("Compra confirmada com sucesso!");
-    await expect(page.getByTestId("thank-you-button")).toContainText("Falar connosco no WhatsApp");
+    await expect(page.getByTestId("thank-you-whatsapp")).toContainText("Precisa de ajuda? Fale connosco no WhatsApp");
+    await expect(page.getByTestId("thank-you-button")).toContainText("Aceder ao meu produto");
+    // Suporte WhatsApp: mensagem inicial e teste do link
+    await page.getByTestId("funnel-flow").getByRole("button", { name: /Suporte WhatsApp/ }).click();
+    await page.getByTestId("support-phone").fill("84 12");
+    await expect(page.getByTestId("support-invalid")).toContainText("Número inválido");
+    await page.getByTestId("support-phone").fill("84 123 4567");
+    await page.getByLabel("Mensagem inicial (opcional)").fill("Olá! Preciso de ajuda.");
+    await expect(page.getByTestId("support-test")).toHaveAttribute("href", "https://wa.me/258841234567?text=Ol%C3%A1!%20Preciso%20de%20ajuda.");
 
-    await page.getByTestId("wizard-activate").click();
-    await toast(page, "Funil ativado");
+    await page.getByTestId("wizard-save").click();
+    await toast(page, "Funil guardado");
     await expect(page.getByText("Ativo").first()).toBeVisible();
     await page.reload();
     await expect(page.getByTestId("funnel-flow")).toContainText("Upsell");
@@ -72,9 +82,12 @@ test.describe.serial("funis: upsell e página de obrigado", () => {
     await expect(page.getByTestId("thank-you")).toHaveAttribute("data-state", "confirmed");
     await expect(page.getByTestId("thank-you-title")).toHaveText("Compra confirmada com sucesso!");
     await expect(page.getByTestId("thank-you-summary")).toContainText("Ebook Moçambique");
+    const wa = page.getByTestId("thank-you-whatsapp");
     const btn = page.getByTestId("thank-you-button");
-    await expect(btn).toHaveText(/Falar connosco no WhatsApp/);
-    await expect(btn).toHaveAttribute("href", /^https:\/\/wa\.me\/258841234567\?text=/);
+    await expect(wa).toHaveAttribute("href", /^https:\/\/wa\.me\/258841234567\?text=/);
+    await expect(btn).toHaveText(/Aceder ao meu produto/);
+    await expect(btn).toHaveAttribute("href", "https://conteudo.exemplo.co.mz/ebook");
+    expect((await wa.boundingBox())!.y).toBeLessThan((await btn.boundingBox())!.y);
   });
 
   test("aceitar o upsell cria um segundo pagamento; só depois de confirmado aparece na página de obrigado", async ({ page }) => {
@@ -88,15 +101,15 @@ test.describe.serial("funis: upsell e página de obrigado", () => {
     await expect(page.getByRole("link", { name: /Aceder: Guia Digital Renomeado/ })).toBeVisible();
   });
 
-  test("página de obrigado com PDF protegido: só o comprador da encomenda paga descarrega", async ({ page, request }) => {
+  test("página de entrega interna com PDF protegido: WhatsApp acima de ACEDER AO MEU PRODUTO; só o comprador pago descarrega", async ({ page, request }) => {
     await login(page);
     await page.goto(funnelUrl);
-    await page.getByRole("button", { name: "Página de obrigado" }).first().click();
-    await page.getByTestId("action-product").click();
-    await page.getByRole("radio", { name: "Entregar um ficheiro PDF" }).click();
-    await page.getByTestId("pdf-input").setInputFiles({ name: "Guia do comprador.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF") });
+    await page.getByTestId("funnel-flow").getByRole("button", { name: /Entrega do produto/ }).click();
+    await page.getByTestId("delivery-internal").click();
+    await page.getByTestId("delivery-page-title").fill("O seu ebook está pronto");
+    await page.getByTestId("delivery-file-input").setInputFiles({ name: "Guia do comprador.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF") });
     await toast(page, "PDF carregado");
-    await expect(page.getByTestId("thank-you-button")).toContainText("Descarregar o meu produto");
+    await expect(page.getByTestId("delivery-preview")).toContainText("ACEDER AO MEU PRODUTO");
     await page.getByTestId("wizard-save").click();
     await toast(page, "Funil guardado");
 
@@ -105,15 +118,25 @@ test.describe.serial("funis: upsell e página de obrigado", () => {
     await page.getByTestId("upsell-decline").click();
     await expect(page).toHaveURL(/\/obrigado\//);
     const href = (await page.getByTestId("thank-you-button").getAttribute("href"))!;
-    expect(href).toMatch(/^\/acesso\/[A-Za-z0-9_-]+\/ficheiro\/[a-z0-9]+$/);
-    const ok = await request.get(href);
+    expect(href).toMatch(/^\/entrega\/[A-Za-z0-9_-]+\/[a-z0-9]+$/);
+    await page.getByTestId("thank-you-button").click();
+    await expect(page.getByTestId("delivery-title")).toHaveText("O seu ebook está pronto");
+    const wa = page.getByTestId("delivery-whatsapp");
+    const access = page.getByTestId("delivery-access");
+    await expect(wa).toHaveAttribute("href", /^https:\/\/wa\.me\/258841234567/);
+    await expect(access).toHaveText(/ACEDER AO MEU PRODUTO/);
+    expect((await wa.boundingBox())!.y).toBeLessThan((await access.boundingBox())!.y);
+    const fileHref = (await access.getAttribute("href"))!;
+    expect(fileHref).toMatch(/^\/acesso\/[A-Za-z0-9_-]+\/ficheiro\/[a-z0-9]+$/);
+    const ok = await request.get(fileHref);
     expect(ok.status()).toBe(200);
     expect(ok.headers()["content-type"]).toBe("application/pdf");
     expect(ok.headers()["cache-control"]).toBe("private, no-store");
     expect((await ok.body()).subarray(0, 5).toString()).toBe("%PDF-");
-    // token inventado não dá acesso
-    const forged = await request.get(href.replace(/\/acesso\/[^/]+\//, "/acesso/naoexistenaoexistenaoexiste1234/"));
-    expect(forged.status()).toBe(404);
+    // token inventado ou produto trocado no URL não dão acesso
+    expect((await request.get(fileHref.replace(/\/acesso\/[^/]+\//, "/acesso/naoexistenaoexistenaoexiste1234/"))).status()).toBe(404);
+    await page.goto(href.replace(/[a-z0-9]+$/, "cl0000000000000000000000x"));
+    await expect(page.getByRole("heading", { name: "Acesso indisponível" })).toBeVisible();
   });
 
   test("compra pendente não mostra a confirmação nem o produto", async ({ page }) => {

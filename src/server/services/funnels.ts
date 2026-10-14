@@ -155,6 +155,8 @@ export async function activateFunnel(id: string, scope: Scope): Promise<FunnelVa
 
 export async function deactivateFunnel(id: string, scope: Scope) {
   await getFunnelRecord(id, scope);
+  const mainOf = await prisma.product.findFirst({ where: { mainFunnelId: id, status: "PUBLISHED", ...own(scope) } });
+  if (mainOf) throw new DomainError(`Este é o funil principal do produto publicado “${mainOf.name}”: despublique o produto antes de desativar o funil.`);
   return prisma.funnel.update({ where: { id }, data: { status: "INACTIVE" } });
 }
 
@@ -177,5 +179,7 @@ export async function deleteFunnel(id: string, scope: Scope) {
   if (!f) throw new NotFoundError("Funil");
   if (f.status === "ACTIVE") throw new DomainError("Desative o funil antes de o eliminar.");
   if (f._count.orders > 0) throw new DomainError("Este funil tem pedidos associados e não pode ser eliminado.");
+  const mainOf = await prisma.product.findFirst({ where: { mainFunnelId: id, status: "PUBLISHED", ...own(scope) } });
+  if (mainOf) throw new DomainError(`Este é o funil principal do produto publicado “${mainOf.name}” e não pode ser eliminado.`);
   await prisma.funnel.delete({ where: { id } });
 }

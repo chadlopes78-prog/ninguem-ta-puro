@@ -34,3 +34,23 @@ export async function adminUserAction(userId: string, action: AdminAction, reaso
   revalidatePath("/admin", "layout");
   return { ok: true, message: MESSAGES[action] };
 }
+
+/**
+ * Link de redefinição de palavra-passe gerado pelo proprietário (quando o envio de email não está configurado).
+ * O link é temporário (30 min), de uso único, fica registado no histórico administrativo e deve ser enviado
+ * ao utilizador por um canal de confiança. Nunca é gerado para outra conta OWNER.
+ */
+export async function adminResetLinkAction(userId: string): Promise<ActionResult<{ link: string }>> {
+  const actor = await requireOwner();
+  const id = assertId(userId);
+  const { prisma } = await import("@/server/db");
+  const target = await prisma.user.findUnique({ where: { id }, select: { id: true, role: true } });
+  if (!target) return { ok: false, error: "Conta não encontrada." };
+  if (target.role === "OWNER" && target.id !== actor.id) return { ok: false, error: "Ação não permitida." };
+  const { createResetLinkForUser } = await import("@/server/auth/password-reset");
+  const { resolveAppBaseUrl } = await import("@/server/app-url");
+  const link = await createResetLinkForUser(id, await resolveAppBaseUrl());
+  await prisma.adminAuditLog.create({ data: { actorId: actor.id, targetUserId: id, action: "password_reset_link", reason: "Link de redefinição de palavra-passe gerado" } });
+  revalidatePath(`/admin/utilizadores/${id}`);
+  return { ok: true, data: { link }, message: "Link gerado (válido 30 minutos, uso único). Envie-o ao utilizador por um canal de confiança." };
+}

@@ -47,6 +47,18 @@ export async function updateSettings(ownerId: string, input: SettingsInput): Pro
   });
 }
 
+/**
+ * Configurações pessoais: nome (na conta) e idioma, moeda padrão e fuso horário (nas configurações da conta).
+ * A moeda padrão só se aplica a produtos novos — os preços existentes nunca são alterados.
+ */
+export async function updateAccountSettings(userId: string, input: import("@/server/validation/schemas").AccountSettingsInput): Promise<void> {
+  await getSettings(userId);
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: userId }, data: { name: input.name } }),
+    prisma.settings.update({ where: { ownerId: userId }, data: { locale: input.locale, defaultCurrency: input.defaultCurrency, timezone: input.timezone } }),
+  ]);
+}
+
 export async function setDemoMode(ownerId: string, enabled: boolean): Promise<Settings> {
   await getSettings(ownerId);
   return prisma.settings.update({ where: { ownerId }, data: { demoMode: enabled } });

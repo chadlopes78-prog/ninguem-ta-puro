@@ -3,6 +3,7 @@
 // para que funis do assistente e do editor avançado funcionem da mesma forma.
 import { z } from "zod";
 import { thankYouActionSchema, thankYouDesignSchema } from "@/lib/thank-you";
+import { deliverySchema, supportSchema } from "@/lib/product-setup";
 import type { FunnelGraph, GraphNode, StepConfig } from "./types";
 
 const httpsUrl = z.string().trim().max(2000).refine((v) => /^https:\/\/[^\s.]+\.[^\s]+$/i.test(v), "Use um endereço https:// completo");
@@ -38,12 +39,20 @@ export const wizardSchema = z
     productId: id,
     afterPayment: z.enum(["upsell", "thank_you"]),
     upsell: upsellConfigSchema.optional(),
-    thankYou: z.object({ design: thankYouDesignSchema, action: thankYouActionSchema, fileId: z.string().max(40).nullable().default(null) }),
+    // `action`/`fileId`: configuração anterior do botão da página de obrigado (mantida por compatibilidade;
+    // o botão de acesso passa a seguir a entrega do produto e o WhatsApp o suporte do produto)
+    thankYou: z.object({ design: thankYouDesignSchema, action: thankYouActionSchema.optional(), fileId: z.string().max(40).nullable().default(null) }),
+    /** Suporte via WhatsApp do produto inicial */
+    support: supportSchema.default({}),
+    /** Entrega do produto inicial: link externo OU página de entrega interna */
+    delivery: deliverySchema.default({}),
+    /** Este funil passa a ser o principal do produto (o que o checkout principal segue) */
+    isMain: z.boolean().default(true),
   })
   .superRefine((v, ctx) => {
     if (v.afterPayment === "upsell" && !v.upsell) ctx.addIssue({ code: "custom", path: ["upsell"], message: "Configure o upsell" });
     if (v.upsell && v.upsell.productId === v.productId) ctx.addIssue({ code: "custom", path: ["upsell", "productId"], message: "Escolha um produto diferente do produto inicial" });
-    if (v.thankYou.action.type === "product" && v.thankYou.action.delivery === "pdf" && !v.thankYou.fileId) {
+    if (v.thankYou.action?.type === "product" && v.thankYou.action.delivery === "pdf" && !v.thankYou.fileId && !v.delivery.method) {
       ctx.addIssue({ code: "custom", path: ["thankYou", "fileId"], message: "Carregue ou selecione o PDF do produto" });
     }
   });

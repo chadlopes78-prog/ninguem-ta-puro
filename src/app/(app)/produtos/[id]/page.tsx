@@ -16,7 +16,12 @@ import { ActionButton } from "@/components/ui/action-button";
 import { ProductForm } from "@/components/products/product-form";
 import { OffersCard } from "@/components/products/offers-card";
 import { PRODUCT_STATUS_LABELS, PRODUCT_STATUS_TONE } from "@/components/products/labels";
-import { addOfferAction, duplicateProductAction, saveProductAction, setOfferActiveAction, setProductStatusAction } from "../actions";
+import { addOfferAction, duplicateProductAction, publishProductAction, saveProductAction, setOfferActiveAction, setProductStatusAction } from "../actions";
+import { getReadiness } from "@/server/services/product-readiness";
+import { STAGE_LABELS } from "@/lib/product-setup";
+import { Card, CardBody, CardHeader } from "@/components/ui/card";
+import Link from "next/link";
+import { CheckCircle2, Circle } from "lucide-react";
 
 export const metadata: Metadata = { title: "Editar produto" };
 
@@ -37,6 +42,7 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
   const base = await resolveAppBaseUrl();
   const live = product.status === "PUBLISHED" && primary.isActive && Boolean(main?.isActive);
   const archived = product.status === "ARCHIVED";
+  const readiness = await getReadiness(product.id, scope);
 
   return (
     <>
@@ -62,7 +68,9 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
               <ActionButton variant="secondary" action={setProductStatusAction.bind(null, product.id, "UNPUBLISHED")}>Despublicar</ActionButton>
             )}
             {(product.status === "DRAFT" || product.status === "UNPUBLISHED") && (
-              <ActionButton action={setProductStatusAction.bind(null, product.id, "PUBLISHED")}>Publicar</ActionButton>
+              <ActionButton action={publishProductAction.bind(null, product.id)} data-testid="publish-product">
+                Publicar
+              </ActionButton>
             )}
             {archived ? (
               <ActionButton action={setProductStatusAction.bind(null, product.id, "DRAFT")}>Restaurar</ActionButton>
@@ -97,6 +105,36 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
           }
         />
       </div>
+      {!archived && (
+        <Card className="mb-5" data-testid="product-requirements">
+          <CardHeader
+            title={readiness.ready ? "Configuração completa" : "Produto incompleto — configure o funil, a página de obrigado e a entrega do produto antes de publicar"}
+            description={`Estado: ${STAGE_LABELS[readiness.stage]}. ${readiness.ready ? (product.status === "PUBLISHED" ? "O produto pode receber compras." : "Já pode publicar o produto.") : "Clique num requisito para o configurar."}`}
+            action={
+              !readiness.ready ? (
+                <Link href={readiness.missing[0].href} className="inline-flex h-9 items-center rounded-[var(--radius-md)] bg-accent px-4 text-[13px] font-semibold text-accent-ink hover:bg-accent-strong" data-testid="complete-setup">
+                  Completar configuração
+                </Link>
+              ) : undefined
+            }
+          />
+          <CardBody>
+            <ul className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+              {readiness.requirements.map((r) => (
+                <li key={r.key}>
+                  <Link href={r.href} className="flex items-start gap-2 rounded-[var(--radius-md)] px-2 py-1.5 text-[13px] hover:bg-surface-2" data-testid={`req-${r.key}`} data-ok={r.ok}>
+                    {r.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" /> : <Circle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />}
+                    <span>
+                      <span className="font-medium">{r.label}:</span> <span className={r.ok ? "text-success" : "text-warning"}>{r.ok ? "concluído" : "pendente"}</span>
+                      {!r.ok && <span className="block text-[12px] text-muted">{r.detail}</span>}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </CardBody>
+        </Card>
+      )}
       {archived && (
         <Alert tone="warning" className="mb-5" title="Produto arquivado">
           Restaure o produto para o editar.

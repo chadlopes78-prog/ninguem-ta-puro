@@ -9,10 +9,12 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AccountBadge, AdminNav, UserActions } from "@/components/admin/admin-ui";
+import { ResetLinkButton } from "@/components/admin/reset-link-button";
+import { adminResetLinkAction } from "../../actions";
 
 export const metadata: Metadata = { title: "Conta" };
 
-const ACTION_LABEL: Record<string, string> = { approve: "Aprovada", reject: "Rejeitada", ban: "Suspensa", unban: "Suspensão levantada" };
+const ACTION_LABEL: Record<string, string> = { approve: "Aprovada", reject: "Rejeitada", ban: "Suspensa", unban: "Suspensão levantada", password_reset_link: "Link de redefinição de palavra-passe gerado" };
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -54,6 +56,12 @@ export default async function AdminUserPage({ params }: { params: Promise<{ id: 
               <Row label="Suspensa desde">{u.bannedAt ? formatDate(u.bannedAt, tz, true) : "—"}</Row>
               <Row label="Último acesso">{u.lastLoginAt ? formatDate(u.lastLoginAt, tz, true) : "—"}</Row>
             </dl>
+          </CardBody>
+        </Card>
+        <Card>
+          <CardHeader title="Palavra-passe" description="Recuperação de acesso" />
+          <CardBody>
+            <ResetLinkButton action={adminResetLinkAction.bind(null, u.id)} />
           </CardBody>
         </Card>
         <Card>

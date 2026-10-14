@@ -18,8 +18,20 @@ import { RowMenu } from "@/components/ui/row-menu";
 import { CopyButton } from "@/components/ui/copy-button";
 import { checkoutPath } from "@/server/services/primary-checkout";
 import { ProductCover } from "@/components/products/cover";
-import { PRODUCT_STATUS_LABELS, PRODUCT_STATUS_TONE, PRODUCT_TYPE_LABELS } from "@/components/products/labels";
-import { duplicateProductAction, setProductStatusAction } from "./actions";
+import { PRODUCT_STATUS_LABELS, PRODUCT_TYPE_LABELS } from "@/components/products/labels";
+import { duplicateProductAction, publishProductAction, setProductStatusAction } from "./actions";
+import { readinessMap } from "@/server/services/product-readiness";
+import { STAGE_LABELS, type ProductStage } from "@/lib/product-setup";
+
+const STAGE_TONE: Record<ProductStage, "neutral" | "success" | "warning" | "info" | "danger"> = {
+  draft: "neutral",
+  incomplete: "warning",
+  ready: "info",
+  published: "success",
+  published_incomplete: "warning",
+  unpublished: "neutral",
+  archived: "neutral",
+};
 
 export const metadata: Metadata = { title: "Produtos" };
 
@@ -32,6 +44,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
   const sort = (["newest", "oldest", "name", "price_desc", "price_asc", "orders"].includes(sp.sort ?? "") ? sp.sort : "newest") as ProductListQuery["sort"];
   const products = await listProducts({ scope, q: sp.q?.slice(0, 100), status, type, sort });
   const filtered = Boolean(sp.q || sp.type || (sp.status && sp.status !== "ACTIVE"));
+  const readiness = await readinessMap(products.map((p) => p.id), scope);
 
   return (
     <>
@@ -92,9 +105,42 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                 </Link>
               ),
             },
+            {
+              key: "setup",
+              header: "Configuração",
+              mobile: "meta",
+              cell: (p) => {
+                const r = readiness.get(p.id);
+                if (!r || r.ready || p.status === "ARCHIVED") return r?.ready ? <span className="text-[12.5px] text-success">Tudo configurado</span> : <span className="text-subtle">—</span>;
+                return (
+                  <span className="flex min-w-0 flex-col gap-1" data-testid="product-incomplete">
+                    <span className="text-[12.5px] text-warning">Produto incompleto — configure o funil, a página de obrigado e a entrega do produto antes de publicar.</span>
+                    <span className="text-[12px] text-muted">Falta: {r.missing.map((m) => m.label.toLowerCase()).join(", ")}</span>
+                    <Link href={r.missing[0].href} className="w-fit text-[12.5px] font-semibold text-accent hover:underline" data-testid="complete-setup">
+                      Completar configuração →
+                    </Link>
+                  </span>
+                );
+              },
+            },
             { key: "type", header: "Tipo", cell: (p) => <span className="text-muted">{PRODUCT_TYPE_LABELS[p.type]}</span> },
             { key: "price", header: "Preço", mobile: "end", align: "right", cell: (p) => <span className="font-medium tabular">{p.defaultOffer ? formatMoney(p.defaultOffer.priceCents, p.defaultOffer.currency) : "—"}</span> },
-            { key: "status", header: "Estado", mobile: "end", cell: (p) => <Badge tone={PRODUCT_STATUS_TONE[p.status]} dot>{PRODUCT_STATUS_LABELS[p.status]}</Badge> },
+            {
+              key: "status",
+              header: "Estado",
+              mobile: "end",
+              cell: (p) => {
+                const st = readiness.get(p.id)?.stage ?? (p.status === "UNPUBLISHED" ? "unpublished" : "draft");
+                const stage: ProductStage = p.status === "UNPUBLISHED" && st === "incomplete" ? "incomplete" : st;
+                return (
+                  <span data-testid="product-stage" data-stage={stage}>
+                    <Badge tone={STAGE_TONE[stage]} dot>
+                      {STAGE_LABELS[stage]}
+                    </Badge>
+                  </span>
+                );
+              },
+            },
             {
               key: "link",
               header: "Link do checkout",
@@ -129,7 +175,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                     ...(p.status === "PUBLISHED"
                       ? [{ kind: "action" as const, label: "Despublicar", run: setProductStatusAction.bind(null, p.id, "UNPUBLISHED") }]
                       : p.status !== "ARCHIVED"
-                        ? [{ kind: "action" as const, label: "Publicar", run: setProductStatusAction.bind(null, p.id, "PUBLISHED") }]
+                        ? [{ kind: "action" as const, label: "Publicar", run: publishProductAction.bind(null, p.id) }]
                         : [{ kind: "action" as const, label: "Restaurar", run: setProductStatusAction.bind(null, p.id, "DRAFT") }]),
                     ...(p.status !== "ARCHIVED"
                       ? [{ kind: "action" as const, label: "Arquivar", danger: true, confirm: `Arquivar “${p.name}”? Os checkouts deste produto deixam de estar disponíveis. Pode restaurá-lo depois.`, run: setProductStatusAction.bind(null, p.id, "ARCHIVED") }]

@@ -10,7 +10,8 @@ import { createUser, getUserBySessionToken, login, registerUser, EmailTakenError
 import { accountState, canAdminister, canApplyAdminAction, canUseApp } from "@/server/auth/policy";
 import { adminOverview, applyAdminAction, ForbiddenError, getUserDetail, listUsers } from "@/server/services/admin";
 import { checkoutSchema, couponSchema, productSchema } from "@/server/validation/schemas";
-import { createProduct, getProduct, listProducts, updateProduct, DomainError, NotFoundError } from "@/server/services/products";
+import { getProduct, listProducts, updateProduct, DomainError, NotFoundError } from "@/server/services/products";
+import { createProduct } from "../helpers/products";
 import { createCheckout, deleteCheckout, getCheckout, getPublicCheckout, listCheckouts } from "@/server/services/checkouts";
 import { createFunnel, getFunnelRecord, saveFunnel } from "@/server/services/funnels";
 import { createCoupon, listCoupons } from "@/server/services/coupons";

@@ -30,10 +30,11 @@ export default async function ThankYouPage({ params, searchParams }: { params: P
         totalCents={view.totalCents}
         currency={view.currency}
         button={view.button}
+        support={view.support}
         buttonKind={view.buttonKind}
         upsells={view.upsells}
         upsellNote={failedUpsell ? "A oferta adicional não foi paga e não foi entregue. A sua compra principal está confirmada." : null}
-        supportEmail={view.supportEmail ?? settings.supportEmail}
+        supportEmail={view.supportEmail}
         retryPath={view.retryPath}
       />
     </>

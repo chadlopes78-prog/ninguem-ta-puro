@@ -106,12 +106,9 @@ export function ProductForm({
               <Field label="Página de vendas" name="salesPageUrl" error={fe.salesPageUrl} hint="Opcional.">
                 {(p) => <Input {...p} type="url" defaultValue={initial.salesPageUrl} placeholder="https://" />}
               </Field>
-              <Field label="Email de suporte" name="supportEmail" error={fe.supportEmail}>
-                {(p) => <Input {...p} type="email" defaultValue={initial.supportEmail} placeholder="suporte@exemplo.com" />}
-              </Field>
-              <Field label="URL de entrega/acesso" name="deliveryUrl" error={fe.deliveryUrl} hint="Usado após pagamento confirmado (integração futura)." className="sm:col-span-2">
-                {(p) => <Input {...p} type="url" defaultValue={initial.deliveryUrl} placeholder="https://" />}
-              </Field>
+              <p className="text-[12.5px] leading-relaxed text-subtle sm:col-span-2">
+                O suporte via WhatsApp e a entrega do produto (link externo ou página de entrega) configuram-se no funil do produto, na aba Funis.
+              </p>
             </CardBody>
           </Card>
         </div>
@@ -132,17 +129,26 @@ export function ProductForm({
           <Card>
             <CardHeader title="Publicação" />
             <CardBody className="grid gap-4">
-              <Field label="Estado" name="status" error={fe.status} hint="Apenas produtos publicados podem ser vendidos em checkouts.">
-                {(p) => (
-                  <Select {...p} defaultValue={initial.status === "ARCHIVED" ? "DRAFT" : initial.status}>
-                    {(["DRAFT", "PUBLISHED", "UNPUBLISHED"] as const).map((s) => (
-                      <option key={s} value={s}>
-                        {PRODUCT_STATUS_LABELS[s]}
-                      </option>
-                    ))}
-                  </Select>
-                )}
-              </Field>
+              {isNew ? (
+                <>
+                  <input type="hidden" name="status" value="DRAFT" />
+                  <p className="text-[12.5px] leading-relaxed text-muted" data-testid="new-product-draft-note">
+                    O produto é guardado como <strong>rascunho</strong>. Para o publicar, crie o funil e configure a página de obrigado, o suporte WhatsApp e a entrega.
+                  </p>
+                </>
+              ) : (
+                <Field label="Estado" name="status" error={fe.status} hint="Só é possível publicar quando o funil, a página de obrigado, o suporte WhatsApp e a entrega estão configurados.">
+                  {(p) => (
+                    <Select {...p} defaultValue={initial.status === "ARCHIVED" ? "DRAFT" : initial.status}>
+                      {(["DRAFT", "PUBLISHED", "UNPUBLISHED"] as const).map((s) => (
+                        <option key={s} value={s}>
+                          {PRODUCT_STATUS_LABELS[s]}
+                        </option>
+                      ))}
+                    </Select>
+                  )}
+                </Field>
+              )}
               {!readOnly && (
                 <div className="flex flex-col gap-2">
                   <Button type="submit" loading={pending} className="w-full">

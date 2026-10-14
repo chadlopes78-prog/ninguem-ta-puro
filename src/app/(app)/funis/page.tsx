@@ -18,6 +18,9 @@ import { ArrowRight } from "lucide-react";
 import { STEP_ICON, STEP_TINT } from "@/components/funnels/step-visuals";
 import { createFunnelAction, createWizardFunnelAction, deactivateFunnelAction, deleteFunnelAction, duplicateFunnelAction, activateFunnelAction } from "./actions";
 import { own } from "@/server/scope";
+import { readinessMap } from "@/server/services/product-readiness";
+import { STAGE_LABELS } from "@/lib/product-setup";
+import { CheckCircle2, Circle, Star } from "lucide-react";
 
 export const metadata: Metadata = { title: "Funis de vendas" };
 
@@ -29,8 +32,11 @@ export default async function FunnelsPage({ searchParams }: { searchParams: Prom
   const { isDemo, settings, scope } = await getScope();
   const [funnels, products] = await Promise.all([
     listFunnels({ scope, q: sp.q?.slice(0, 100), status: sp.status }),
-    prisma.product.findMany({ where: { ...own(scope), status: { not: "ARCHIVED" } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    prisma.product.findMany({ where: { ...own(scope), status: { not: "ARCHIVED" } }, select: { id: true, name: true, mainFunnelId: true, deliveryMethod: true }, orderBy: { name: "asc" } }),
   ]);
+  const ready = await readinessMap([...new Set(funnels.map((f) => f.productId).filter((x): x is string => !!x))], scope);
+  const productInfo = new Map(products.map((p) => [p.id, p]));
+  const preselect = sp.criar && /^[a-z0-9]{10,40}$/i.test(sp.criar) ? sp.criar : undefined;
 
   return (
     <>
@@ -40,7 +46,7 @@ export default async function FunnelsPage({ searchParams }: { searchParams: Prom
         actions={
           <>
             <NewFunnelButton action={createFunnelAction} label="Funil avançado" />
-            <NewWizardFunnelButton action={createWizardFunnelAction} products={products} />
+            <NewWizardFunnelButton action={createWizardFunnelAction} products={products} initialProductId={preselect} />
           </>
         }
       />
@@ -56,7 +62,7 @@ export default async function FunnelsPage({ searchParams }: { searchParams: Prom
             icon={Workflow}
             title={sp.q || sp.status ? "Nenhum funil encontrado" : "Sem funis"}
             description={sp.q || sp.status ? undefined : "Escolha um produto e defina o que acontece depois do pagamento: um upsell ou uma página de obrigado."}
-            action={!sp.q && !sp.status ? <NewWizardFunnelButton action={createWizardFunnelAction} products={products} label="Criar funil" /> : undefined}
+            action={!sp.q && !sp.status ? <NewWizardFunnelButton action={createWizardFunnelAction} products={products} label="Criar funil" testId="new-wizard-funnel-empty" /> : undefined}
           />
         </Card>
       ) : (
@@ -107,6 +113,38 @@ export default async function FunnelsPage({ searchParams }: { searchParams: Prom
                     })}
                   </div>
                   )}
+                  {f.productId && (() => {
+                    const r = ready.get(f.productId);
+                    const info = productInfo.get(f.productId);
+                    if (!r) return null;
+                    const isMain = info?.mainFunnelId === f.id;
+                    const reqOk = (k: string) => r.requirements.find((x) => x.key === k)?.ok ?? false;
+                    const row = (label: string, ok: boolean, value?: string) => (
+                      <li className="flex items-center justify-between gap-2">
+                        <span className="text-muted">{label}</span>
+                        <span className={ok ? "flex items-center gap-1 text-success" : "flex items-center gap-1 text-warning"}>
+                          {ok ? <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> : <Circle className="h-3.5 w-3.5" aria-hidden="true" />}
+                          {value ?? (ok ? "Concluído" : "Pendente")}
+                        </span>
+                      </li>
+                    );
+                    return (
+                      <ul className="mt-4 flex flex-col gap-1.5 rounded-[var(--radius-md)] border border-line bg-surface-2/50 p-3 text-[12.5px]" data-testid="funnel-card-status">
+                        <li className="flex items-center justify-between gap-2">
+                          <span className="text-muted">Produto</span>
+                          <span className="flex min-w-0 items-center gap-1 truncate font-medium">
+                            {isMain && <Star className="h-3.5 w-3.5 shrink-0 text-accent" aria-label="Funil principal" />}
+                            <span className="truncate">{f.product?.name}</span>
+                          </span>
+                        </li>
+                        {row("Funil principal", isMain, isMain ? "Sim" : "Não")}
+                        {row("Página de obrigado", isMain ? reqOk("thankYou") : true)}
+                        {row("Número WhatsApp", reqOk("whatsapp"))}
+                        {row("Entrega", reqOk("delivery") && reqOk("deliveryContent"), info?.deliveryMethod === "EXTERNAL_LINK" ? "Link externo" : info?.deliveryMethod === "INTERNAL_PAGE" ? "Página interna" : "Por escolher")}
+                        {row("Conclusão", isMain && r.ready, STAGE_LABELS[r.stage])}
+                      </ul>
+                    );
+                  })()}
                   <div className="mt-auto flex flex-wrap items-center justify-between gap-2 pt-5 text-[12.5px] text-subtle">
                     {STATUS[f.status]}
                     <span>

@@ -22,7 +22,12 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   return (
     <AuthShell title="Bem-vindo de volta" subtitle="Inicie sessão para gerir as suas vendas.">
       <LoginForm next={next} />
-      <p className="mt-5 text-center text-sm text-muted">
+      <p className="mt-4 text-center text-sm">
+        <Link href="/recuperar" className="text-muted underline-offset-4 hover:text-fg hover:underline" data-testid="forgot-link">
+          Esqueceu-se da palavra-passe?
+        </Link>
+      </p>
+      <p className="mt-3 text-center text-sm text-muted">
         Ainda não tem conta?{" "}
         <Link href="/registo" className="font-medium text-fg underline-offset-4 hover:underline" data-testid="register-link">
           Criar conta

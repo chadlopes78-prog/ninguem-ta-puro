@@ -72,6 +72,7 @@ model User {
   adminActions           AdminAuditLog[]         @relation("AdminActor")
   adminTargets           AdminAuditLog[]         @relation("AdminTarget")
   mediaAssets            MediaAsset[]
+  passwordResets         PasswordResetToken[]
 }
 
 /// Registo das ações administrativas (aprovar, rejeitar, banir, desbanir).
@@ -133,33 +134,71 @@ enum ProductStatus {
 }
 
 model Product {
-  id           String          @id @default(cuid())
-  name         String
-  description  String          @db.Text
-  imageUrl     String?
-  type         ProductType
-  category     String?
-  status       ProductStatus   @default(DRAFT)
-  salesPageUrl String?
-  supportEmail String?
-  deliveryUrl  String?
+  id              String          @id @default(cuid())
+  name            String
+  description     String          @db.Text
+  imageUrl        String?
+  type            ProductType
+  category        String?
+  status          ProductStatus   @default(DRAFT)
+  salesPageUrl    String?
+  supportEmail    String?
+  /// Link externo de entrega (método EXTERNAL_LINK). Só é mostrado ao comprador depois do pagamento confirmado.
+  deliveryUrl     String?
+  /// Número de suporte WhatsApp do produto (formato internacional, só dígitos). Obrigatório para publicar.
+  supportWhatsApp String?
+  /// Mensagem inicial opcional da conversa de suporte
+  supportMessage  String?
+  /// Método de entrega escolhido pelo vendedor (obrigatório para publicar)
+  deliveryMethod  DeliveryMethod?
+  /// Funil principal do produto (o que segue o fluxo de compra do checkout principal). Sempre da mesma conta.
+  mainFunnelId    String?
+  mainFunnel      Funnel?         @relation("ProductMainFunnel", fields: [mainFunnelId], references: [id], onDelete: SetNull)
+  deliveryPage    DeliveryPage?
   /// Conta dona deste registo (isolamento entre utilizadores)
-  ownerId      String
-  owner        User            @relation(fields: [ownerId], references: [id], onDelete: Restrict)
-  isDemo       Boolean         @default(false)
-  archivedAt   DateTime?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
-  offers       Offer[]
-  checkouts    Checkout[]
-  orderItems   OrderItem[]
-  coupons      CouponProduct[]
-  files        ProductFile[]
-  funnels      Funnel[]
+  ownerId         String
+  owner           User            @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  isDemo          Boolean         @default(false)
+  archivedAt      DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  offers          Offer[]
+  checkouts       Checkout[]
+  orderItems      OrderItem[]
+  coupons         CouponProduct[]
+  files           ProductFile[]
+  funnels         Funnel[]
 
   @@index([isDemo, status])
   @@index([ownerId, isDemo, status])
   @@index([createdAt])
+}
+
+enum DeliveryMethod {
+  /// O comprador é encaminhado para um link externo (área de membros, curso, download…)
+  EXTERNAL_LINK
+  /// Página de entrega criada na própria plataforma (/entrega/<token>/<produto>)
+  INTERNAL_PAGE
+}
+
+/// Página de entrega interna de um produto. Só é mostrada a quem tem uma encomenda paga que inclua o produto.
+model DeliveryPage {
+  id           String       @id @default(cuid())
+  productId    String       @unique
+  product      Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  title        String       @default("O seu produto está pronto")
+  welcome      String       @default("") @db.Text
+  instructions String       @default("") @db.Text
+  /// Conteúdo apresentado na própria página (texto simples)
+  bodyText     String       @default("") @db.Text
+  buttonText   String       @default("ACEDER AO MEU PRODUTO")
+  /// Link complementar (opcional)
+  resourceUrl  String?
+  /// Ficheiro privado entregue pelo botão principal (descarregado só pelo endpoint autenticado por token)
+  fileId       String?
+  file         ProductFile? @relation(fields: [fileId], references: [id], onDelete: SetNull)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 }
 
 enum BillingType {
@@ -321,6 +360,7 @@ model Funnel {
   orders       Order[]
   runs         FunnelRun[]
   thankYouPage ThankYouPage?
+  mainOf       Product[]     @relation("ProductMainFunnel")
 
   @@index([isDemo])
   @@index([ownerId, isDemo])
@@ -356,6 +396,7 @@ model ProductFile {
   data          Bytes
   createdAt     DateTime       @default(now())
   thankYouPages ThankYouPage[]
+  deliveryPages DeliveryPage[]
 
   @@index([productId])
 }
@@ -924,4 +965,17 @@ model MediaAsset {
 
   @@unique([ownerId, sha256])
   @@index([ownerId, createdAt])
+}
+
+/// Pedido de redefinição de palavra-passe: só o hash do token é guardado; uso único e validade curta.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, createdAt])
 }

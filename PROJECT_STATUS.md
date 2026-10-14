@@ -1,6 +1,6 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-14 · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
+Última atualização: 2026-10-14 · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
 
 ## Estado geral
 
@@ -10,8 +10,8 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 |---|---|---|
 | Lint | `npm run lint` | ✅ 0 erros, 0 avisos |
 | Tipos TypeScript | `npm run typecheck` | ✅ sem erros |
-| Testes unitários + integração | `npm test` | ✅ 233/233 (6 de operações do editor, 5 da biblioteca de imagens, 16 de personalização do checkout, 12 de multiutilizador A–G, 16 de notificações/relatórios, 10 de funis, 18 de gateways) |
-| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 75/75 (6 do editor visual com arrastar e soltar real, 1 de navegação lenta no telemóvel, 5 de várias contas, 10 de notificações/PWA/relatórios, 8 de funis, 9 de pagamentos, 4 de personalização, 3 de gateways) |
+| Testes unitários + integração | `npm test` | ✅ 246/246 (13 de publicação/entrega/configurações/palavra-passe, 6 de operações do editor, 5 da biblioteca de imagens, 16 de personalização do checkout, 12 de multiutilizador A–G, 16 de notificações/relatórios, 10 de funis, 18 de gateways) |
+| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 79/79 (4 de configurações/palavra-passe/telemóvel, 6 do editor visual com arrastar e soltar real, 1 de navegação lenta no telemóvel, 5 de várias contas, 10 de notificações/PWA/relatórios, 8 de funis, 9 de pagamentos, 4 de personalização, 3 de gateways) |
 | Build de produção | `npm run build` | ✅ sem erros |
 | Fuga de segredos | build com `EPAY_SECRET_KEY`, `E2PAYMENTS_CLIENT_ID/SECRET` e `INTEGRATIONS_ENCRYPTION_KEY` fictícias + `grep` em `.next/` e log | ✅ valor ausente do bundle do browser, do output do servidor e do log; nenhuma variável `NEXT_PUBLIC_`; `.env` com segredos fora do Git |
 
@@ -26,6 +26,39 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | 5 — Operação | ✅ Concluída | Pedidos (filtros, detalhe, transições), clientes, cupões (com testador), relatórios |
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
+
+## Produtos incompletos, WhatsApp de suporte, entrega do produto e configurações (sessão 13)
+
+### O que mudou
+- **Produtos nascem como rascunho** e só podem ser publicados (e vender) com a configuração obrigatória completa: **funil principal**, **página de obrigado**, **número WhatsApp de suporte** e **entrega do produto** (link externo **ou** página de entrega interna com conteúdo). Validação **centralizada no servidor** (`src/server/services/product-readiness.ts` → `assertPublishable`/`publishProduct`) usada por todos os caminhos: criar/editar produto, botão "Publicar", mudança de estado, "Guardar e publicar produto" no funil. Chamadas diretas às ações/serviços não contornam a regra (testado).
+- **Estados visíveis**: Rascunho (configuração ainda não iniciada) · Incompleto · Pronto para publicar · Publicado (+ "Publicado · configuração em falta" para produtos antigos, ver migração). Lista de Produtos com coluna "Configuração" e a mensagem «Produto incompleto — configure o funil, a página de obrigado e a entrega do produto antes de publicar.», o que falta e «Completar configuração →» (abre a aba Funis com o produto já escolhido). No produto, cartão de requisitos com cada item clicável (leva ao passo certo do funil: `#suporte`, `#entrega`, `#obrigado`).
+- **Aba Funis**: "Criar funil" → escolher produto (só da própria conta) → fluxo de compra/upsell (mantido) → página de obrigado → **Suporte WhatsApp** → **Entrega do produto** → guardar / "Guardar e publicar produto". Cada cartão mostra produto (★ se for o funil principal), página de obrigado, WhatsApp, método de entrega e conclusão. O funil principal de um produto publicado não pode ser desativado, apagado nem trocado de produto.
+- **WhatsApp por produto (obrigatório)**: formato internacional validado e normalizado, link de teste `wa.me`, mensagem inicial opcional; guardado no produto (isolado por conta). Nunca é usado o número do proprietário nem um número inventado.
+- **Página de obrigado**: botão «Precisa de ajuda? Fale connosco no WhatsApp» **acima** do botão de acesso; o acesso só aparece com o pagamento confirmado pelo processador.
+- **Entrega**: (A) link externo validado, guardado por produto, só revelado depois da confirmação; (B) página de entrega interna `/entrega/<token>/<produto>` com título, boas-vindas, instruções, conteúdo, ficheiro ou link e texto do botão; ordem: 1.º WhatsApp «Precisa de ajuda? Fale com o nosso suporte no WhatsApp.», 2.º «ACEDER AO MEU PRODUTO» (ligado ao ficheiro/link/conteúdo real), depois o conteúdo. Ficheiros privados só pelo endpoint autenticado existente `/acesso/<token>/ficheiro/<id>`. A página de obrigado e a página de entrega são distintas (sem redirecionamentos circulares). Acesso exige encomenda **APROVADA**, não demo, que contenha o produto e seja da mesma conta (IDs/tokens alterados → "Acesso indisponível"/404).
+- **Configurações** simplificadas: email da conta (só leitura), nome do utilizador, idioma, moeda padrão (só para produtos novos; preços existentes não mudam) e fuso horário. Removidos: nome do negócio editável (o painel mostra sempre "Ninguém Tá Puro"), email de suporte e o formulário permanente de palavra-passe. Segurança: «Alterar palavra-passe» (diálogo) e «Esqueceu-se da palavra-passe?». As colunas antigas de configuração não foram apagadas.
+- **Recuperação da palavra-passe**: `/recuperar` → token aleatório de 32 bytes (só o hash SHA-256 é guardado), válido 30 min, uso único, pedidos novos invalidam os anteriores, máx. 3/hora por conta e 10/hora por IP, resposta genérica (não revela se o email existe); `/redefinir/<token>` define a nova palavra-passe e termina todas as sessões. Envio por email via API HTTP da Resend **apenas se** `RESEND_API_KEY` e `EMAIL_FROM` estiverem definidos. Sem isso, o proprietário gera o link em Administração → utilizador → "Palavra-passe" (auditado como `password_reset_link`; não funciona para contas OWNER).
+
+### Ficheiros principais
+`prisma/schema.prisma`, `prisma/migrations/20261024090000_product_readiness/`, `src/lib/product-setup.ts`, `src/server/services/{product-readiness,delivery,products,funnel-wizard,funnels,post-purchase,payment-flow,settings}.ts`, `src/server/auth/password-reset.ts`, `src/server/email.ts`, `src/app/entrega/[token]/[productId]/page.tsx`, `src/app/(auth)/{recuperar,redefinir}/`, `src/components/funnels/{product-setup-steps,funnel-wizard,new-wizard-funnel-button}.tsx`, `src/app/(app)/{produtos,funis,configuracoes,admin}/…`, `src/components/settings/settings-form.tsx`, `src/components/public/thank-you-content.tsx`, `src/middleware.ts`.
+
+### Migração `20261024090000_product_readiness` (aditiva)
+- Novas colunas em `Product` (`supportWhatsApp`, `supportMessage`, `deliveryMethod`, `mainFunnelId`), novo enum `DeliveryMethod`, tabelas `DeliveryPage` e `PasswordResetToken`. Nada é apagado; encomendas, pagamentos, entregas, webhooks e credenciais não são tocados.
+- **Dados existentes**: `deliveryUrl` → método "link externo"; funil principal = funil do checkout principal (ou o mais recente do produto); da configuração antiga da página de obrigado copia o WhatsApp (local `8XXXXXXXX` recebe `258`) e a mensagem, o link do produto ou o PDF (→ página de entrega interna). Testada numa BD temporária com dados antigos: estados inalterados, campos corretos.
+- **Produtos já publicados e incompletos** continuam publicados e a vender (estado "Publicado · configuração em falta", assinalado no painel); se forem despublicados, só voltam a publicar quando estiverem completos.
+- Reverter (se necessário): `DROP TABLE "PasswordResetToken", "DeliveryPage"; ALTER TABLE "Product" DROP COLUMN "supportWhatsApp", DROP COLUMN "supportMessage", DROP COLUMN "deliveryMethod", DROP COLUMN "mainFunnelId"; DROP TYPE "DeliveryMethod";` e remover a linha em `_prisma_migrations` (perde só os dados novos).
+
+### Testes
+- Integração: `tests/integration/product-publishing.test.ts` (13 testes: rascunho obrigatório; bloqueio sem funil/obrigado/WhatsApp/entrega com a lista do que falta; WhatsApp e link inválidos rejeitados; chamadas diretas não publicam; publicação ativa o funil principal; entrega só após confirmação; página interna com ficheiro/conteúdo/link real; manipulação de IDs; isolamento entre contas; dados históricos; configurações; recuperação de palavra-passe) + `funnels-real` e `checkout-personalization` adaptados. Os outros testes passam a publicar pelo caminho real (`tests/helpers/products.ts`).
+- E2E: 02 (rascunho → publicação recusada → "Completar configuração" → funil → publicar), 05/11 (compra paga → obrigado com WhatsApp acima do acesso → link externo), 08 (passo de suporte com validação e link de teste; página de entrega interna com PDF protegido; token/ID forjados recusados), **12 novo** (configurações só com os 5 campos; diálogo de alterar palavra-passe; recuperação genérica; link gerado na Administração funciona uma vez e termina sessões; telemóvel 375 px sem deslocamento horizontal em Configurações, Produtos, Funis, passo do funil e /recuperar).
+- Resultados: `npm test` ✅ 246/246 · `npm run test:e2e` ✅ 79/79 · lint ✅ · typecheck ✅ · build ✅.
+
+### Pendências desta sessão (honestas)
+- **Email**: sem `RESEND_API_KEY`/`EMAIL_FROM` não há envio de email; a recuperação funciona pelo link gerado pelo proprietário. Para ativar: criar conta na Resend, verificar o domínio e definir as duas variáveis na Vercel (nunca no repositório).
+- **Idioma**: a interface só existe em português; a escolha (pt-MZ/pt-PT/pt-BR) define o `lang` das páginas, não traduz textos.
+- Os dados de demonstração continuam a criar produtos publicados diretamente (são fictícios e não vendem).
+- Produtos gratuitos não existem (preço mínimo); a entrega exige sempre uma encomenda paga confirmada.
+- Produtos antigos publicados e incompletos precisam de ser completados pelo vendedor (aparecem assinalados).
 
 ## Editor visual do checkout tipo Elementor (sessão 12)
 
@@ -706,7 +739,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 1. **EPay**: definir `EPAY_SECRET_KEY` (`sk_test_…`) e `APP_BASE_URL`, fazer o teste no sandbox e depois uma transação real de valor baixo com `sk_live_…` (ver "O que falta fazer"). **Não declarar produção pronta antes disso.**
 2. Reembolsos reais através da API EPay (se a API os suportar); hoje só existem como simulação em modo demo.
 3. Upsell com pagamento real: implementado na sessão 8 (assistente de funis); falta uma compra real de valor baixo com upsell em cada gateway. Downsell continua só no editor avançado/simulação.
-4. Envio do link de acesso por email (não há fornecedor de email); hoje o acesso é mostrado na página de estado após confirmação.
+4. Envio do link de acesso por email: o envio via Resend existe para a recuperação da palavra-passe (sessão 13, ativo só com `RESEND_API_KEY`/`EMAIL_FROM`); o acesso ao produto continua a ser mostrado na página de obrigado/entrega após confirmação.
 3. Rate limiting de endpoints públicos em memória → mover para armazenamento partilhado (Redis) se houver várias instâncias.
 4. Upload de imagens: atualmente por URL; adicionar armazenamento de ficheiros (ex.: S3/Blob) se necessário.
 5. Envio de emails (confirmação/acesso) — sem fornecedor de email configurado.
@@ -722,6 +755,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 13 (2026-10-14)**: produtos nascem como rascunho e só publicam com funil principal, página de obrigado, WhatsApp de suporte e entrega (validação centralizada no servidor); WhatsApp por produto acima do botão de acesso; entrega por link externo ou página de entrega interna protegida; aba Funis com estado de cada requisito; Configurações simplificadas; recuperação da palavra-passe por token temporário (email opcional via Resend, ou link gerado pelo proprietário). Migração aditiva com passagem dos dados antigos; pagamentos e credenciais intactos. 246 testes unitários/integração e 79 E2E a passar.
 - **Sessão 12 (2026-10-14)**: editor visual do checkout tipo Elementor (secções/colunas/elementos, arrastar e soltar com indicadores, propriedades de conteúdo/estilo/avançado, dispositivos, desfazer/refazer, rascunho/publicação, aviso ao sair), modelo padrão profissional com dados reais, biblioteca de imagens por conta (carregamento validado), formulário de compra protegido e remoção do "Compra segura", do cabeçalho "Ligação cifrada" e do rodapé do checkout público. Pagamentos, funis e redirecionamentos intactos. 233 testes unitários/integração e 75 E2E a passar.
 - **Sessão 11 (2026-10-14)**: desempenho no telemóvel: menos consultas e em paralelo (JOIN do Prisma, sessão numa consulta, configurações sem upsert, layout e relatórios em paralelo), tarefas de notificações limitadas, gráficos carregados à parte (Dashboard/Relatórios 217 → 110 kB) e resposta imediata ao toque (menu fecha logo, indicador e barra de progresso). 221 testes unitários/integração e 69 E2E a passar.
 - **Sessão 10 (2026-10-14)**: sistema multiutilizador com registo pendente, aprovação/rejeição/suspensão pelo proprietário, Administração da Plataforma, isolamento total por conta (`ownerId` em todas as entidades), credenciais EPay/E2Payments por conta (cifradas, sem fallback) e avisos de pagamento verificados com a chave da conta dona. A migração atribui os dados existentes e as credenciais ao proprietário sem as alterar. 221 testes unitários/integração e 68 E2E a passar.

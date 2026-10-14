@@ -28,11 +28,16 @@ export default async function AccessPage({ params }: { params: Promise<{ token: 
             <li key={idx} className="rounded-[var(--radius-lg)] border border-line bg-surface p-4">
               <p className="font-medium">{i.name}</p>
               {i.url ? (
-                <a href={i.url} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex h-10 items-center gap-2 rounded-[var(--radius-md)] bg-accent px-4 text-sm font-semibold text-accent-ink" data-testid="delivery-link">
-                  <ExternalLink className="h-4 w-4" aria-hidden="true" /> Abrir conteúdo
+                <a href={i.url} target={i.internal ? undefined : "_blank"} rel={i.internal ? undefined : "noopener noreferrer"} className="mt-3 inline-flex h-10 items-center gap-2 rounded-[var(--radius-md)] bg-accent px-4 text-sm font-semibold text-accent-ink" data-testid="delivery-link">
+                  <ExternalLink className="h-4 w-4" aria-hidden="true" /> {i.internal ? "Aceder ao meu produto" : "Abrir conteúdo"}
                 </a>
               ) : (
-                <p className="mt-2 text-sm text-muted">O acesso a este produto será enviado pelo vendedor{i.support ? ` (${i.support})` : ""}.</p>
+                <p className="mt-2 text-sm text-muted">O acesso a este produto será disponibilizado pelo vendedor.</p>
+              )}
+              {i.support && (
+                <a href={i.support} target="_blank" rel="noopener noreferrer" className="mt-2 block text-[13px] text-muted underline underline-offset-2">
+                  Precisa de ajuda? Fale com o suporte no WhatsApp
+                </a>
               )}
             </li>
           ))}

@@ -5,11 +5,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/server/db";
 import { resetTestDb, testOwner } from "../helpers/db";
 import { productSchema } from "@/server/validation/schemas";
-import { createProduct } from "@/server/services/products";
+import { createProduct } from "../helpers/products";
+import { createProduct as createDraftProduct, publishProduct } from "@/server/services/products";
+import { getDeliveryPageView } from "@/server/services/delivery";
 import { submitCheckout } from "@/server/services/purchase";
 import { handleWebhook } from "@/server/payments/webhooks";
 import { testLocalProvider } from "@/server/payments/providers/test-local";
-import { activateWizardFunnel, createWizardFunnel, deactivateWizardFunnel, getWizardFunnel, saveWizardFunnel } from "@/server/services/funnel-wizard";
+import { createWizardFunnel, deactivateWizardFunnel, getWizardFunnel, saveWizardFunnel } from "@/server/services/funnel-wizard";
 import { acceptUpsell, declineUpsell, getRealOfferView, getThankYouView, nextDestination } from "@/server/services/post-purchase";
 import { fileForBuyer, saveProductPdf } from "@/server/services/product-files";
 import { defaultThankYouDesign } from "@/lib/thank-you";
@@ -51,8 +53,11 @@ async function payByWebhook(token: string, state: "paid" | "failed" = "paid") {
 
 const thankYou = (action: object, fileId: string | null = null) => ({ design: defaultThankYouDesign(), action, fileId });
 
-async function funnelFor(mainName = "Ebook Principal", opts: { upsell?: boolean; action?: object; fileId?: (mainId: string) => Promise<string> } = {}) {
-  const main = await product(mainName, "500,00");
+type Delivery = { method: "EXTERNAL_LINK" | "INTERNAL_PAGE"; url?: string; page?: Record<string, unknown> };
+
+/** Produto principal em rascunho → funil configurado no assistente (suporte + entrega) → publicado pelo fluxo real. */
+async function funnelFor(mainName = "Ebook Principal", opts: { upsell?: boolean; support?: { phone: string; message?: string }; delivery?: (fileId: string | null) => Delivery; fileId?: (mainId: string) => Promise<string> } = {}) {
+  const main = await createDraftProduct(productSchema.parse({ name: mainName, description: `${mainName} para testes`, type: "EBOOK", priceCents: "500,00", currency: "MZN", status: "DRAFT" }), S);
   const extra = await product("Curso Extra", "250,00");
   const f = await createWizardFunnel(main.id, S);
   const fileId = opts.fileId ? await opts.fileId(main.id) : null;
@@ -63,13 +68,14 @@ async function funnelFor(mainName = "Ebook Principal", opts: { upsell?: boolean;
       productId: main.id,
       afterPayment: opts.upsell ? "upsell" : "thank_you",
       upsell: opts.upsell ? { productId: extra.id, offerId: extra.offers[0].id, headline: "Leve também o Curso Extra", afterFail: "thank_you" } : undefined,
-      thankYou: thankYou(opts.action ?? { type: "product", delivery: "link", url: "https://area.exemplo.co.mz/membros" }, fileId),
+      thankYou: { design: defaultThankYouDesign(), fileId: null },
+      support: opts.support ?? { phone: "+258 84 123 4567" },
+      delivery: opts.delivery ? opts.delivery(fileId) : { method: "EXTERNAL_LINK", url: "https://area.exemplo.co.mz/membros" },
     },
     S,
   );
   expect(r).toMatchObject({ ok: true });
-  const v = await activateWizardFunnel(f.id, S);
-  expect(v.valid).toBe(true);
+  await publishProduct(main.id, S); // valida e ativa o funil principal no checkout principal
   return { main, extra, funnel: f, slug: main.primaryCheckout.slug! };
 }
 
@@ -207,44 +213,44 @@ describe("4–7. pós-pagamento e upsell real", () => {
     expect(await getThankYouView("token-invalido-123456789")).toBeNull();
   });
 
-  it("funil sem upsell: após pagamento vai para a página de obrigado; funil desativado deixa de ser usado", async () => {
+  it("funil sem upsell: após pagamento vai para a página de obrigado; o funil principal de um produto publicado não pode ser desativado", async () => {
     const { slug, funnel } = await funnelFor("Ebook F");
     const r = await buy(slug);
     if (r.kind !== "payment_started") throw new Error(r.kind);
     await payByWebhook(r.token);
     expect(await nextDestination(r.token)).toEqual({ kind: "thank_you", url: `/obrigado/${r.token}` });
-    await deactivateWizardFunnel(funnel.id, S);
-    const r2 = await buy(slug);
-    if (r2.kind !== "payment_started") throw new Error(r2.kind);
-    await payByWebhook(r2.token);
-    expect(await nextDestination(r2.token)).toBeNull();
-    expect((await prisma.order.findUniqueOrThrow({ where: { publicToken: r2.token } })).funnelId).toBeNull();
+    // desativar deixaria as compras sem página de obrigado/entrega: é recusado enquanto o produto estiver publicado
+    await expect(deactivateWizardFunnel(funnel.id, S)).rejects.toThrow("funil principal");
+    expect((await prisma.funnel.findUniqueOrThrow({ where: { id: funnel.id } })).status).toBe("ACTIVE");
   });
 });
 
 describe("8–11. página de obrigado e entrega", () => {
-  it("8. WhatsApp: link wa.me com número normalizado e mensagem codificada, só com a compra confirmada", async () => {
-    const { slug } = await funnelFor("Ebook G", { action: { type: "whatsapp", phone: "84 123 4567", message: "Olá! Acabei de comprar & preciso de ajuda?" } });
+  it("8. WhatsApp de suporte: link wa.me com número normalizado e mensagem codificada, acima do acesso, só com a compra confirmada", async () => {
+    const { slug } = await funnelFor("Ebook G", { support: { phone: "84 123 4567", message: "Olá! Acabei de comprar & preciso de ajuda?" } });
     const r = await buy(slug);
     if (r.kind !== "payment_started") throw new Error(r.kind);
-    expect((await getThankYouView(r.token))!.button).toBeNull();
+    const pending = (await getThankYouView(r.token))!;
+    expect(pending.button).toBeNull();
+    expect(pending.support).toBeNull();
     await payByWebhook(r.token);
     const ty = (await getThankYouView(r.token))!;
-    expect(ty.button).toEqual({ label: "Falar connosco no WhatsApp", href: "https://wa.me/258841234567?text=Ol%C3%A1!%20Acabei%20de%20comprar%20%26%20preciso%20de%20ajuda%3F", external: true });
+    expect(ty.support).toEqual({ label: "Precisa de ajuda? Fale connosco no WhatsApp", href: "https://wa.me/258841234567?text=Ol%C3%A1!%20Acabei%20de%20comprar%20%26%20preciso%20de%20ajuda%3F" });
+    expect(ty.button).toEqual({ label: "Aceder ao meu produto", href: "https://area.exemplo.co.mz/membros", external: true });
   });
 
-  it("9. link do produto", async () => {
-    const { slug } = await funnelFor("Ebook H", { action: { type: "product", delivery: "link", url: "https://area.exemplo.co.mz/curso", buttonText: "Entrar na área" } });
+  it("9. link externo de entrega: o botão de acesso leva ao URL configurado", async () => {
+    const { slug } = await funnelFor("Ebook H", { delivery: () => ({ method: "EXTERNAL_LINK", url: "https://area.exemplo.co.mz/curso" }) });
     const r = await buy(slug);
     if (r.kind !== "payment_started") throw new Error(r.kind);
     await payByWebhook(r.token);
-    expect((await getThankYouView(r.token))!.button).toEqual({ label: "Entrar na área", href: "https://area.exemplo.co.mz/curso", external: true });
+    expect((await getThankYouView(r.token))!.button).toEqual({ label: "Aceder ao meu produto", href: "https://area.exemplo.co.mz/curso", external: true });
   });
 
-  it("10–11. PDF protegido: só o comprador com a encomenda paga descarrega", async () => {
+  it("10–11. página de entrega interna com PDF protegido: só o comprador com a encomenda paga descarrega", async () => {
     let pdfId = "";
-    const { slug } = await funnelFor("Ebook PDF", {
-      action: { type: "product", delivery: "pdf" },
+    const { slug, main } = await funnelFor("Ebook PDF", {
+      delivery: (fileId) => ({ method: "INTERNAL_PAGE", page: { title: "O seu guia", buttonText: "ACEDER AO MEU PRODUTO", fileId } }),
       fileId: async (mainId) => (pdfId = (await saveProductPdf(mainId, S, { name: "Guia completo.pdf", type: "application/pdf", bytes: PDF })).id),
     });
     await expect(saveProductPdf((await prisma.product.findFirstOrThrow()).id, S, { name: "falso.pdf", type: "application/pdf", bytes: Buffer.from("<html>") })).rejects.toThrow("PDF válido");
@@ -259,9 +265,13 @@ describe("8–11. página de obrigado e entrega", () => {
 
     await payByWebhook(r.token);
     const ty = (await getThankYouView(r.token))!;
-    expect(ty.button?.label).toBe("Descarregar o meu produto");
-    const [, , dToken, , fId] = ty.button!.href.split("/");
-    expect(fId).toBe(pdfId);
+    // página de obrigado → página de entrega interna DESTE produto
+    const [, entrega, dToken, pId] = ty.button!.href.split("/");
+    expect([entrega, pId]).toEqual(["entrega", main.id]);
+    const page = (await getDeliveryPageView(dToken, pId))!;
+    expect(page.support).toBe("https://wa.me/258841234567");
+    expect(page.access).toMatchObject({ kind: "file", href: `/acesso/${dToken}/ficheiro/${pdfId}` });
+    const fId = page.access!.href.split("/").pop()!;
     const file = await fileForBuyer(dToken, fId);
     expect(file?.filename).toBe("Guia completo.pdf");
     expect(Buffer.from(file!.data).equals(PDF)).toBe(true);
@@ -273,6 +283,8 @@ describe("8–11. página de obrigado e entrega", () => {
     await payByWebhook(r2.token);
     const otherDelivery = await prisma.delivery.findFirstOrThrow({ where: { order: { publicToken: r2.token } } });
     expect(await fileForBuyer(otherDelivery.token, pdfId)).toBeNull();
+    // IDs trocados no URL: o acesso de outra compra não abre a página de entrega deste produto
+    expect(await getDeliveryPageView(otherDelivery.token, main.id)).toBeNull();
     expect(await fileForBuyer("x".repeat(32), pdfId)).toBeNull();
     // reembolso revoga o acesso
     await prisma.order.update({ where: { publicToken: r.token }, data: { status: "REFUNDED" } });
