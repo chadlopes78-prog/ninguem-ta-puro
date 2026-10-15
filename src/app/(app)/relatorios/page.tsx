@@ -190,13 +190,14 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
             </Link>
           )}
         </form>
-        <div className="flex gap-3 px-5 pt-3 text-[12px] text-subtle md:hidden">
+        <div className="flex items-center gap-3 px-5 pt-3 text-[12px] text-subtle xl:hidden">
           Ordenar:
-          <Link href={sortHref("date")} className={cn("inline-flex items-center gap-1", filters.sort === "date" && "text-fg")}>Data <SortIcon k="date" /></Link>
-          <Link href={sortHref("amount")} className={cn("inline-flex items-center gap-1", filters.sort === "amount" && "text-fg")}>Valor <SortIcon k="amount" /></Link>
+          <Link href={sortHref("date")} className={cn("inline-flex min-h-8 items-center gap-1 px-1", filters.sort === "date" && "text-fg")}>Data <SortIcon k="date" /></Link>
+          <Link href={sortHref("amount")} className={cn("inline-flex min-h-8 items-center gap-1 px-1", filters.sort === "amount" && "text-fg")}>Valor <SortIcon k="amount" /></Link>
         </div>
         <div data-testid="tx-table">
           <DataTable
+            tableFrom="xl"
             rows={tx.rows}
             rowKey={(r) => r.id}
             columns={[
@@ -204,10 +205,9 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
               { key: "code", header: "Pedido", mobile: "title", cell: (r) => <Link href={`/pedidos/${r.id}`} className="whitespace-nowrap font-mono text-[12.5px] font-medium hover:text-accent">{r.code}</Link> },
               { key: "product", header: "Produto", mobile: "meta", cell: (r) => <span className="block max-w-[180px] truncate text-muted" title={r.products}>{r.products || "—"}</span> },
               { key: "amount", header: <Link href={sortHref("amount")} className="inline-flex items-center gap-1 hover:text-fg">Valor <SortIcon k="amount" /></Link>, align: "right", mobile: "end", cell: (r) => <span className="whitespace-nowrap font-medium tabular">{formatMoney(r.totalCents, r.currency)}</span> },
-              { key: "currency", header: "Moeda", mobile: "hide", cell: (r) => <span className="text-muted">{r.currency}</span> },
               { key: "status", header: "Estado", mobile: "end", cell: (r) => <span className="inline-flex flex-wrap items-center gap-1"><OrderStatusBadge status={r.status} />{r.isTestPayment && <Badge tone="warning">Teste</Badge>}</span> },
-              { key: "gateway", header: "Gateway", mobile: "meta", cell: (r) => <span className="whitespace-nowrap text-muted">{gatewayLabel(r.gateway)}</span> },
-              { key: "ref", header: "Referência", mobile: "hide", cell: (r) => <span className="block max-w-[130px] truncate font-mono text-[11.5px] text-subtle" title={r.reference ?? undefined}>{r.reference ?? "—"}</span> },
+              { key: "gateway", header: "Gateway", mobile: "meta", className: "hidden min-[1400px]:table-cell", cell: (r) => <span className="block max-w-[170px] text-muted">{gatewayLabel(r.gateway)}</span> },
+              { key: "ref", header: "Referência", mobile: "hide", className: "hidden min-[1800px]:table-cell", cell: (r) => <span className="block max-w-[130px] truncate font-mono text-[11.5px] text-subtle" title={r.reference ?? undefined}>{r.reference ?? "—"}</span> },
               {
                 key: "refund",
                 header: "Reembolso",

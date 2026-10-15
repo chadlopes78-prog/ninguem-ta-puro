@@ -1,6 +1,6 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-15 · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
+Última atualização: 2026-10-15 · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
 
 ## Estado geral
 
@@ -11,7 +11,7 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | Lint | `npm run lint` | ✅ 0 erros, 0 avisos |
 | Tipos TypeScript | `npm run typecheck` | ✅ sem erros |
 | Testes unitários + integração | `npm test` | ✅ 262/262 (16 do checkout renderizado/editor simples, 13 de publicação/entrega/configurações/palavra-passe, 6 de operações do editor, 5 da biblioteca de imagens, 16 de personalização do checkout, 12 de multiutilizador A–G, 16 de notificações/relatórios, 10 de funis, 18 de gateways) |
-| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 86/86 (3 de revisão mobile a 320/375/414 px e 3 da aba Produtos no computador a 1024/1280/1440 px, 4 de configurações/palavra-passe/telemóvel, 6 do editor visual com arrastar e soltar real, 1 de navegação lenta no telemóvel, 5 de várias contas, 10 de notificações/PWA/relatórios, 8 de funis, 9 de pagamentos, 4 de personalização, 3 de gateways) |
+| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 112/112 (13 da auditoria em 12 larguras, 13 de interações com toque, 3 de revisão mobile a 320/375/414 px e 3 da aba Produtos no computador a 1024/1280/1440 px, 4 de configurações/palavra-passe/telemóvel, 6 do editor visual com arrastar e soltar real, 1 de navegação lenta no telemóvel, 5 de várias contas, 10 de notificações/PWA/relatórios, 8 de funis, 9 de pagamentos, 4 de personalização, 3 de gateways) |
 | Build de produção | `npm run build` | ✅ sem erros |
 | Fuga de segredos | build com `EPAY_SECRET_KEY`, `E2PAYMENTS_CLIENT_ID/SECRET` e `INTEGRATIONS_ENCRYPTION_KEY` fictícias + `grep` em `.next/` e log | ✅ valor ausente do bundle do browser, do output do servidor e do log; nenhuma variável `NEXT_PUBLIC_`; `.env` com segredos fora do Git |
 
@@ -26,6 +26,49 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | 5 — Operação | ✅ Concluída | Pedidos (filtros, detalhe, transições), clientes, cupões (com testador), relatórios |
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
+
+## Auditoria de interface, compatibilidade entre dispositivos e remoção da aba Cupom (sessão 15)
+
+### Diagnóstico (como foi feito)
+- Varrimento automático (`e2e/14-audit.spec.ts`) de **todas as páginas do painel** (Dashboard, Produtos, criar/editar produto, Funis e funil, Personalizar Checkout e editor, Pedidos e pedido, Clientes e cliente, Relatórios, Notificações, Integrações, Configurações, Administração, utilizadores e utilizador) e das páginas públicas (checkout, login, registo, recuperar) em **12 larguras**: 320, 360, 375, 390, 414, 430, 768, 1024, 1280, 1366, 1440 e 1920 px. Procura deslocamento horizontal, conteúdo fora do ecrã, áreas com deslocamento lateral escondido, textos cortados/invisíveis/< 10,5 px, controlos de toque < 28 px (telemóvel/tablet) e erros na consola.
+- Revisão do código à procura de controlos que só aparecem com o rato (hover), menus/modais que podem ficar cortados e campos que provocam zoom no iPhone.
+- Testes de interação reais com toque (`e2e/15-touch-interactions.spec.ts`) a 375 px (telemóvel) e 768 px (tablet).
+- **Limitação honesta**: os testes usam o Chromium com simulação de telemóvel/tablet (toque, `isMobile`, larguras). Não foram usados aparelhos físicos Android/iPhone, nem o Safari real, nem o teclado virtual real.
+
+### Problemas encontrados e corrigidos
+| # | Problema | Onde | Correção |
+|---|---|---|---|
+| 1 | A página do pedido ficava mais larga do que o ecrã (telemóvel **e** computador 1024/1280) por causa da referência de pagamento longa | `pedidos/[id]` | O valor quebra linha (`overflow-wrap`/`break-all`); só apresentação — a referência não foi alterada |
+| 2 | Página do produto a 320 px com 7 px de deslocamento (selos do «Link de Checkout») | `ui/card.tsx` (CardHeader) | Ações do cabeçalho podem quebrar linha |
+| 3 | Dicas (ícone «?») dos indicadores **inacessíveis no iPhone** (só abriam com rato/foco; o Safari não dá foco a botões ao tocar), alvo de 14 px e podiam sair do ecrã | `ui/tooltip.tsx` | Toque alterna a dica, tocar fora/Escape fecha, área de toque de 32 px, posição corrigida para nunca sair do ecrã |
+| 4 | Menu de ações (⋯) **cortado na última linha das tabelas** (o contentor com deslocamento lateral corta o menu) e fecho dependente de `mousedown` | `ui/row-menu.tsx` | Menu com posição fixa calculada a partir do botão (abre para cima se não houver espaço), fecha com `pointerdown`/Escape/deslocamento; itens mais altos para toque |
+| 5 | Modal: botão «Fechar» com 24 px; altura `85vh` não encolhe com o teclado virtual do iPhone | `ui/modal.tsx` | Botão de 36 px; altura máxima em `85dvh` (com alternativa `85vh`) |
+| 6 | Chips de período (Dashboard/Relatórios) e separadores da Administração escondidos numa faixa com deslocamento lateral (ex.: «Personalizado», «Contas suspensas» fora do ecrã) | `filters/range-filter.tsx`, `admin/admin-ui.tsx` | Quebram linha: todas as opções visíveis |
+| 7 | Etapas do funil numa faixa de 1148 px — escondidas até em 1280–1440 px | `funnels/funnel-wizard.tsx` | Grelha de 2/3/5 colunas conforme a largura |
+| 8 | Botão «Copiar link do checkout» esmagado (18–24 px) no funil | `funnel-wizard.tsx` | Não encolhe |
+| 9 | Tabelas que precisavam de deslocamento lateral em tablets e portáteis: Pedidos (768–1280), Relatórios (até 1920), Clientes, Cliente, Administração | `ui/data-table.tsx` e páginas | Até 1023 px usam os cartões (mais fáceis ao toque); colunas secundárias só aparecem quando há espaço (Produto em Pedidos ≥ 1280; Gateway ≥ 1400; Referência ≥ 1800; Telefone, Registo, Último acesso ≥ 1280; Itens ≥ 1536); a Origem do pedido passou para junto do Estado (sempre visível); a coluna Moeda dos Relatórios saiu (o valor já mostra a moeda); a tabela de transações começa a 1280 px |
+| 10 | Controlos só com hover: apagar imagem da biblioteca e «Substituir imagem» invisíveis em ecrãs táteis | `checkout-editor/media-picker.tsx`, `properties.tsx` | Sempre visíveis em ecrãs sem hover |
+| 11 | Alvos de toque pequenos: breadcrumbs, «Ver todos →», «Relatórios», «Checkouts adicionais…», ordenação dos relatórios, títulos dos cartões de funis/checkouts, interruptores das notificações, botões de dispositivo do editor (28×24) | vários | Área de toque ≥ 28–36 px sem mudar o aspeto (padding/pseudo-elemento) |
+| 12 | Barra do elemento selecionado no editor (mover ↑/↓, duplicar, eliminar — a alternativa ao arrastar) com 28 px | `checkout-editor/editor.tsx` | 36 px em ecrãs táteis (`pointer-coarse`) |
+
+### Aba Cupom removida
+- Antes de remover: a aba só existia em `nav.ts` (menu), `src/app/(app)/cupons/*` (lista, novo, editar, ações) e `src/components/coupons/*` (formulário e testador) — nenhum outro fluxo os usava.
+- Removido: entrada do menu, páginas, ações e componentes exclusivos. Endereços antigos (`/cupons…`) redirecionam para o Dashboard (`next.config.ts`).
+- **Mantido**: tabela e dados dos cupões na base de dados, serviço de cupões, validação/desconto no checkout e no pagamento, cupões em pedidos históricos, opção «Permitir cupões» do checkout. Os cupões já existentes continuam a funcionar no checkout.
+
+### Funcionalidades testadas (navegador Chromium, simulação)
+Menu lateral (abrir/navegar/fechar), criar e editar produto, publicação bloqueada para produto incompleto, menu dos cartões (dentro do ecrã) e «Duplicar», modal de alterar palavra-passe (cabe e fecha), dicas por toque, período dos relatórios, etapas do funil e guardar suporte WhatsApp, editor do checkout sem arrastar (adicionar título, editar texto, mover com botões, eliminar, guardar), separadores e utilizador da Administração; menu da última linha da tabela no computador; e toda a suíte anterior (pagamentos de teste, funis, entrega, editor com arrastar, notificações, multiutilizador, configurações).
+
+### Resultados
+`npm test` ✅ 262/262 · `npm run test:e2e` ✅ 112/112 (inclui a auditoria em modo estrito: 0 problemas nas 12 larguras, 0 erros na consola) · lint ✅ · typecheck ✅ · build ✅.
+
+### APIs e pagamentos
+**Não foram modificados**: EPay, E2Payments, endpoints, webhooks, criação/confirmação de transações, regras de cobrança, credenciais, variáveis de ambiente e configuração dos gateways. Nenhum ficheiro em `src/server/payments`, `src/server/services/{purchase,payment-flow,coupon-logic,coupons}`, `src/app/api`, `prisma` ou `.env*` foi alterado. Não foi encontrado nenhum problema nas integrações durante a auditoria.
+
+### Pendências
+- Testes em aparelhos físicos (Android/iPhone, Safari, teclado virtual real, zoom do sistema e orientação horizontal) — feitos apenas por simulação.
+- **Decisão sua**: o campo «Cupão de desconto» continua no checkout (opção `allowCoupons`, ativa por predefinição). Sem a aba, não é possível criar cupões novos; os existentes funcionam. Se quiser, o campo pode ser escondido no checkout — não o fiz porque toca no checkout e pediu para não mexer em referências a cupões fora da aba.
+- O editor de funil avançado (React Flow, `/checkouts/avancado` e funis avançados) não foi auditado em profundidade no telemóvel além do varrimento de carregamento.
 
 ## Checkout simplificado, cronómetro, editor simples e revisão mobile (sessão 14)
 
@@ -790,6 +833,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 15 (2026-10-15)**: auditoria de todas as páginas em 12 larguras e de interações com toque (simulação no Chromium); 12 grupos de problemas corrigidos (página do pedido mais larga que o ecrã, dicas inacessíveis no iPhone, menu de ações cortado nas tabelas, modais com teclado, faixas de chips/separadores/etapas do funil escondidas, tabelas com deslocamento lateral, controlos só com hover, alvos de toque pequenos); aba Cupom removida da interface sem apagar dados nem lógica do checkout. APIs e pagamentos não alterados. 262 testes unitários/integração e 112 E2E a passar.
 - **Sessão 14 (2026-10-15)**: checkout simples numa coluna (nome, imagem, preço, dados, pagamento, total único e botão), mensagem longa da EPay removida (só visual), cronómetro com a cor em todo o componente e texto legível, editor simplificado (9 elementos, produto/preço/pagamento protegidos, propriedades por elemento, estilo global e restauro do padrão) e correções no telemóvel (menu de ações e avisos na aba Produtos, filtros, campos de 16 px). Sem migração. 262 testes unitários/integração e 83 E2E a passar.
 - **Sessão 13 (2026-10-14)**: produtos nascem como rascunho e só publicam com funil principal, página de obrigado, WhatsApp de suporte e entrega (validação centralizada no servidor); WhatsApp por produto acima do botão de acesso; entrega por link externo ou página de entrega interna protegida; aba Funis com estado de cada requisito; Configurações simplificadas; recuperação da palavra-passe por token temporário (email opcional via Resend, ou link gerado pelo proprietário). Migração aditiva com passagem dos dados antigos; pagamentos e credenciais intactos. 246 testes unitários/integração e 79 E2E a passar.
 - **Sessão 12 (2026-10-14)**: editor visual do checkout tipo Elementor (secções/colunas/elementos, arrastar e soltar com indicadores, propriedades de conteúdo/estilo/avançado, dispositivos, desfazer/refazer, rascunho/publicação, aviso ao sair), modelo padrão profissional com dados reais, biblioteca de imagens por conta (carregamento validado), formulário de compra protegido e remoção do "Compra segura", do cabeçalho "Ligação cifrada" e do rodapé do checkout público. Pagamentos, funis e redirecionamentos intactos. 233 testes unitários/integração e 75 E2E a passar.

@@ -15,7 +15,7 @@ export function CardHeader({ title, description, action, className }: { title: R
         <h2 className="font-display text-[15px] font-semibold tracking-tight text-fg">{title}</h2>
         {description && <p className="mt-0.5 text-[13px] text-muted">{description}</p>}
       </div>
-      {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
+      {action && <div className="flex max-w-full shrink-0 flex-wrap items-center gap-2">{action}</div>}
     </div>
   );
 }

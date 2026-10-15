@@ -255,19 +255,19 @@ function CanvasElement({
           {ELEMENT_INFO[el.type].label}
         </span>
         {selected && (
-          <div className="absolute -top-[15px] right-2 z-20 flex overflow-hidden rounded-md border border-line bg-surface text-fg shadow-lg" onPointerDown={stop} onMouseDown={stop} onTouchStart={stop} onClick={stop}>
-            <button type="button" onClick={() => onMove(-1)} className="grid h-7 w-7 place-items-center hover:bg-surface-2" aria-label="Mover para cima" title="Mover para cima" data-testid="el-move-up">
+          <div className="absolute -top-[15px] right-2 z-20 pointer-coarse:-top-[22px] flex overflow-hidden rounded-md border border-line bg-surface text-fg shadow-lg" onPointerDown={stop} onMouseDown={stop} onTouchStart={stop} onClick={stop}>
+            <button type="button" onClick={() => onMove(-1)} className="grid h-7 w-7 place-items-center hover:bg-surface-2 pointer-coarse:h-9 pointer-coarse:w-9" aria-label="Mover para cima" title="Mover para cima" data-testid="el-move-up">
               <ArrowUp className="h-3.5 w-3.5" />
             </button>
-            <button type="button" onClick={() => onMove(1)} className="grid h-7 w-7 place-items-center hover:bg-surface-2" aria-label="Mover para baixo" title="Mover para baixo" data-testid="el-move-down">
+            <button type="button" onClick={() => onMove(1)} className="grid h-7 w-7 place-items-center hover:bg-surface-2 pointer-coarse:h-9 pointer-coarse:w-9" aria-label="Mover para baixo" title="Mover para baixo" data-testid="el-move-down">
               <ArrowDown className="h-3.5 w-3.5" />
             </button>
             {!locked && (
               <>
-                <button type="button" onClick={onDuplicate} className="grid h-7 w-7 place-items-center hover:bg-surface-2" aria-label="Duplicar" title="Duplicar (Ctrl+D)" data-testid="el-duplicate">
+                <button type="button" onClick={onDuplicate} className="grid h-7 w-7 place-items-center hover:bg-surface-2 pointer-coarse:h-9 pointer-coarse:w-9" aria-label="Duplicar" title="Duplicar (Ctrl+D)" data-testid="el-duplicate">
                   <Copy className="h-3.5 w-3.5" />
                 </button>
-                <button type="button" onClick={onDelete} className="grid h-7 w-7 place-items-center text-danger hover:bg-danger/10" aria-label="Eliminar" title="Eliminar (Delete)" data-testid="el-delete">
+                <button type="button" onClick={onDelete} className="grid h-7 w-7 place-items-center text-danger hover:bg-danger/10 pointer-coarse:h-9 pointer-coarse:w-9" aria-label="Eliminar" title="Eliminar (Delete)" data-testid="el-delete">
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </>
@@ -853,8 +853,8 @@ export function CheckoutEditor(props: Props) {
               <span>Toque para selecionar · mantenha premido para arrastar</span>
               <div className="flex rounded-md border border-line p-0.5">
                 {DEVICES.filter((d) => d.id !== "tablet").map((d) => (
-                  <button key={d.id} type="button" onClick={() => setDevice(d.id)} aria-label={d.label} className={cn("grid h-6 w-7 place-items-center rounded", device === d.id ? "bg-surface-3 text-fg" : "text-muted")}>
-                    <d.icon className="h-3.5 w-3.5" />
+                  <button key={d.id} type="button" onClick={() => setDevice(d.id)} aria-label={d.label} className={cn("grid h-8 w-9 place-items-center rounded", device === d.id ? "bg-surface-3 text-fg" : "text-muted")}>
+                    <d.icon className="h-4 w-4" />
                   </button>
                 ))}
               </div>

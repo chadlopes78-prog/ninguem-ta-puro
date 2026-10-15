@@ -25,7 +25,7 @@ const LINKS = [
 
 export function AdminNav({ current }: { current: string }) {
   return (
-    <nav className="-mx-1 mb-6 flex max-w-full gap-1 overflow-x-auto px-1 pb-1 scrollbar-thin" aria-label="Administração">
+    <nav className="mb-6 flex max-w-full flex-wrap gap-1.5" aria-label="Administração">
       {LINKS.map((l) => (
         <Link
           key={l.href}

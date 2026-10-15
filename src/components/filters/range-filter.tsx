@@ -30,7 +30,7 @@ export function RangeFilter({ preset, from, to, currencies, currency }: { preset
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="-mx-1 flex max-w-full gap-1 overflow-x-auto px-1 pb-0.5 scrollbar-thin" role="group" aria-label="Período">
+        <div className="flex max-w-full flex-wrap gap-1.5" role="group" aria-label="Período">
           {RANGE_PRESETS.filter((p) => p !== "custom").map((p) => (
             <button
               key={p}
@@ -84,11 +84,11 @@ export function RangeFilter({ preset, from, to, currencies, currency }: { preset
         >
           <label className="flex flex-col gap-1 text-[12px] text-muted">
             De
-            <input type="date" value={f} onChange={(e) => setF(e.target.value)} required className="h-9 rounded-[var(--radius-md)] border border-line bg-surface-2 px-2.5 text-sm text-fg" />
+            <input type="date" value={f} onChange={(e) => setF(e.target.value)} required className="h-9 rounded-[var(--radius-md)] border border-line bg-surface-2 px-2.5 text-base text-fg sm:text-sm" />
           </label>
           <label className="flex flex-col gap-1 text-[12px] text-muted">
             Até
-            <input type="date" value={t} onChange={(e) => setT(e.target.value)} required className="h-9 rounded-[var(--radius-md)] border border-line bg-surface-2 px-2.5 text-sm text-fg" />
+            <input type="date" value={t} onChange={(e) => setT(e.target.value)} required className="h-9 rounded-[var(--radius-md)] border border-line bg-surface-2 px-2.5 text-base text-fg sm:text-sm" />
           </label>
           <Button type="submit" size="sm" className="h-9" disabled={!f || !t || invalid}>
             Aplicar

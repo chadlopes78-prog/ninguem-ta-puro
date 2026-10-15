@@ -18,9 +18,10 @@ export interface Column<T> {
 }
 
 /**
- * Tabela responsiva: em ecrãs ≥ md mostra uma tabela; em telemóvel mostra uma lista de cartões.
+ * Tabela responsiva: em ecrãs ≥ lg (1024 px) mostra uma tabela; em telemóveis e tablets mostra uma lista de cartões
+ * (mais fácil de usar ao toque). Colunas secundárias podem usar `className: "hidden xl:table-cell"`.
  */
-export function DataTable<T>({ rows, columns, rowKey, rowHref, empty }: { rows: T[]; columns: Column<T>[]; rowKey: (r: T) => string; rowHref?: (r: T) => string; empty?: React.ReactNode }) {
+export function DataTable<T>({ rows, columns, rowKey, rowHref, empty, tableFrom = "lg" }: { rows: T[]; columns: Column<T>[]; rowKey: (r: T) => string; rowHref?: (r: T) => string; empty?: React.ReactNode; /** Largura a partir da qual aparece a tabela (antes: cartões). */ tableFrom?: "lg" | "xl" }) {
   if (!rows.length) return <>{empty}</>;
   const title = columns.find((c) => c.mobile === "title") ?? columns[0];
   const end = columns.filter((c) => c.mobile === "end");
@@ -31,7 +32,7 @@ export function DataTable<T>({ rows, columns, rowKey, rowHref, empty }: { rows: 
   const m = (c: Column<T>, r: T) => (c.mobileCell ?? c.cell)(r);
   return (
     <>
-      <div className="relative hidden overflow-x-auto scrollbar-thin md:block">
+      <div className={cn("relative hidden overflow-x-auto scrollbar-thin", tableFrom === "xl" ? "xl:block" : "lg:block")}>
         <table className="w-full text-left text-sm">
           <thead>
             <tr className="border-b border-line text-[11.5px] uppercase tracking-wider text-subtle">
@@ -55,7 +56,7 @@ export function DataTable<T>({ rows, columns, rowKey, rowHref, empty }: { rows: 
           </tbody>
         </table>
       </div>
-      <ul className="divide-y divide-line md:hidden">
+      <ul className={cn("divide-y divide-line", tableFrom === "xl" ? "xl:hidden" : "lg:hidden")}>
         {rows.map((r) => {
           const inner = (
             <div className="flex flex-col gap-2.5 px-4 py-3.5">

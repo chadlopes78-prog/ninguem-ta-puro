@@ -19,18 +19,44 @@ export function RowMenu({ items, label = "Ações" }: { items: RowMenuItem[]; la
   const [confirming, setConfirming] = useState<Extract<RowMenuItem, { kind: "action" }> | null>(null);
   const [pending, start] = useTransition();
   const ref = useRef<HTMLDivElement>(null);
+  const btn = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  // posição fixa calculada a partir do botão: o menu nunca fica cortado por tabelas/cartões com deslocamento
+  // próprio nem sai do ecrã (abre para cima quando não há espaço por baixo)
+  const [pos, setPos] = useState<React.CSSProperties>({ visibility: "hidden" });
   const toast = useToast();
   const router = useRouter();
 
   useEffect(() => {
     if (!open) return;
-    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
+    const close = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
     const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", close);
+    const place = () => {
+      const b = btn.current?.getBoundingClientRect();
+      const m = menu.current;
+      if (!b || !m) return;
+      const h = m.offsetHeight;
+      const w = m.offsetWidth;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const below = vh - b.bottom;
+      const top = below >= h + 8 || below >= b.top ? Math.min(b.bottom + 4, vh - h - 8) : Math.max(8, b.top - h - 4);
+      const left = Math.min(Math.max(8, b.right - w), vw - w - 8);
+      setPos({ position: "fixed", top: Math.max(8, top), left, visibility: "visible" });
+    };
+    place();
+    // ao deslocar a página, o menu fecha (como nos menus nativos); ao redimensionar, reposiciona
+    const onScroll = (e: Event) => !menu.current?.contains(e.target as Node) && setOpen(false);
+    document.addEventListener("pointerdown", close);
     document.addEventListener("keydown", esc);
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", onScroll, true);
     return () => {
-      document.removeEventListener("mousedown", close);
+      document.removeEventListener("pointerdown", close);
       document.removeEventListener("keydown", esc);
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", onScroll, true);
+      setPos({ visibility: "hidden" });
     };
   }, [open]);
 
@@ -51,6 +77,7 @@ export function RowMenu({ items, label = "Ações" }: { items: RowMenuItem[]; la
   return (
     <div ref={ref} className="relative inline-block text-left">
       <button
+        ref={btn}
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -61,17 +88,17 @@ export function RowMenu({ items, label = "Ações" }: { items: RowMenuItem[]; la
         <MoreHorizontal className="h-4 w-4" />
       </button>
       {open && (
-        <div role="menu" className="absolute right-0 z-40 mt-1 w-48 animate-fade-in overflow-hidden rounded-[var(--radius-md)] border border-line-strong bg-surface-2 py-1 shadow-[var(--shadow-pop)]">
+        <div ref={menu} role="menu" style={pos} className="fixed z-50 max-h-[calc(100dvh-16px)] w-52 animate-fade-in overflow-y-auto rounded-[var(--radius-md)] border border-line-strong bg-surface-2 py-1 shadow-[var(--shadow-pop)]">
           {items.map((it) =>
             it.kind === "link" ? (
-              <Link key={it.label} role="menuitem" href={it.href} className="block px-3 py-2 text-sm text-fg hover:bg-surface-3" onClick={() => setOpen(false)}>
+              <Link key={it.label} role="menuitem" href={it.href} className="block px-3 py-2.5 text-sm text-fg hover:bg-surface-3" onClick={() => setOpen(false)}>
                 {it.label}
               </Link>
             ) : (
               <button
                 key={it.label}
                 role="menuitem"
-                className={cn("block w-full px-3 py-2 text-left text-sm hover:bg-surface-3", it.danger ? "text-danger" : "text-fg")}
+                className={cn("block w-full px-3 py-2.5 text-left text-sm hover:bg-surface-3", it.danger ? "text-danger" : "text-fg")}
                 onClick={() => {
                   setOpen(false);
                   if (it.confirm) setConfirming(it);

@@ -155,27 +155,14 @@ test.describe.serial("modo real: produto → checkout → link público (sem pag
     await expect(page.getByRole("heading", { name: "Guia Digital Editado" })).toBeVisible();
   });
 
-  test("cupões: criação, código duplicado e teste", async ({ page }) => {
+  test("aba Cupom removida da interface: sem entrada no menu e endereços antigos voltam ao painel", async ({ page }) => {
     await login(page);
-    await page.goto("/cupons/novo");
-    await page.getByLabel("Código").fill("TESTE10");
-    await page.getByLabel("Percentagem (%)").fill("10");
-    await page.getByRole("button", { name: "Criar cupão" }).click();
-    await toast(page, "Cupão criado");
-    await expect(page.getByRole("link", { name: "TESTE10" })).toBeVisible();
-    await page.goto("/cupons/novo");
-    await page.getByLabel("Código").fill("teste10");
-    await page.getByRole("button", { name: "Criar cupão" }).click();
-    await expect(page.getByRole("alert").filter({ hasText: "Já existe um cupão com este código" }).first()).toBeVisible();
-
-    await page.goto("/cupons");
-    await page.getByLabel("Oferta").selectOption({ index: 1 });
-    await page.getByLabel("Código", { exact: true }).fill("TESTE10");
-    await page.getByRole("button", { name: "Testar" }).click();
-    await expect(page.getByText(/Válido: 247,90\sMZN − 24,79\sMZN = 223,11\sMZN/).first()).toBeVisible();
-    await page.getByLabel("Código", { exact: true }).fill("NAOEXISTE");
-    await page.getByRole("button", { name: "Testar" }).click();
-    await expect(page.getByText("Cupão não encontrado").first()).toBeVisible();
+    await page.goto("/dashboard");
+    await expect(page.getByRole("link", { name: "Cupons" })).toHaveCount(0);
+    for (const path of ["/cupons", "/cupons/novo"]) {
+      await page.goto(path);
+      await expect(page).toHaveURL(/\/dashboard$/);
+    }
   });
 
   test("pedido manual de teste nunca é aprovado e não conta como faturação", async ({ page }) => {

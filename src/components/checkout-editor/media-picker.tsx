@@ -168,7 +168,7 @@ export function MediaPicker({ open, onClose, onPick, current }: { open: boolean;
                       {a.width ? ` · ${a.width}×${a.height}` : ""}
                     </span>
                   </button>
-                  <button type="button" onClick={() => void remove(a)} className="absolute right-1.5 top-1.5 grid h-7 w-7 place-items-center rounded-md bg-black/60 text-white opacity-0 transition-opacity hover:bg-danger group-hover:opacity-100 focus:opacity-100" aria-label={`Apagar ${a.filename}`}>
+                  <button type="button" onClick={() => void remove(a)} className="absolute right-1.5 top-1.5 grid h-7 w-7 place-items-center rounded-md bg-black/60 text-white opacity-0 transition-opacity hover:bg-danger group-hover:opacity-100 focus:opacity-100 [@media(hover:none)]:opacity-100" aria-label={`Apagar ${a.filename}`}>
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </li>

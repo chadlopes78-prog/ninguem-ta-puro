@@ -71,7 +71,7 @@ export default async function CheckoutPersonalizationPage({ searchParams }: { se
                   <div className="flex items-start gap-3 p-4 pb-3">
                     <ProductCover src={p.imageUrl} name={p.name} className="h-14 w-14 text-base" />
                     <div className="min-w-0 flex-1">
-                      <Link href={`/checkouts/personalizar/${p.id}`} className="block truncate font-display text-[15px] font-semibold hover:text-accent">
+                      <Link href={`/checkouts/personalizar/${p.id}`} className="-my-1 block truncate py-1 font-display text-[15px] font-semibold hover:text-accent">
                         {p.name}
                       </Link>
                       <p className="mt-0.5 font-medium tabular text-fg">{offer ? formatMoney(offer.priceCents, offer.currency) : "—"}</p>

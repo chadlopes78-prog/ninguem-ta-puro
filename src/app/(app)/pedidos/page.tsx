@@ -75,12 +75,22 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
                 </Link>
               ),
             },
-            { key: "customer", header: "Cliente", cell: (o) => <span className="block max-w-[200px] truncate text-muted">{o.customer.name}<span className="block truncate text-[12px] text-subtle">{o.customer.email}</span></span> },
-            { key: "product", header: "Produto", cell: (o) => <span className="block max-w-[220px] truncate text-muted">{o.items[0]?.product.name}{o.items.length > 1 && <span className="text-subtle"> +{o.items.length - 1}</span>}</span> },
+            { key: "customer", header: "Cliente", cell: (o) => <span className="block max-w-[160px] truncate text-muted">{o.customer.name}<span className="block truncate text-[12px] text-subtle">{o.customer.email}</span></span> },
+            { key: "product", header: "Produto", className: "hidden xl:table-cell", cell: (o) => <span className="block max-w-[220px] truncate text-muted">{o.items[0]?.product.name}{o.items.length > 1 && <span className="text-subtle"> +{o.items.length - 1}</span>}</span> },
             { key: "date", header: "Data", cell: (o) => <span className="text-muted tabular">{formatDate(o.createdAt, settings.timezone, true)}</span> },
-            { key: "source", header: "Origem", mobile: "hide", cell: (o) => (o.source === "MANUAL_TEST" ? <Badge tone="info">Teste manual</Badge> : o.source === "DEMO" ? <Badge tone="demo">Demo</Badge> : o.isTestPayment ? <Badge tone="warning">Pagamento de teste</Badge> : <Badge>Checkout</Badge>) },
             { key: "total", header: "Valor", align: "right", mobile: "end", cell: (o) => <span className="font-medium tabular">{formatMoney(o.totalCents, o.currency)}</span> },
-            { key: "status", header: "Estado", mobile: "end", cell: (o) => <OrderStatusBadge status={o.status} /> },
+            {
+              key: "status",
+              header: "Estado",
+              mobile: "end",
+              // estado + origem quando não é uma venda normal (teste manual, demonstração, pagamento de teste)
+              cell: (o) => (
+                <span className="flex flex-col items-start gap-1 max-lg:items-end">
+                  <OrderStatusBadge status={o.status} />
+                  {o.source === "MANUAL_TEST" ? <Badge tone="info">Teste manual</Badge> : o.source === "DEMO" ? <Badge tone="demo">Demo</Badge> : o.isTestPayment ? <Badge tone="warning">Pagamento de teste</Badge> : null}
+                </span>
+              ),
+            },
           ]}
           empty={
             <EmptyState

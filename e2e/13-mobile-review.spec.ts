@@ -48,7 +48,7 @@ test.describe.serial("revisão mobile", () => {
 
       // aba Produtos: cartões com nome, preço, estado, aviso de configuração e menu de ações
       await page.goto("/produtos");
-      const cards = page.locator("ul.md\\:hidden > li");
+      const cards = page.locator("ul.lg\\:hidden > li");
       await expect(cards.first()).toBeVisible();
       await review(page, "produtos", width);
       const first = cards.first();
@@ -65,7 +65,7 @@ test.describe.serial("revisão mobile", () => {
         expect(b.x + b.width).toBeLessThanOrEqual(width + 0.5);
       }
       // aviso de produto incompleto legível (há sempre pelo menos um produto incompleto nos dados de teste?)
-      const warn = page.locator("ul.md\\:hidden").getByTestId("product-incomplete");
+      const warn = page.locator("ul.lg\\:hidden").getByTestId("product-incomplete");
       if (await warn.count()) {
         const wb = (await warn.first().boundingBox())!;
         expect(wb.x + wb.width).toBeLessThanOrEqual(width);

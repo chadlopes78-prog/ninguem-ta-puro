@@ -20,7 +20,7 @@ export function PageHeader({
             {breadcrumbs.map((b, i) => (
               <span key={i} className="flex items-center gap-1">
                 {b.href ? (
-                  <Link href={b.href} className="hover:text-fg">
+                  <Link href={b.href} className="relative inline-flex min-h-7 items-center hover:text-fg after:absolute after:-inset-x-1 after:-inset-y-1 after:content-['']">
                     {b.label}
                   </Link>
                 ) : (

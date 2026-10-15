@@ -73,7 +73,7 @@ export default async function FunnelsPage({ searchParams }: { searchParams: Prom
               <li key={f.id}>
                 <Card className="flex h-full flex-col p-5 transition-colors hover:border-line-strong">
                   <div className="flex items-start justify-between gap-3">
-                    <Link href={`/funis/${f.id}`} className="min-w-0 hover:text-accent">
+                    <Link href={`/funis/${f.id}`} className="-my-1 min-w-0 py-1 hover:text-accent">
                       <h2 className="truncate font-display text-base font-semibold">{f.name}</h2>
                       {f.description && <p className="mt-0.5 line-clamp-2 text-[13px] text-muted">{f.description}</p>}
                     </Link>

@@ -364,7 +364,7 @@ function Switch({ label, description, checked, onChange, testId }: { label: stri
         aria-label={label}
         onClick={onChange}
         data-testid={testId}
-        className={cn("relative mt-0.5 h-6 w-11 shrink-0 rounded-full border transition-colors", checked ? "border-accent bg-accent" : "border-line-strong bg-surface-3")}
+        className={cn("relative mt-0.5 h-6 w-11 shrink-0 rounded-full border transition-colors after:absolute after:-inset-2 after:content-['']", checked ? "border-accent bg-accent" : "border-line-strong bg-surface-3")}
       >
         <span className={cn("absolute top-0.5 h-[18px] w-[18px] rounded-full shadow transition-[left]", checked ? "left-[22px] bg-accent-ink" : "left-0.5 bg-muted")} />
       </button>

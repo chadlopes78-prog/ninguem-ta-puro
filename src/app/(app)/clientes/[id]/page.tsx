@@ -45,7 +45,7 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
             rowKey={(o) => o.id}
             columns={[
               { key: "code", header: "Pedido", mobile: "title", cell: (o) => <Link href={`/pedidos/${o.id}`} className="font-mono text-[13px] hover:text-accent">{o.code}</Link> },
-              { key: "items", header: "Itens", cell: (o) => <span className="block max-w-[260px] truncate text-muted">{o.items.map((i) => i.description).join(", ")}</span> },
+              { key: "items", header: "Itens", className: "hidden 2xl:table-cell", cell: (o) => <span className="block max-w-[260px] truncate text-muted">{o.items.map((i) => i.description).join(", ")}</span> },
               { key: "date", header: "Data", cell: (o) => <span className="text-muted tabular">{formatDate(o.createdAt, settings.timezone, true)}</span> },
               { key: "total", header: "Valor", align: "right", mobile: "end", cell: (o) => <span className="font-medium tabular">{formatMoney(o.totalCents, o.currency)}</span> },
               { key: "status", header: "Estado", mobile: "end", cell: (o) => <OrderStatusBadge status={o.status} /> },

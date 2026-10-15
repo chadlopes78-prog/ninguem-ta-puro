@@ -33,8 +33,8 @@ const KIND = { MAIN: "Principal", ORDER_BUMP: "Oferta adicional", UPSELL: "Upsel
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex justify-between gap-4 py-2 text-sm">
-      <dt className="text-muted">{label}</dt>
-      <dd className="min-w-0 text-right text-fg">{children}</dd>
+      <dt className="shrink-0 text-muted">{label}</dt>
+      <dd className="min-w-0 text-right text-fg [overflow-wrap:anywhere]">{children}</dd>
     </div>
   );
 }
@@ -147,7 +147,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
                 <Row label="Checkout">{o.checkout ? <Link href={`/checkouts/${o.checkout.id}`} className="hover:text-accent">{o.checkout.name}</Link> : "—"}</Row>
                 <Row label="Funil">{o.funnel ? <Link href={`/funis/${o.funnel.id}`} className="hover:text-accent">{o.funnel.name}</Link> : "—"}</Row>
                 <Row label="Processador">{o.provider ?? "—"}</Row>
-                <Row label="Referência externa"><span className="font-mono text-[12px]">{o.externalRef ?? "—"}</span></Row>
+                <Row label="Referência externa"><span className="break-all font-mono text-[12px]">{o.externalRef ?? "—"}</span></Row>
                 <Row label="Aprovado em">{o.approvedAt ? formatDate(o.approvedAt, tz, true) : "—"}</Row>
                 {o.refundedAt && <Row label="Reembolsado em">{formatDate(o.refundedAt, tz, true)}</Row>}
                 {o.canceledAt && <Row label="Cancelado em">{formatDate(o.canceledAt, tz, true)}</Row>}

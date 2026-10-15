@@ -55,9 +55,9 @@ export default async function AdminUsersPage({ searchParams }: { searchParams: P
             columns={[
               { key: "name", header: "Nome", mobile: "title", cell: (r) => <Link href={`/admin/utilizadores/${r.id}`} className="font-medium hover:text-accent" data-testid="admin-user-link">{r.name}</Link> },
               { key: "email", header: "Email", mobile: "meta", cell: (r) => <span className="break-all text-muted">{r.email}</span> },
-              { key: "created", header: "Registo", mobile: "meta", cell: (r) => <span className="whitespace-nowrap tabular text-muted"><span className="md:hidden">Registo: </span>{formatDate(r.createdAt, "Africa/Maputo", true)}</span> },
+              { key: "created", header: "Registo", mobile: "meta", cell: (r) => <span className="whitespace-nowrap tabular text-muted"><span className="lg:hidden">Registo: </span>{formatDate(r.createdAt, "Africa/Maputo", true)}</span> },
               { key: "state", header: "Estado", mobile: "end", cell: (r) => (r.role === "OWNER" ? <span className="text-[12px] text-subtle">Proprietário</span> : <AccountBadge state={accountState(r)} />) },
-              { key: "last", header: "Último acesso", mobile: "meta", cell: (r) => <span className="whitespace-nowrap tabular text-muted"><span className="md:hidden">Último acesso: </span>{r.lastLoginAt ? formatDate(r.lastLoginAt, "Africa/Maputo", true) : "—"}</span> },
+              { key: "last", header: "Último acesso", mobile: "meta", className: "hidden xl:table-cell", cell: (r) => <span className="whitespace-nowrap tabular text-muted"><span className="lg:hidden">Último acesso: </span>{r.lastLoginAt ? formatDate(r.lastLoginAt, "Africa/Maputo", true) : "—"}</span> },
               { key: "actions", header: "Ações", mobile: "meta", cell: (r) => <UserActions user={r} state={accountState(r)} compact /> },
             ]}
             empty={<EmptyState icon={Users} title="Sem contas" description={q ? "Nenhuma conta corresponde à pesquisa." : "Não há contas neste estado."} />}

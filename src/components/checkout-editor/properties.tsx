@@ -45,7 +45,7 @@ function ImageField({ src, onChange }: { src: string; onChange: (src: string) =>
             <ImageIcon className="h-5 w-5" /> Escolher imagem
           </span>
         )}
-        {src && <span className="absolute inset-x-0 bottom-0 bg-black/60 py-1.5 text-center text-[12px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100">Substituir imagem</span>}
+        {src && <span className="absolute inset-x-0 bottom-0 bg-black/60 py-1.5 text-center text-[12px] font-medium text-white opacity-0 transition-opacity group-hover:opacity-100 [@media(hover:none)]:opacity-100">Substituir imagem</span>}
       </button>
       {src && (
         <button type="button" onClick={() => onChange("")} className="flex items-center gap-1.5 self-start text-[12px] text-muted hover:text-danger">

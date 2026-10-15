@@ -499,47 +499,24 @@ export function FunnelWizard(props: Props) {
         </div>
       </div>
 
-      {/* Fluxo visual */}
-      <nav
-        aria-label="Etapas do funil"
-        className="-mx-1 max-w-full overflow-x-auto px-1 pb-1 scrollbar-thin"
-      >
-        <ol
-          className="flex min-w-max items-center gap-2"
-          data-testid="funnel-flow"
-        >
+      {/* Fluxo visual: grelha que se adapta à largura (sem deslocamento lateral nem etapas escondidas) */}
+      <nav aria-label="Etapas do funil">
+        <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5" data-testid="funnel-flow">
           {steps.map((s, i) => (
-            <li key={s.key} className="flex items-center gap-2">
+            <li key={s.key} className="min-w-0">
               <button
                 type="button"
                 onClick={() => setStep(s.key)}
                 aria-current={step === s.key ? "step" : undefined}
                 className={cn(
-                  "flex h-10 items-center gap-2 rounded-full border px-4 text-[13px] font-medium transition-colors",
-                  step === s.key
-                    ? "border-accent bg-accent-soft text-fg"
-                    : "border-line bg-surface text-muted hover:text-fg",
+                  "flex min-h-11 w-full items-center gap-2 rounded-[var(--radius-md)] border px-3 py-2 text-left text-[13px] font-medium leading-tight transition-colors",
+                  step === s.key ? "border-accent bg-accent-soft text-fg" : "border-line bg-surface text-muted hover:text-fg",
                 )}
               >
-                <span
-                  className={cn(
-                    "grid h-5 w-5 place-items-center rounded-full text-[11px]",
-                    step === s.key
-                      ? "bg-accent text-accent-ink"
-                      : "bg-surface-3",
-                  )}
-                >
-                  {i + 1}
-                </span>
-                <s.icon className="h-4 w-4" aria-hidden="true" />
-                {s.label}
+                <span className={cn("grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px]", step === s.key ? "bg-accent text-accent-ink" : "bg-surface-3")}>{i + 1}</span>
+                <s.icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 [overflow-wrap:anywhere]">{s.label}</span>
               </button>
-              {i < steps.length - 1 && (
-                <ArrowRight
-                  className="h-4 w-4 text-subtle"
-                  aria-hidden="true"
-                />
-              )}
             </li>
           ))}
         </ol>
@@ -623,11 +600,9 @@ export function FunnelWizard(props: Props) {
                         {props.baseUrl}
                         {product.checkoutPath}
                       </code>
-                      <CopyButton
-                        value={product.checkoutPath}
-                        size="icon"
-                        label="Copiar link do checkout"
-                      />
+                      <span className="shrink-0">
+                        <CopyButton value={product.checkoutPath} size="icon" label="Copiar link do checkout" />
+                      </span>
                     </div>
                   )}
                 </div>

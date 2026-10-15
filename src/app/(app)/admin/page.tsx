@@ -42,14 +42,14 @@ export default async function AdminOverviewPage() {
 
       <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <CardHeader title="Registos recentes" action={<Link href="/admin/utilizadores" className="text-[13px] text-muted hover:text-fg">Ver todos →</Link>} />
+          <CardHeader title="Registos recentes" action={<Link href="/admin/utilizadores" className="-my-1.5 inline-flex min-h-8 items-center py-1.5 text-[13px] text-muted hover:text-fg">Ver todos →</Link>} />
           <DataTable
             rows={o.recent}
             rowKey={(r) => r.id}
             columns={[
               { key: "name", header: "Nome", mobile: "title", cell: (r) => <Link href={`/admin/utilizadores/${r.id}`} className="font-medium hover:text-accent">{r.name}</Link> },
               { key: "email", header: "Email", mobile: "meta", cell: (r) => <span className="text-muted">{r.email}</span> },
-              { key: "date", header: "Registo", mobile: "meta", cell: (r) => <span className="whitespace-nowrap tabular text-muted">{formatDate(r.createdAt, "Africa/Maputo", true)}</span> },
+              { key: "date", header: "Registo", mobile: "meta", className: "hidden xl:table-cell", cell: (r) => <span className="whitespace-nowrap tabular text-muted">{formatDate(r.createdAt, "Africa/Maputo", true)}</span> },
               { key: "state", header: "Estado", align: "right", mobile: "end", cell: (r) => (r.role === "OWNER" ? <span className="text-[12px] text-subtle">Proprietário</span> : <AccountBadge state={accountState(r)} />) },
             ]}
             empty={<p className="p-5 text-sm text-subtle">Sem registos.</p>}

@@ -177,7 +177,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: SP
         {isDemo
           ? "Dados fictícios de demonstração — não representam faturação real nem são incluídos nos relatórios reais."
           : "Métricas calculadas a partir de pedidos persistidos. Moedas diferentes nunca são somadas."}
-        <Link href="/relatorios" className="ml-auto shrink-0 text-muted underline-offset-2 hover:text-fg hover:underline">
+        <Link href="/relatorios" className="-my-1.5 ml-auto inline-flex min-h-8 shrink-0 items-center text-muted underline-offset-2 hover:text-fg hover:underline">
           <Package className="sr-only" /> Relatórios
         </Link>
       </p>
