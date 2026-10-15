@@ -68,6 +68,7 @@ model User {
   coupons                Coupon[]
   analyticsEvents        AnalyticsEvent[]
   integrations           IntegrationConfig[]
+  metaPixels             MetaPixel[]
   refunds                Refund[]
   adminActions           AdminAuditLog[]         @relation("AdminActor")
   adminTargets           AdminAuditLog[]         @relation("AdminTarget")
@@ -134,13 +135,13 @@ enum ProductStatus {
 }
 
 model Product {
-  id              String          @id @default(cuid())
+  id              String             @id @default(cuid())
   name            String
-  description     String          @db.Text
+  description     String             @db.Text
   imageUrl        String?
   type            ProductType
   category        String?
-  status          ProductStatus   @default(DRAFT)
+  status          ProductStatus      @default(DRAFT)
   salesPageUrl    String?
   supportEmail    String?
   /// Link externo de entrega (método EXTERNAL_LINK). Só é mostrado ao comprador depois do pagamento confirmado.
@@ -153,15 +154,16 @@ model Product {
   deliveryMethod  DeliveryMethod?
   /// Funil principal do produto (o que segue o fluxo de compra do checkout principal). Sempre da mesma conta.
   mainFunnelId    String?
-  mainFunnel      Funnel?         @relation("ProductMainFunnel", fields: [mainFunnelId], references: [id], onDelete: SetNull)
+  mainFunnel      Funnel?            @relation("ProductMainFunnel", fields: [mainFunnelId], references: [id], onDelete: SetNull)
   deliveryPage    DeliveryPage?
+  metaPixels      MetaPixelProduct[]
   /// Conta dona deste registo (isolamento entre utilizadores)
   ownerId         String
-  owner           User            @relation(fields: [ownerId], references: [id], onDelete: Restrict)
-  isDemo          Boolean         @default(false)
+  owner           User               @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  isDemo          Boolean            @default(false)
   archivedAt      DateTime?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
   offers          Offer[]
   checkouts       Checkout[]
   orderItems      OrderItem[]
@@ -487,61 +489,63 @@ enum OrderSource {
 }
 
 model Order {
-  id             String          @id @default(cuid())
+  id              String                @id @default(cuid())
   /// Código legível e não sequencial, ex.: NTP-7K2M9QX4
-  code           String          @unique
-  customerId     String
-  customer       Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  checkoutId     String?
-  checkout       Checkout?       @relation(fields: [checkoutId], references: [id], onDelete: SetNull)
-  funnelId       String?
-  funnel         Funnel?         @relation(fields: [funnelId], references: [id], onDelete: SetNull)
-  couponId       String?
-  coupon         Coupon?         @relation(fields: [couponId], references: [id], onDelete: SetNull)
-  status         OrderStatus     @default(PENDING)
-  source         OrderSource
-  currency       Currency
-  subtotalCents  Int
-  discountCents  Int             @default(0)
+  code            String                @unique
+  customerId      String
+  customer        Customer              @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  checkoutId      String?
+  checkout        Checkout?             @relation(fields: [checkoutId], references: [id], onDelete: SetNull)
+  funnelId        String?
+  funnel          Funnel?               @relation(fields: [funnelId], references: [id], onDelete: SetNull)
+  couponId        String?
+  coupon          Coupon?               @relation(fields: [couponId], references: [id], onDelete: SetNull)
+  status          OrderStatus           @default(PENDING)
+  source          OrderSource
+  currency        Currency
+  subtotalCents   Int
+  discountCents   Int                   @default(0)
   /// Valor bruto pago/a pagar = subtotal - desconto
-  totalCents     Int
+  totalCents      Int
   /// Taxas efetivamente registadas (do processador). Nunca inventadas.
-  feeCents       Int             @default(0)
+  feeCents        Int                   @default(0)
   /// total - taxas
-  netCents       Int
-  provider       String?
-  externalRef    String?
+  netCents        Int
+  provider        String?
+  externalRef     String?
   /// Método de pagamento escolhido (ex.: mpesa, emola) — apenas informativo
-  paymentMethod  String?
+  paymentMethod   String?
   /// Token público aleatório para a página de estado do pagamento (não revela o código interno)
-  publicToken    String?         @unique
+  publicToken     String?               @unique
   /// Chave de idempotência da submissão do checkout (impede encomendas duplicadas)
-  idempotencyKey String?         @unique
+  idempotencyKey  String?               @unique
   /// Pago com credenciais de teste do fornecedor (sandbox): nunca conta como receita
-  isTestPayment  Boolean         @default(false)
-  notes          String?
+  isTestPayment   Boolean               @default(false)
+  notes           String?
   /// Conta dona deste registo (isolamento entre utilizadores)
-  ownerId        String
-  owner          User            @relation(fields: [ownerId], references: [id], onDelete: Restrict)
-  isDemo         Boolean         @default(false)
+  ownerId         String
+  owner           User                  @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  isDemo          Boolean               @default(false)
   /// Encomenda de upsell: aponta para a compra inicial (cada upsell é um pedido e pagamento próprios)
-  parentOrderId  String?
-  parentOrder    Order?          @relation("OrderUpsells", fields: [parentOrderId], references: [id], onDelete: Restrict)
-  upsellOrders   Order[]         @relation("OrderUpsells")
+  parentOrderId   String?
+  parentOrder     Order?                @relation("OrderUpsells", fields: [parentOrderId], references: [id], onDelete: Restrict)
+  upsellOrders    Order[]               @relation("OrderUpsells")
   /// Etapa do funil que originou esta encomenda (upsell)
-  funnelStepKey  String?
-  approvedAt     DateTime?
-  refundedAt     DateTime?
-  canceledAt     DateTime?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  items          OrderItem[]
-  funnelRuns     FunnelRun[]
-  paymentEvents  PaymentEvent[]
-  payments       Payment[]
-  auditLogs      OrderAuditLog[]
-  delivery       Delivery?
-  refunds        Refund[]
+  funnelStepKey   String?
+  approvedAt      DateTime?
+  refundedAt      DateTime?
+  canceledAt      DateTime?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  items           OrderItem[]
+  funnelRuns      FunnelRun[]
+  paymentEvents   PaymentEvent[]
+  payments        Payment[]
+  auditLogs       OrderAuditLog[]
+  delivery        Delivery?
+  metaEvents      MetaEvent[]
+  trackingContext OrderTrackingContext?
+  refunds         Refund[]
 
   @@index([isDemo, status, createdAt])
   @@index([ownerId, isDemo, status, createdAt])
@@ -978,4 +982,88 @@ model PasswordResetToken {
   createdAt DateTime  @default(now())
 
   @@index([userId, createdAt])
+}
+
+// ───────────────────────── Facebook Pixel / API de Conversões (Meta) ─────────────────────────
+
+/// Pixel Meta de uma conta. O token da API de Conversões fica cifrado (AES-256-GCM, secret-box) e nunca sai do servidor.
+model MetaPixel {
+  id            String             @id @default(cuid())
+  ownerId       String
+  owner         User               @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  /// ID numérico do Pixel (público)
+  pixelId       String
+  /// Token de acesso cifrado
+  tokenEnc      String
+  /// Últimos 4 caracteres do token (para o utilizador reconhecer qual está guardado)
+  tokenHint     String
+  /// Código de eventos de teste do Events Manager (opcional): só com ele os pagamentos de teste são enviados
+  testEventCode String?
+  enabled       Boolean            @default(true)
+  lastSentAt    DateTime?
+  lastError     String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  products      MetaPixelProduct[]
+  events        MetaEvent[]
+
+  @@unique([ownerId, pixelId])
+  @@index([ownerId])
+}
+
+/// Produtos cujas vendas confirmadas são enviadas a este Pixel (desde `createdAt`: vendas anteriores nunca são enviadas).
+model MetaPixelProduct {
+  id          String    @id @default(cuid())
+  metaPixelId String
+  metaPixel   MetaPixel @relation(fields: [metaPixelId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@unique([metaPixelId, productId])
+  @@index([productId])
+}
+
+enum MetaEventStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+/// Evento Purchase de uma encomenda paga para um Pixel. Único por (Pixel, encomenda): nunca há duas compras para a
+/// mesma transação; o mesmo `eventId` é reutilizado em todas as tentativas (desduplicação também do lado da Meta).
+model MetaEvent {
+  id             String          @id @default(cuid())
+  ownerId        String
+  metaPixelId    String
+  metaPixel      MetaPixel       @relation(fields: [metaPixelId], references: [id], onDelete: Cascade)
+  orderId        String
+  order          Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  eventId        String
+  status         MetaEventStatus @default(PENDING)
+  attempts       Int             @default(0)
+  nextAttemptAt  DateTime        @default(now())
+  lockedUntil    DateTime?
+  sentAt         DateTime?
+  lastError      String?
+  eventsReceived Int?
+  fbtraceId      String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@unique([metaPixelId, orderId])
+  @@index([status, nextAttemptAt])
+  @@index([ownerId, createdAt])
+}
+
+/// Contexto técnico da compra para a API de Conversões (não pessoal): navegador e clique do anúncio (fbclid).
+model OrderTrackingContext {
+  orderId   String   @id
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  userAgent String?
+  /// Parâmetro fbc no formato oficial fb.1.<ms>.<fbclid>, quando o comprador chegou por um anúncio
+  fbc       String?
+  sourceUrl String?
+  createdAt DateTime @default(now())
 }

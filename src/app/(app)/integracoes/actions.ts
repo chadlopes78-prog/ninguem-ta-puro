@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { guarded } from "@/server/actions";
 import { checkIntegration, isGatewayId, setGatewayEnabled, testGatewayConnection, updateE2Credentials, updateEPayCredentials } from "@/server/services/integrations";
 import { reconcilePendingPayments } from "@/server/services/payment-flow";
+import { deleteMetaPixel, saveMetaPixel } from "@/server/services/meta-capi";
+import { scopeOf } from "@/server/scope";
 
 // Todas as ações exigem sessão válida e conta aprovada (guarded) e atuam APENAS sobre a conta da sessão:
 // o id da conta nunca vem do browser. Nenhuma devolve valores de credenciais.
@@ -61,5 +63,37 @@ export async function saveEPayCredentialsAction(fd: FormData) {
     const r = await updateEPayCredentials(user.id, { secretKey: typeof v === "string" ? v.slice(0, 300) : undefined });
     revalidatePath("/integracoes");
     return r.ok ? { ok: true, message: r.message } : { ok: false, error: r.error, fieldErrors: "fieldErrors" in r ? r.fieldErrors : undefined };
+  });
+}
+
+// ───── Facebook Pixel / API de Conversões ─────
+// Sempre a conta real da sessão (como os gateways): só as vendas reais são enviadas. O token nunca é devolvido.
+
+export async function saveMetaPixelAction(fd: FormData) {
+  return guarded(async ({ user }) => {
+    const str = (k: string) => {
+      const v = fd.get(k);
+      return typeof v === "string" ? v.slice(0, 1100) : undefined;
+    };
+    const productIds = fd.getAll("productIds").filter((v): v is string => typeof v === "string").slice(0, 500);
+    const r = await saveMetaPixel(scopeOf(user.id, false), {
+      id: str("id") || undefined,
+      pixelId: str("pixelId") ?? "",
+      token: str("token") ?? "",
+      testEventCode: str("testEventCode") ?? "",
+      enabled: fd.get("enabled") === "on",
+      productIds,
+    });
+    revalidatePath("/integracoes");
+    return r.ok ? { ok: true, message: "Pixel guardado." } : { ok: false, error: r.error, fieldErrors: r.fieldErrors };
+  });
+}
+
+export async function deleteMetaPixelAction(id: string) {
+  return guarded(async ({ user }) => {
+    if (typeof id !== "string" || !/^[a-z0-9]{10,40}$/i.test(id)) return { ok: false, error: "Pedido inválido." };
+    await deleteMetaPixel(scopeOf(user.id, false), id);
+    revalidatePath("/integracoes");
+    return { ok: true, message: "Pixel removido. Deixam de ser enviados eventos para este Pixel." };
   });
 }

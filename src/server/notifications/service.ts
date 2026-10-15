@@ -253,5 +253,11 @@ export async function runNotificationJobs(now = new Date()) {
     return null;
   });
   const outbox = (await hasDuePushDeliveries()) ? await processPushOutbox(50) : { processed: 0, sent: 0, failed: 0 };
-  return { summary, outbox };
+  // Meta: rede de segurança e novas tentativas dos eventos Purchase (idempotente)
+  const { processMetaOutbox } = await import("@/server/services/meta-capi");
+  const meta = await processMetaOutbox(50).catch((e) => {
+    console.error("[meta] rotina", e instanceof Error ? e.message : "erro");
+    return null;
+  });
+  return { summary, outbox, meta };
 }

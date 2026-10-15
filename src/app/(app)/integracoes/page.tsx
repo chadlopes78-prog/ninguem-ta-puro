@@ -14,7 +14,11 @@ import { ActionButton } from "@/components/ui/action-button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { E2PaymentsForm } from "@/components/integrations/e2payments-form";
 import { EPayForm } from "@/components/integrations/epay-form";
-import { checkIntegrationAction, reconcileAction, saveE2CredentialsAction, saveEPayCredentialsAction, setGatewayEnabledAction, testGatewayConnectionAction } from "./actions";
+import { MetaPixelForm, type MetaProductOption } from "@/components/integrations/meta-pixel-form";
+import { listMetaPixels, listMetaProductOptions, type MetaPixelView } from "@/server/services/meta-capi";
+import { secretStorageAvailable } from "@/server/secret-box";
+import { scopeOf } from "@/server/scope";
+import { checkIntegrationAction, deleteMetaPixelAction, reconcileAction, saveMetaPixelAction, saveE2CredentialsAction, saveEPayCredentialsAction, setGatewayEnabledAction, testGatewayConnectionAction } from "./actions";
 
 export const metadata: Metadata = { title: "Integrações" };
 export const dynamic = "force-dynamic";
@@ -178,6 +182,87 @@ function E2Section({ g }: { g: GatewayView }) {
   );
 }
 
+function MetaCard({ pixels, products, tz }: { pixels: MetaPixelView[]; products: MetaProductOption[]; tz: string }) {
+  const active = pixels.some((p) => p.enabled && p.productIds.length > 0);
+  const name = new Map(products.map((p) => [p.id, p.name]));
+  return (
+    <Card data-testid="meta-integration">
+      <CardHeader
+        title="Facebook Pixel / API de Conversões"
+        description="Envia o evento Purchase à Meta a partir do servidor, só quando o pagamento é confirmado pelo gateway."
+        action={
+          <Badge tone={active ? "success" : "neutral"} dot>
+            <span data-testid="meta-status" data-status={active ? "active" : "inactive"}>{active ? "Ativa" : "Inativa"}</span>
+          </Badge>
+        }
+      />
+      <CardBody className="flex flex-col gap-5">
+        {!secretStorageAvailable() ? (
+          <KeySetup />
+        ) : (
+          <>
+            {pixels.map((p) => (
+              <div key={p.id} className="flex flex-col gap-4 rounded-[var(--radius-md)] border border-line p-4" data-testid={`meta-pixel-${p.pixelId}`}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-medium text-fg">
+                      Pixel <span className="tabular">{p.pixelId}</span>
+                    </p>
+                    <p className="text-[12.5px] text-muted">
+                      {p.enabled ? "Ativo" : "Desativado"} · {p.productIds.length} produto(s) · Token {p.tokenHint}
+                    </p>
+                  </div>
+                  <ActionButton
+                    size="sm"
+                    variant="secondary"
+                    action={deleteMetaPixelAction.bind(null, p.id)}
+                    confirm={{ title: `Remover o Pixel ${p.pixelId}`, description: "O token guardado é apagado e deixam de ser enviados eventos para este Pixel. As vendas e os pedidos não são alterados.", confirmLabel: "Remover", danger: true }}
+                  >
+                    Remover
+                  </ActionButton>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center text-[12.5px]" data-testid="meta-stats">
+                  <div className="rounded-[var(--radius-md)] bg-surface-2 p-2"><span className="block text-base font-semibold tabular text-fg">{p.stats.sent}</span>enviadas</div>
+                  <div className="rounded-[var(--radius-md)] bg-surface-2 p-2"><span className="block text-base font-semibold tabular text-fg">{p.stats.pending}</span>em fila</div>
+                  <div className="rounded-[var(--radius-md)] bg-surface-2 p-2"><span className="block text-base font-semibold tabular text-fg">{p.stats.failed}</span>falhadas</div>
+                </div>
+                <p className="text-[12px] text-subtle">Último envio: {p.lastSentAt ? formatDate(p.lastSentAt, tz, true) : "nenhum"}</p>
+                {p.lastError && (
+                  <p className="rounded-[var(--radius-md)] border border-danger/30 bg-danger/[0.06] p-2.5 text-[12.5px] text-danger" role="alert" data-testid="meta-last-error">
+                    {p.lastError}
+                  </p>
+                )}
+                {p.productIds.some((id) => !name.has(id)) && <p className="text-[12px] text-subtle">Alguns produtos selecionados já não existem e são ignorados.</p>}
+                <details className="rounded-[var(--radius-md)] border border-line p-3 text-[13px]">
+                  <summary className="cursor-pointer font-medium text-fg" data-testid="meta-edit">Editar Pixel, token e produtos</summary>
+                  <div className="mt-4">
+                    <MetaPixelForm action={saveMetaPixelAction} products={products} initial={p} />
+                  </div>
+                </details>
+              </div>
+            ))}
+            <details className="rounded-[var(--radius-md)] border border-dashed border-line p-3 text-[13px]" open={pixels.length === 0}>
+              <summary className="cursor-pointer font-medium text-fg" data-testid="meta-add">{pixels.length ? "Adicionar outro Pixel" : "Configurar Pixel"}</summary>
+              <div className="mt-4">
+                <MetaPixelForm action={saveMetaPixelAction} products={products} />
+              </div>
+            </details>
+          </>
+        )}
+        <div className="text-[12.5px] leading-relaxed text-muted">
+          <p className="mb-2 text-[12px] font-medium uppercase tracking-wider text-subtle">Como funciona</p>
+          <ul className="flex list-disc flex-col gap-1.5 pl-5">
+            <li>O evento Purchase só é enviado depois de o pagamento ser confirmado pela EPay ou pela E2Payments — nunca ao abrir o checkout, com pagamento pendente, falhado ou abandonado.</li>
+            <li>Cada compra tem um identificador único (event_id): novas tentativas reutilizam-no e a mesma compra nunca é contada duas vezes.</li>
+            <li>Só os produtos selecionados enviam eventos. Upsells e downsells aceites geram a sua própria compra, com o produto e o valor pagos.</li>
+            <li>O token fica cifrado no servidor e nunca é mostrado. Email e telefone do comprador são enviados apenas com hash SHA-256, como a Meta exige.</li>
+          </ul>
+        </div>
+      </CardBody>
+    </Card>
+  );
+}
+
 function KeySetup() {
   // Chave aleatória gerada agora, só para facilitar: não é guardada em lado nenhum.
   const suggestion = randomBytes(32).toString("base64");
@@ -199,7 +284,9 @@ function KeySetup() {
 export default async function IntegrationsPage() {
   const user = await requireUser();
   // integrações e registos apenas da conta autenticada
-  const [gateways, logs, settings] = await Promise.all([listGateways(user.id), recentIntegrationLogs(user.id), getSettings(user.id)]);
+  const metaScope = scopeOf(user.id, false); // pixels da conta real (vendas de demonstração nunca são enviadas)
+  const [gateways, logs, settings, pixels] = await Promise.all([listGateways(user.id), recentIntegrationLogs(user.id), getSettings(user.id), listMetaPixels(metaScope)]);
+  const metaProducts = await listMetaProductOptions(metaScope, pixels.flatMap((p) => p.productIds));
   const tz = settings.timezone;
   const active = gateways.filter((g) => g.status === "active");
   return (
@@ -219,6 +306,12 @@ export default async function IntegrationsPage() {
             <GatewayCard key={g.id} g={g} tz={tz} />
           ))}
         </div>
+      </section>
+
+      <section aria-labelledby="tracking-title" className="mt-8">
+        <h2 id="tracking-title" className="mb-1 font-display text-lg font-semibold">Rastreamento de anúncios</h2>
+        <p className="mb-4 text-sm text-muted">Envie as compras confirmadas dos produtos escolhidos para o seu Pixel da Meta.</p>
+        <MetaCard pixels={pixels} products={metaProducts} tz={tz} />
       </section>
 
       <Card className="mt-6">

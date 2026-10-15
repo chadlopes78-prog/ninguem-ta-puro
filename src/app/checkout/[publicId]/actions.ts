@@ -15,7 +15,16 @@ export async function submitCheckoutAction(publicId: string, input: Record<strin
   }
   const clean: Record<string, string> = {};
   for (const k of ["name", "email", "phone", "document", "coupon", "method", "idempotencyKey"]) if (typeof input?.[k] === "string") clean[k] = input[k].slice(0, 300);
-  return submitCheckout(publicId, clean, typeof sessionId === "string" ? sessionId.slice(0, 40) : undefined);
+  const outcome = await submitCheckout(publicId, clean, typeof sessionId === "string" ? sessionId.slice(0, 40) : undefined);
+  // Contexto técnico para a API de Conversões da Meta (navegador, clique do anúncio). Não altera a compra.
+  if (outcome.kind === "payment_started") {
+    try {
+      const h = await headers();
+      const { recordTrackingContext } = await import("@/server/services/meta-capi");
+      await recordTrackingContext(outcome.token, { userAgent: h.get("user-agent"), referer: h.get("referer") });
+    } catch {}
+  }
+  return outcome;
 }
 
 export async function applyCouponAction(publicId: string, code: string) {

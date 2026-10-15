@@ -217,6 +217,9 @@ export async function schedulePushDispatch(): Promise<void> {
     const { after } = await import("next/server");
     after(async () => {
       await processPushOutbox(25).catch((e) => console.error("[push] fila", e));
+      // Meta (API de Conversões): só cria eventos para encomendas já APROVADAS; independente das notificações
+      const { processMetaOutbox } = await import("@/server/services/meta-capi");
+      await processMetaOutbox(25).catch((e) => console.error("[meta] fila", e instanceof Error ? e.message : "erro"));
     });
   } catch {
     // sem contexto de pedido
