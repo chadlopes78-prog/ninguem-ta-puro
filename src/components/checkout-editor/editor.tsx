@@ -24,22 +24,18 @@ import {
   ArrowDown,
   ArrowLeft,
   ArrowUp,
-  Columns2,
-  Columns3,
   Copy,
   Eye,
   GripVertical,
-  LayoutTemplate,
   Lock,
+  Palette,
   Monitor,
-  Plus,
   Redo2,
   RotateCcw,
   Save,
   Send,
   Settings2,
   Smartphone,
-  Square,
   Tablet,
   Trash2,
   Undo2,
@@ -52,7 +48,7 @@ import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import type { ActionResult, FieldErrors } from "@/server/validation/common";
 import { CheckoutView, type CheckoutViewData, type EditorHooks } from "@/components/checkouts/checkout-view";
-import { ELEMENT_INFO, LIBRARY_GROUPS, ADDABLE_ELEMENTS, newElement, type AddableType, type CheckoutDesign, type DesignElement, type ElementStyle, type SectionLayout } from "@/lib/checkout-design";
+import { ELEMENT_INFO, ADDABLE_ELEMENTS, defaultDesign, isProtectedElement, newElement, restoreDefaultStyle, type AddableType, type CheckoutDesign, type DesignElement, type ElementStyle, type SectionLayout } from "@/lib/checkout-design";
 import {
   addSection,
   duplicateElement,
@@ -120,11 +116,6 @@ function ScaledFrame({ width, device, children }: { width: number; device: Devic
     </div>
   );
 }
-const SECTION_PRESETS: { layout: SectionLayout; label: string; icon: typeof Square }[] = [
-  { layout: "1", label: "Secção — 1 coluna", icon: Square },
-  { layout: "1-1", label: "Secção — 2 colunas", icon: Columns2 },
-  { layout: "1-1-1", label: "Secção — 3 colunas", icon: Columns3 },
-];
 
 interface Props {
   productId: string;
@@ -227,7 +218,7 @@ function CanvasElement({
 }) {
   const drag = useDraggable({ id: `el:${el.id}` });
   const drop = useDroppable({ id: `el:${el.id}` });
-  const locked = el.type === "checkout";
+  const locked = isProtectedElement(el);
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
   return (
     <>
@@ -402,8 +393,9 @@ export function CheckoutEditor(props: Props) {
     setSel({ kind: "section", id: section.id });
   };
   const deleteEl = (id: string) => {
-    if (locate(design, id)?.el.type === "checkout") {
-      toast("O formulário de compra não pode ser eliminado — pode movê-lo para outra posição.", "error");
+    const target = locate(design, id)?.el;
+    if (target && isProtectedElement(target)) {
+      toast(target.type === "checkout" ? "O formulário de compra não pode ser eliminado — pode movê-lo para outra posição." : "Este elemento está protegido (produto/preço) e não pode ser eliminado — pode movê-lo.", "error");
       return;
     }
     h.commit((d) => removeElement(d, id));
@@ -686,43 +678,44 @@ export function CheckoutEditor(props: Props) {
   const errorList = Object.entries(errors).filter(([k]) => k.startsWith("sections") || k.startsWith("theme") || k === "_form");
 
   // ── painéis ──
+  const allElements = design.sections.flatMap((x) => x.columns.flat());
+  const protectedItems = [
+    { label: "Nome do produto", find: (e: DesignElement) => e.type === "heading" && e.source === "productName" },
+    { label: "Preço", find: (e: DesignElement) => e.type === "price" },
+    { label: "Formulário e pagamento", find: (e: DesignElement) => e.type === "checkout" },
+  ].map((x) => ({ ...x, el: allElements.find(x.find) }));
   const library = (
     <div className="flex flex-col gap-5 p-3" data-testid="element-library">
       <div>
-        <p className="mb-2 px-1 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-subtle">Estrutura</p>
-        <div className="grid grid-cols-1 gap-1.5">
-          {SECTION_PRESETS.map((s) => (
-            <LibraryItem key={s.layout} id={`libsec:${s.layout}`} label={s.label} description="Arraste para a página" icon={<s.icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-subtle" aria-hidden="true" />} onAdd={() => addNewSection(s.layout)} testId={`lib-section-${s.layout}`} />
+        <p className="mb-2 px-1 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-subtle">Elementos</p>
+        <div className="grid grid-cols-2 gap-1.5 lg:grid-cols-1 xl:grid-cols-2">
+          {ADDABLE_ELEMENTS.map((t) => (
+            <LibraryItem key={t} id={`lib:${t}`} label={ELEMENT_INFO[t].label} description={ELEMENT_INFO[t].description} onAdd={() => (addElement(t), setPane("canvas"))} testId={`lib-${t}`} />
           ))}
         </div>
+        <p className="mt-2 px-1 text-[11px] leading-snug text-subtle">Clique para adicionar abaixo do elemento selecionado, ou arraste para a posição desejada.</p>
       </div>
-      {LIBRARY_GROUPS.map((g) => (
-        <div key={g.id}>
-          <p className="mb-2 px-1 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-subtle">{g.label}</p>
-          <div className="grid grid-cols-2 gap-1.5 lg:grid-cols-1 xl:grid-cols-2">
-            {ADDABLE_ELEMENTS.filter((t) => ELEMENT_INFO[t].group === g.id).map((t) => (
-              <LibraryItem key={t} id={`lib:${t}`} label={ELEMENT_INFO[t].label} description={ELEMENT_INFO[t].description} onAdd={() => (addElement(t), setPane("canvas"))} testId={`lib-${t}`} />
-            ))}
-          </div>
-        </div>
-      ))}
       <div>
-        <p className="mb-2 px-1 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-subtle">Compra (protegido)</p>
-        <button
-          type="button"
-          onClick={() => {
-            const at = design.sections.flatMap((s) => s.columns.flat()).find((e) => e.type === "checkout");
-            if (at) setSel({ kind: "element", id: at.id });
-            setPane("canvas");
-          }}
-          className="flex w-full items-start gap-2.5 rounded-[var(--radius-md)] border border-dashed border-line p-2.5 text-left hover:border-line-strong"
-        >
-          <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-subtle" aria-hidden="true" />
-          <span>
-            <span className="block text-[12.5px] font-medium">Formulário de compra</span>
-            <span className="block text-[11px] leading-snug text-subtle">Já está na página (exatamente uma vez). Arraste-o na página para mudar de posição.</span>
-          </span>
-        </button>
+        <p className="mb-2 px-1 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-subtle">Produto e pagamento (protegidos)</p>
+        <div className="flex flex-col gap-1.5">
+          {protectedItems.map((x) => (
+            <button
+              key={x.label}
+              type="button"
+              disabled={!x.el}
+              onClick={() => {
+                if (x.el) setSel({ kind: "element", id: x.el.id });
+                setPane("canvas");
+              }}
+              className="flex w-full items-center gap-2.5 rounded-[var(--radius-md)] border border-dashed border-line p-2.5 text-left hover:border-line-strong disabled:opacity-50"
+              data-testid="lib-protected"
+            >
+              <Lock className="h-3.5 w-3.5 shrink-0 text-subtle" aria-hidden="true" />
+              <span className="text-[12.5px] font-medium">{x.label}</span>
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 px-1 text-[11px] leading-snug text-subtle">Pode mudá-los de posição e ajustar o aspeto; não podem ser eliminados, e o preço e o pagamento vêm sempre do produto.</p>
       </div>
     </div>
   );
@@ -751,7 +744,22 @@ export function CheckoutEditor(props: Props) {
       onStyle={(patch) => h.commit((d) => updateSectionStyle(d, selectedSection.id, patch), `sec:${selectedSection.id}:${Object.keys(patch).join(",")}`)}
     />
   ) : (
-    <PageProperties design={design} onTheme={(t) => h.commit((d) => ({ ...d, theme: { ...d.theme, ...t } }), `theme:${Object.keys(t).join(",")}`)} />
+    <PageProperties
+      design={design}
+      onTheme={(t) => h.commit((d) => ({ ...d, theme: { ...d.theme, ...t } }), `theme:${Object.keys(t).join(",")}`)}
+      onRestoreStyle={() => {
+        h.commit((d) => restoreDefaultStyle(d));
+        toast("Estilo padrão reposto (pode desfazer com Ctrl+Z).");
+      }}
+      onRestoreTemplate={() =>
+        setConfirm({
+          title: "Restaurar estrutura padrão?",
+          body: "O checkout volta à estrutura simples (nome, imagem, preço e formulário de compra). Os elementos que adicionou são removidos do rascunho; pode desfazer com Ctrl+Z.",
+          label: "Restaurar",
+          run: () => (h.commit((d) => ({ ...defaultDesign(d.theme), theme: d.theme })), setSel({ kind: "page" })),
+        })
+      }
+    />
   );
 
   return (
@@ -818,7 +826,7 @@ export function CheckoutEditor(props: Props) {
             [
               ["library", "Elementos"],
               ["canvas", "Página"],
-              ["props", "Propriedades"],
+              ["props", sel.kind === "page" ? "Estilo" : "Propriedades"],
             ] as const
           ).map(([k, l]) => (
             <button key={k} type="button" role="tab" aria-selected={pane === k} onClick={() => setPane(k)} className={cn("h-10 text-[13px] font-medium", pane === k ? "border-b-2 border-accent text-fg" : "text-muted")} data-testid={`pane-${k}`}>
@@ -856,11 +864,8 @@ export function CheckoutEditor(props: Props) {
                 <CheckoutView data={props.previewData} design={design} mode="preview" editor={hooks} />
               </ScaledFrame>
               <div className="mx-auto mt-3 flex justify-center gap-2" onClick={(e) => e.stopPropagation()}>
-                <Button variant="outline" size="sm" onClick={() => addNewSection("1", design.sections.length)} data-testid="add-section">
-                  <Plus className="h-4 w-4" /> Adicionar secção
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => setSel({ kind: "page" })}>
-                  <LayoutTemplate className="h-4 w-4" /> Definições da página
+                <Button variant="outline" size="sm" onClick={() => (setSel({ kind: "page" }), setPane("props"))} data-testid="checkout-style">
+                  <Palette className="h-4 w-4" /> Estilo do checkout
                 </Button>
               </div>
             </div>

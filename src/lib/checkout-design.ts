@@ -159,6 +159,11 @@ export const elementSchema = z.discriminatedUnion("type", [
     endsAt: z.string().max(40).default(""),
     minutes: z.number().int().min(1).max(10080).default(15),
     expiredText: text(200).default(""),
+    /** Cor que preenche TODO o componente (vazio = cor do cronómetro do tema ou aspeto neutro). */
+    bgColor: optHex,
+    /** Cor dos números e do texto (vazio = branco/escuro automático conforme o fundo). */
+    textColor: optHex,
+    size: z.enum(["sm", "md", "lg"]).default("md"),
   }),
   z.object({ ...base, type: z.literal("infoBox"), icon: icon.default("info"), title: text(160).default(""), body: text(1200).default(""), layout: z.enum(["row", "column"]).default("row") }),
   /** Elementos de confiança configurados pelo utilizador (nenhum texto é imposto pela plataforma). */
@@ -232,6 +237,12 @@ export const themeSchema = z
     mode: z.enum(["dark", "light"]).optional(),
     fontFamily: themeFont.default("inter"),
     headingFont: themeFont.default("grotesk"),
+    /** Cor do botão de finalizar compra e dos botões (vazio = cor principal). */
+    buttonColor: optHex,
+    /** Cor dos textos (vazio = automática conforme o fundo). */
+    textColor: optHex,
+    /** Cor predefinida dos cronómetros (vazio = cor principal). */
+    countdownColor: optHex,
   })
   .strip();
 
@@ -269,17 +280,17 @@ export type CheckoutTheme = CheckoutDesign["theme"];
 // ───────────────────────────── biblioteca ─────────────────────────────
 
 export const ELEMENT_INFO: Record<ElementType, { label: string; description: string; group: "basic" | "content" | "product" | "commerce" }> = {
-  heading: { label: "Título", description: "Título próprio ou nome do produto", group: "basic" },
+  heading: { label: "Título", description: "Título ou frase de destaque", group: "basic" },
   subtitle: { label: "Subtítulo", description: "Frase de apoio", group: "basic" },
   text: { label: "Texto", description: "Parágrafo ou descrição do produto", group: "basic" },
   image: { label: "Imagem", description: "Carregar, biblioteca ou link", group: "basic" },
   banner: { label: "Banner", description: "Imagem larga com texto", group: "basic" },
   button: { label: "Botão", description: "Leva ao formulário ou a um link", group: "basic" },
-  spacer: { label: "Espaçador", description: "Espaço vertical", group: "basic" },
+  spacer: { label: "Espaçamento", description: "Espaço vertical", group: "basic" },
   divider: { label: "Divisor", description: "Linha separadora", group: "basic" },
   video: { label: "Vídeo", description: "YouTube ou Vimeo", group: "content" },
-  benefits: { label: "Lista de benefícios", description: "O que o cliente recebe", group: "content" },
-  testimonials: { label: "Testemunhos", description: "Opiniões de clientes reais", group: "content" },
+  benefits: { label: "Benefícios", description: "O que o cliente recebe", group: "content" },
+  testimonials: { label: "Depoimentos", description: "Opiniões de clientes reais", group: "content" },
   guarantee: { label: "Garantia", description: "Bloco de garantia", group: "content" },
   infoBox: { label: "Bloco de informações", description: "Ícone, título e texto", group: "content" },
   trust: { label: "Elementos de confiança", description: "Selos que configura", group: "content" },
@@ -297,7 +308,16 @@ export const LIBRARY_GROUPS: { id: "basic" | "content" | "product"; label: strin
 ];
 
 export type AddableType = Exclude<ElementType, "checkout">;
-export const ADDABLE_ELEMENTS = (Object.keys(ELEMENT_INFO) as ElementType[]).filter((t): t is AddableType => t !== "checkout");
+/**
+ * Elementos que o editor simplificado deixa adicionar. Os restantes tipos (vídeo, perguntas, botão…) continuam
+ * a ser apresentados e editáveis nos designs que já os têm, mas deixam de aparecer na biblioteca.
+ */
+export const ADDABLE_ELEMENTS: AddableType[] = ["heading", "text", "image", "banner", "countdown", "benefits", "testimonials", "guarantee", "spacer"];
+
+/** Elementos protegidos: não podem ser eliminados no editor (produto, preço e formulário de compra/pagamento). */
+export function isProtectedElement(el: DesignElement): boolean {
+  return el.type === "checkout" || el.type === "price" || (el.type === "heading" && el.source === "productName");
+}
 
 export function newId(prefix = "e"): string {
   return `${prefix}${Math.random().toString(36).slice(2, 10)}`;
@@ -328,7 +348,7 @@ export function newElement(type: AddableType): DesignElement {
     case "faq":
       return { ...e, type, title: "Perguntas frequentes", items: [{ q: "Como recebo o produto?", a: "Recebe o acesso logo após a confirmação do pagamento." }] };
     case "countdown":
-      return { ...e, type, title: "Oferta termina em", mode: "evergreen", endsAt: "", minutes: 15, expiredText: "A oferta pode terminar a qualquer momento." };
+      return { ...e, type, title: "Oferta termina em", mode: "evergreen", endsAt: "", minutes: 15, expiredText: "A oferta pode terminar a qualquer momento.", bgColor: "", textColor: "", size: "md" };
     case "infoBox":
       return { ...e, type, icon: "info", title: "Título do bloco", body: "Texto do bloco de informações.", layout: "row" };
     case "trust":
@@ -368,27 +388,55 @@ export function cloneWithNewIds<T extends DesignElement | DesignSection>(x: T): 
 // ───────────────────────────── modelo padrão ─────────────────────────────
 
 /**
- * Modelo padrão profissional para qualquer produto: imagem, nome, descrição e preço reais à esquerda,
- * formulário de compra à direita (fixo ao deslocar no computador); em telemóvel tudo numa coluna.
- * Não inclui benefícios, testemunhos nem garantias: dependem de informação que só o vendedor tem.
+ * Modelo padrão (checkout simples, numa coluna, como nas plataformas de produtos digitais):
+ * 1. nome do produto · 2. imagem (se existir) · 3. preço · 4–6. formulário com os dados do comprador,
+ * os métodos de pagamento ativos e o botão de finalizar (o total aparece uma única vez, junto ao botão).
+ * Não inclui benefícios, depoimentos nem garantias: dependem de informação que só o vendedor tem.
  */
 export function defaultDesign(theme: { primaryColor: string; backgroundColor: string; buttonText: string }): CheckoutDesign {
-  const hero = newSection("3-2");
-  hero.id = "hero";
-  hero.style.paddingY = 48;
-  hero.columns = [
+  const main = newSection("1");
+  main.id = "hero";
+  main.style.contentWidth = "narrow";
+  main.style.paddingY = 32;
+  main.style.rowGap = 18;
+  main.columns = [
     [
-      { id: "product-image", type: "image", style: {}, source: "product", src: "", alt: "", caption: "", widthPct: 100, mobileWidthPct: 100, maxWidthPx: 0, aspect: "16/9", heightPx: 0, fit: "cover", focusX: 50, focusY: 50, imgRadius: 20, imgAlign: "center" },
       { id: "product-name", type: "heading", style: {}, source: "productName", text: "", level: "h1" },
-      { id: "product-description", type: "text", style: {}, source: "productDescription", text: "" },
+      { id: "product-image", type: "image", style: {}, source: "product", src: "", alt: "", caption: "", widthPct: 100, mobileWidthPct: 100, maxWidthPx: 0, aspect: "16/9", heightPx: 0, fit: "cover", focusX: 50, focusY: 50, imgRadius: 16, imgAlign: "center" },
       { id: "product-price", type: "price", style: {}, label: "", showCompareAt: true },
+      { id: "checkout", type: "checkout", style: {}, title: "Os seus dados", subtitle: "", stickyDesktop: false },
     ],
-    [{ id: "checkout", type: "checkout", style: {}, title: "Os seus dados", subtitle: "Usados para enviar o acesso ao produto.", stickyDesktop: true }],
   ];
   return {
     version: 2,
-    theme: { primaryColor: theme.primaryColor, backgroundColor: theme.backgroundColor, buttonText: theme.buttonText, announcement: "", fontFamily: "inter", headingFont: "grotesk" },
-    sections: [hero],
+    theme: { primaryColor: theme.primaryColor, backgroundColor: theme.backgroundColor, buttonText: theme.buttonText, announcement: "", fontFamily: "inter", headingFont: "grotesk", buttonColor: "", textColor: "", countdownColor: "" },
+    sections: [main],
+  };
+}
+
+/**
+ * "Restaurar estilo padrão": repõe as cores e os tipos de letra do tema escolhido e remove os estilos
+ * personalizados dos elementos (tamanhos, cores, fundos, margens). Textos, imagens e a ordem mantêm-se.
+ */
+export function restoreDefaultStyle(design: CheckoutDesign): CheckoutDesign {
+  const mode = themeMode(design.theme);
+  const preset = CHECKOUT_THEME_PRESETS[mode];
+  return {
+    ...design,
+    theme: { ...design.theme, mode, primaryColor: preset.primaryColor, backgroundColor: preset.backgroundColor, fontFamily: "inter", headingFont: "grotesk", buttonColor: "", textColor: "", countdownColor: "" },
+    sections: design.sections.map((s) => ({
+      ...s,
+      style: { ...s.style, background: "", radius: 0, borderColor: "", borderWidth: 0 },
+      columns: s.columns.map((c) =>
+        c.map((e) => {
+          const keep: ElementStyle = {};
+          if (e.style.hideDesktop) keep.hideDesktop = true;
+          if (e.style.hideMobile) keep.hideMobile = true;
+          const base = { ...e, style: keep } as DesignElement;
+          return base.type === "countdown" ? { ...base, bgColor: "", textColor: "", size: "md" as const } : base;
+        }),
+      ),
+    })),
   };
 }
 
@@ -451,7 +499,7 @@ export function convertLegacy(v1: z.infer<typeof legacyDesign>): CheckoutDesign 
         els.push({ id: b.id, type: "testimonials", style: {}, title: b.title, items: b.items });
         break;
       case "countdown":
-        els.push({ id: b.id, type: "countdown", style: {}, title: b.title, mode: b.mode, endsAt: b.endsAt, minutes: b.minutes, expiredText: b.expiredText });
+        els.push({ id: b.id, type: "countdown", style: {}, title: b.title, mode: b.mode, endsAt: b.endsAt, minutes: b.minutes, expiredText: b.expiredText, bgColor: "", textColor: "", size: "md" });
         break;
       case "benefits":
         els.push({ id: b.id, type: "benefits", style: {}, title: b.title, items: b.items, icon: "check" });
@@ -476,7 +524,7 @@ export function convertLegacy(v1: z.infer<typeof legacyDesign>): CheckoutDesign 
   section.columns = stacked ? [[...els, checkout]] : [els, [checkout]];
   return {
     version: 2,
-    theme: { primaryColor: v1.theme.primaryColor, backgroundColor: v1.theme.backgroundColor, buttonText: v1.theme.buttonText, announcement: v1.theme.announcement, mode: v1.theme.mode, fontFamily: "inter", headingFont: "grotesk" },
+    theme: { primaryColor: v1.theme.primaryColor, backgroundColor: v1.theme.backgroundColor, buttonText: v1.theme.buttonText, announcement: v1.theme.announcement, mode: v1.theme.mode, fontFamily: "inter", headingFont: "grotesk", buttonColor: "", textColor: "", countdownColor: "" },
     sections: [section],
   };
 }

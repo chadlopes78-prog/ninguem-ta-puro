@@ -17,6 +17,17 @@ export interface Palette {
   panel: string;
   primary: string;
   onPrimary: string;
+  /** Cor dos botões (tema; predefinição = cor principal) e cor legível sobre ela. */
+  button: string;
+  onButton: string;
+  /** Cor predefinida dos cronómetros ("" = cor principal). */
+  countdown: string;
+}
+
+/** "M-Pesa, e-Mola ou IZI" → ["M-Pesa", "e-Mola", "IZI"] (apresentação simples dos métodos). */
+export function methodChips(label: string): string[] {
+  const parts = label.split(/\s*,\s*|\s+ou\s+|\s+e\s+(?=[A-Z])/).map((x) => x.trim()).filter(Boolean);
+  return parts.length ? parts : [label];
 }
 
 /** Âncora do formulário de compra (usada pelos botões "levar ao formulário"). */
@@ -102,7 +113,7 @@ export function PurchaseForm({
 
   const total = coupon ? coupon.totalCents : data.priceCents;
   const inputCls = cn(
-    "h-11 w-full rounded-[10px] border px-3.5 text-[15px] outline-none transition-colors focus:ring-2",
+    "h-11 w-full rounded-[10px] border px-3.5 text-[16px] outline-none sm:text-[15px] transition-colors focus:ring-2",
     dark ? "border-white/12 bg-white/[0.05] text-white placeholder:text-white/35 focus:border-white/30" : "border-black/15 bg-white text-black placeholder:text-black/35 focus:border-black/40",
   );
 
@@ -252,14 +263,18 @@ export function PurchaseForm({
       )}
 
       {onlyHosted ? (
-        <div className={cn("rounded-xl border p-4", dark ? "border-white/12 bg-white/[0.03]" : "border-black/10 bg-black/[0.02]")} data-testid="hosted-payment">
-          <p className="flex items-center gap-2 text-sm font-medium">
-            <ShieldCheck className="h-4 w-4" aria-hidden="true" /> Pagamento seguro com {onlyHosted.methodsLabel}
-          </p>
-          <p className={cn("mt-1 text-[12.5px]", muted)}>
-            Ao continuar, será encaminhado para a página de pagamento da {onlyHosted.provider}, onde escolhe o método e confirma no telemóvel. A compra só fica concluída depois de o pagamento ser confirmado. Esta página nunca pede dados de cartão.
-          </p>
-          {onlyHosted.isTest && <p className="mt-2 text-[12px] font-semibold text-amber-500">Ambiente de teste da {onlyHosted.provider}: nenhum dinheiro real é cobrado.</p>}
+        // EPay (página alojada) como único gateway: só os métodos, sem texto explicativo
+        <div className="flex flex-col gap-2" data-testid="hosted-payment">
+          <p className="text-[13px] font-medium">Pagamento</p>
+          <div className="flex min-h-12 flex-wrap items-center gap-x-3 gap-y-1 rounded-[10px] border px-3.5 py-2.5 text-[14px] font-medium" style={{ borderColor: data.primaryColor }}>
+            {methodChips(onlyHosted.methodsLabel).map((m) => (
+              <span key={m} className="flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-full" style={{ background: data.primaryColor }} aria-hidden="true" />
+                {m}
+              </span>
+            ))}
+          </div>
+          {onlyHosted.isTest && <p className="text-[12px] font-semibold text-amber-500">Ambiente de teste: nenhum dinheiro real é cobrado.</p>}
         </div>
       ) : payable ? (
         <fieldset className="flex flex-col gap-3" data-testid="payment-options">
@@ -277,7 +292,7 @@ export function PurchaseForm({
               >
                 <input type="radio" name="method" value={m.id} checked={method === m.id} onChange={() => setMethod(m.id)} className="h-4 w-4 shrink-0" style={{ accentColor: data.primaryColor }} />
                 <span className="min-w-0">
-                  <span className="block">{m.hosted ? `${m.providerName} — ${m.hosted.methodsLabel}` : m.label}</span>
+                  <span className="block [overflow-wrap:anywhere]">{m.hosted ? `${m.providerName} — ${methodChips(m.hosted.methodsLabel).join(" · ")}` : m.label}</span>
                   {multiProvider && !m.hosted && <span className={cn("block text-[11.5px] font-normal", muted)}>via {m.providerName}</span>}
                 </span>
               </label>
@@ -286,11 +301,12 @@ export function PurchaseForm({
           {errors.method && <p role="alert" className="text-[12.5px] font-medium text-red-500">{errors.method}</p>}
           {selectedMethod?.requiresPhone && field("phone", `Número ${selectedMethod.label} para pagamento`, { type: "tel", autoComplete: "tel", inputMode: "tel", placeholder: "84 123 4567" }, true)}
           {hosted ? (
-            <p className={cn("flex gap-2 text-[12px]", muted)} data-testid="hosted-payment">
-              <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-              Será encaminhado para a página de pagamento da {hosted.provider}, onde escolhe o método e confirma no telemóvel. A compra só fica concluída depois de o pagamento ser confirmado.
-              {hosted.isTest ? " Ambiente de teste: nenhum dinheiro real é cobrado." : ""}
-            </p>
+            // EPay selecionada: sem a mensagem longa; só o aviso curto do ambiente de teste
+            hosted.isTest && (
+              <p className="text-[12px] font-semibold text-amber-500" data-testid="hosted-payment">
+                Ambiente de teste: nenhum dinheiro real é cobrado.
+              </p>
+            )
           ) : (
             <p className={cn("flex gap-2 text-[12px]", muted)}>
               <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -307,22 +323,25 @@ export function PurchaseForm({
         </div>
       )}
 
-      <dl className={cn("flex flex-col gap-2 border-t pt-4 text-sm", dark ? "border-white/10" : "border-black/10")} data-testid="order-summary">
-        <div className="flex justify-between gap-4">
-          <dt className={muted}>
-            {data.productName} · {data.offerName}
-          </dt>
-          <dd className="tabular">{formatMoney(data.priceCents, data.currency)}</dd>
-        </div>
+      {/* Total (uma única vez, junto ao botão). Com cupão, mostra só o necessário para explicar o valor final. */}
+      <dl className={cn("flex flex-col gap-1.5 border-t pt-4 text-sm", dark ? "border-white/10" : "border-black/10")} data-testid="order-summary">
         {coupon && (
-          <div className="flex justify-between gap-4 text-emerald-500">
-            <dt>Desconto ({coupon.code})</dt>
-            <dd className="tabular">−{formatMoney(coupon.discountCents, data.currency)}</dd>
-          </div>
+          <>
+            <div className="flex justify-between gap-4">
+              <dt className={muted}>Subtotal</dt>
+              <dd className="tabular">{formatMoney(data.priceCents, data.currency)}</dd>
+            </div>
+            <div className="flex justify-between gap-4 text-emerald-500">
+              <dt>Desconto ({coupon.code})</dt>
+              <dd className="tabular">−{formatMoney(coupon.discountCents, data.currency)}</dd>
+            </div>
+          </>
         )}
-        <div className="flex justify-between gap-4 text-base font-semibold">
+        <div className="flex items-baseline justify-between gap-4 text-base font-semibold">
           <dt>Total</dt>
-          <dd className="tabular">{formatMoney(total, data.currency)}</dd>
+          <dd className="tabular" data-testid="order-total">
+            {formatMoney(total, data.currency)}
+          </dd>
         </div>
       </dl>
 
@@ -337,7 +356,7 @@ export function PurchaseForm({
         type="submit"
         disabled={mode !== "live" || pending}
         className="flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[15px] font-semibold transition-[filter,transform] hover:brightness-105 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
-        style={{ background: data.primaryColor, color: p.onPrimary }}
+        style={{ background: p.button, color: p.onButton }}
       >
         {pending ? (onlyHosted || hosted ? "A preparar o pagamento…" : selectedMethod ? "A aguardar confirmação no telemóvel…" : "A processar…") : data.buttonText}
       </button>

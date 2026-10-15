@@ -120,9 +120,9 @@ describe("5–7. personalização por produto, rascunho e publicação", () => {
     const { a } = await two();
     const s = await getEditorState(a.id, S);
     expect(s.status).toBe("default");
-    // modelo padrão profissional com dados reais do produto + formulário de compra protegido
-    expect(els(s.draft).map((b) => b.type)).toEqual(["image", "heading", "text", "price", "checkout"]);
-    expect(s.draft.sections[0].layout).toBe("3-2");
+    // modelo padrão simples (uma coluna): nome → imagem → preço → formulário de compra protegido
+    expect(els(s.draft).map((b) => b.type)).toEqual(["heading", "image", "price", "checkout"]);
+    expect(s.draft.sections[0].layout).toBe("1");
     // sem o selo "Compra segura" (removido a pedido do proprietário)
     expect(JSON.stringify(s.draft)).not.toContain("Compra segura");
     const pub = await getPublicCheckout("handwriting-heroes");
@@ -169,7 +169,7 @@ describe("5–7. personalização por produto, rascunho e publicação", () => {
     const { a } = await two();
     const base = (await getEditorState(a.id, S)).draft;
     const checkoutEl = els(base).find((x) => x.type === "checkout")!;
-    const withEl = (el: unknown) => ({ ...base, sections: [{ ...base.sections[0], columns: [[...base.sections[0].columns[0], el], base.sections[0].columns[1]] }] });
+    const withEl = (el: unknown) => ({ ...base, sections: [{ ...base.sections[0], columns: [[...base.sections[0].columns[0], el]] }] });
     const bad = [
       without(base, "checkout"), // sem formulário de compra
       withEl({ ...checkoutEl, id: "outro" }), // dois formulários
@@ -182,7 +182,7 @@ describe("5–7. personalização por produto, rascunho e publicação", () => {
       withEl({ id: "c1", type: "heading", style: { color: "red; background:url(https://x)" }, text: "t" }), // CSS livre
       withEl({ id: "c2", type: "text", style: { fontSize: 9999 }, text: "t" }),
       withEl({ id: "b1", type: "button", style: {}, label: "Pagar", action: "link", url: "javascript:alert(1)" }),
-      { ...base, sections: [{ ...base.sections[0], layout: "1" }] }, // colunas incoerentes
+      { ...base, sections: [{ ...base.sections[0], layout: "1-1" }] }, // colunas incoerentes
     ];
     for (const d of bad) expect((await saveDraft(a.id, d, S)).ok).toBe(false);
     expect(designSchema.safeParse(withEl({ id: "v2", type: "video", style: {}, url: "https://youtu.be/dQw4w9WgXcQ", caption: "" })).success).toBe(true);

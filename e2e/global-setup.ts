@@ -10,5 +10,7 @@ export default async function globalSetup() {
   );
   if (!env.DATABASE_URL?.includes("/ntp_test")) throw new Error("E2E apenas na base de dados ntp_test");
   execSync("npx prisma migrate deploy", { stdio: "inherit", env: { ...process.env, ...env } });
+  // E2E_KEEP_DB=1: repetir só um ficheiro com os dados deixados pela última execução completa (desenvolvimento)
+  if (process.env.E2E_KEEP_DB === "1") return;
   execSync("npx tsx e2e/reset-db.ts", { stdio: "inherit", env: { ...process.env, ...env } });
 }

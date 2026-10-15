@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Award, Check, ChevronDown, Clock, Download, Gift, Heart, Info, Lock, Phone, ShieldCheck, Star, Truck, type LucideIcon } from "lucide-react";
 import { formatMoney } from "@/lib/money";
+import { readableOn } from "@/lib/color";
 import { cn } from "@/lib/utils";
 import { FONT_FAMILIES, videoEmbedUrl, type DesignElement, type ElementStyle, type ICONS } from "@/lib/checkout-design";
 import type { CheckoutViewData } from "./checkout-view";
@@ -60,13 +61,24 @@ function fs(s: ElementStyle, fallback: string) {
   return s.fontSize ? "text-[length:var(--fs-m)] @2xl:text-[length:var(--fs)]" : fallback;
 }
 
+const COUNTDOWN_SIZES = {
+  sm: { num: "text-xl @md:text-2xl", unit: "text-[10px]", box: "py-1.5", title: "text-[13px]" },
+  md: { num: "text-2xl @md:text-3xl", unit: "text-[10.5px]", box: "py-2", title: "text-sm" },
+  lg: { num: "text-3xl @md:text-[42px]", unit: "text-[11.5px]", box: "py-2.5", title: "text-base" },
+} as const;
+
+/**
+ * Cronómetro (só visual: não altera o preço nem bloqueia a compra). A cor escolhida preenche TODO o
+ * componente — fundo, área dos números e das unidades —, com números e textos brancos (ou escuros, se a
+ * cor for muito clara) para continuarem legíveis. A cor nunca afeta outros elementos da página.
+ */
 function Countdown({ el, storageKey, p }: { el: Extract<DesignElement, { type: "countdown" }>; storageKey: string; p: Palette }) {
   const [end, setEnd] = useState<number | null>(null);
   const [now, setNow] = useState<number>(() => Date.now());
   useEffect(() => {
     if (el.mode === "fixed") {
       const t = Date.parse(el.endsAt);
-      setEnd(Number.isFinite(t) ? t : null);
+      setEnd(Number.isFinite(t) ? t : 0);
     } else {
       const key = `ntp:cd:${storageKey}:${el.id}:${el.minutes}`;
       let start = Date.now();
@@ -82,20 +94,30 @@ function Countdown({ el, storageKey, p }: { el: Extract<DesignElement, { type: "
   }, [el.mode, el.endsAt, el.minutes, el.id, storageKey]);
   const left = end === null ? null : Math.max(0, end - now);
   const parts = left === null ? null : [Math.floor(left / 86_400_000), Math.floor(left / 3_600_000) % 24, Math.floor(left / 60_000) % 60, Math.floor(left / 1000) % 60];
+  // cor do próprio cronómetro → cor do tema para cronómetros → (designs antigos) fundo do elemento → cor principal
+  const ok = (v: string | undefined) => (v && /^#[0-9a-f]{6}$/i.test(v) ? v : "");
+  const bg = ok(el.bgColor) || p.countdown || ok(el.style.background) || p.primary;
+  const fg = ok(el.textColor) || ok(el.style.color) || (readableOn(bg) === "#ffffff" ? "#FFFFFF" : "#0A0B0D");
+  const sz = COUNTDOWN_SIZES[el.size ?? "md"];
+  // antes do primeiro cálculo (HTML do servidor), "--" no lugar dos números — nunca o texto de "terminado"
+  const shown: (number | null)[] = parts ? (parts[0] > 0 ? parts : parts.slice(1)) : [null, null, null];
   return (
-    <div className={cn("rounded-2xl border p-4 text-center", p.panel)}>
-      <p className="flex items-center justify-center gap-2 text-sm font-semibold">
-        <Clock className="h-4 w-4" aria-hidden="true" style={{ color: p.primary }} />
-        {el.title}
-      </p>
-      {left === 0 || parts === null ? (
-        <p className={cn("mt-2 text-sm", p.muted)}>{el.expiredText}</p>
+    <div className="@container w-full overflow-hidden rounded-2xl px-3 py-3.5 text-center @sm:px-4" style={{ background: bg, color: fg }} data-testid="countdown" data-bg={bg}>
+      {el.title && (
+        <p className={cn("flex items-center justify-center gap-2 font-semibold [overflow-wrap:anywhere]", sz.title)}>
+          <Clock className="h-4 w-4 shrink-0" aria-hidden="true" />
+          {el.title}
+        </p>
+      )}
+      {left === 0 ? (
+        <p className="mt-2 text-sm opacity-90">{el.expiredText}</p>
       ) : (
-        <div className="mt-3 flex justify-center gap-2" aria-live="off">
-          {(parts[0] > 0 ? parts : parts.slice(1)).map((v, i, arr) => (
-            <div key={i} className={cn("min-w-14 rounded-xl px-2 py-2", p.dark ? "bg-white/[0.06]" : "bg-black/[0.04]")}>
-              <span className="block font-display text-2xl font-semibold tabular">{String(v).padStart(2, "0")}</span>
-              <span className={cn("text-[10.5px] uppercase tracking-wider", p.muted)}>{(arr.length === 4 ? ["dias", "horas", "min", "seg"] : ["horas", "min", "seg"])[i]}</span>
+        <div className={cn("mx-auto grid max-w-md gap-1.5 @sm:gap-2", el.title && "mt-2.5")} style={{ gridTemplateColumns: `repeat(${shown.length}, minmax(0, 1fr))` }} aria-live="off">
+          {shown.map((v, i, arr) => (
+            // as áreas internas usam a mesma cor (ligeiramente realçada), nunca branco/transparente
+            <div key={i} className={cn("min-w-0 rounded-xl px-1", sz.box)} style={{ background: `color-mix(in srgb, ${fg} 14%, ${bg})` }} data-testid="countdown-unit">
+              <span className={cn("block font-display font-semibold leading-none tabular", sz.num)}>{v === null ? "--" : String(v).padStart(2, "0")}</span>
+              <span className={cn("mt-1 block truncate uppercase tracking-wider opacity-90", sz.unit)}>{(arr.length === 4 ? ["dias", "horas", "min", "seg"] : ["horas", "min", "seg"])[i]}</span>
             </div>
           ))}
         </div>
@@ -180,7 +202,7 @@ export function ElementContent({ el, ctx }: { el: DesignElement; ctx: RenderCtx 
           className="block h-auto w-full max-w-full"
           style={{ aspectRatio: aspect, height: !aspect && el.heightPx ? el.heightPx : undefined, objectFit: aspect || el.heightPx ? el.fit : undefined, objectPosition: `${el.focusX}% ${el.focusY}%`, borderRadius: el.imgRadius }}
         />
-      ) : el.source === "product" ? (
+      ) : el.source === "product" && ctx.editing ? (
         <div className={cn("grid w-full place-items-center border", p.panel)} style={{ aspectRatio: aspect ?? "16 / 10", borderRadius: el.imgRadius }} aria-hidden="true">
           <span className="font-display text-5xl font-semibold" style={{ color: p.primary }}>
             {initials(data.productName)}
@@ -373,7 +395,7 @@ export function ElementContent({ el, ctx }: { el: DesignElement; ctx: RenderCtx 
       );
     case "button": {
       const size = el.size === "sm" ? "h-10 px-4 text-[14px]" : el.size === "lg" ? "h-14 px-7 text-[17px]" : "h-12 px-6 text-[15px]";
-      const style = el.variant === "solid" ? { background: p.primary, color: p.onPrimary } : { border: `2px solid ${p.primary}`, color: p.primary };
+      const style = el.variant === "solid" ? { background: p.button, color: p.onButton } : { border: `2px solid ${p.button}`, color: p.button };
       const cls = cn("inline-flex items-center justify-center rounded-xl font-semibold transition-[filter,transform] hover:brightness-105 active:translate-y-px", size, el.fullWidth && "w-full");
       const wrap = cn("flex", s.align === "center" ? "justify-center" : s.align === "right" ? "justify-end" : "justify-start");
       const onEditClick = (e: React.MouseEvent) => e.preventDefault();

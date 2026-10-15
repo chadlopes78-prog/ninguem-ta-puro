@@ -38,9 +38,9 @@ test.describe.serial("pagamentos (fornecedor de teste local)", () => {
     await expect(page).toHaveURL(/\/produtos\/[a-z0-9]{20,}\?criado=1$/);
     checkoutPath = new URL((await page.getByTestId("product-checkout-url").textContent())!.trim()).pathname;
     expect(checkoutPath).toBe("/checkout/ebook-mocambique");
-    // o texto do botão é personalizável no editor (Definições da página) e só muda o checkout após publicar
+    // o texto do botão é personalizável no editor (Estilo do checkout) e só muda o checkout após publicar
     await page.getByTestId("checkout-link-card").getByRole("link", { name: "Personalizar checkout" }).click();
-    await page.getByRole("button", { name: "Definições da página" }).click();
+    await page.getByRole("button", { name: "Estilo do checkout" }).click();
     await page.getByLabel("Texto do botão de compra").fill("Pagar agora");
     await page.getByTestId("publish").click();
     await toast(page, /publicad/i);

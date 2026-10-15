@@ -60,7 +60,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
       <Card>
         <div className="border-b border-line p-4">
           <ListFilters
-            placeholder="Pesquisar por nome ou categoria…"
+            placeholder="Pesquisar produtos…"
             selects={[
               {
                 name: "status",
@@ -99,7 +99,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                 <Link href={`/produtos/${p.id}`} className="flex min-w-0 items-center gap-3 hover:text-accent">
                   <ProductCover src={p.imageUrl} name={p.name} />
                   <span className="min-w-0">
-                    <span className="block truncate font-medium text-fg">{p.name}</span>
+                    <span className="block font-medium text-fg [overflow-wrap:anywhere] line-clamp-2 md:truncate">{p.name}</span>
                     {p.category && <span className="block truncate text-[12px] text-subtle">{p.category}</span>}
                   </span>
                 </Link>
@@ -108,7 +108,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
             {
               key: "setup",
               header: "Configuração",
-              mobile: "meta",
+              mobile: "block",
               cell: (p) => {
                 const r = readiness.get(p.id);
                 if (!r || r.ready || p.status === "ARCHIVED") return r?.ready ? <span className="text-[12.5px] text-success">Tudo configurado</span> : <span className="text-subtle">—</span>;
@@ -123,12 +123,12 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                 );
               },
             },
-            { key: "type", header: "Tipo", cell: (p) => <span className="text-muted">{PRODUCT_TYPE_LABELS[p.type]}</span> },
-            { key: "price", header: "Preço", mobile: "end", align: "right", cell: (p) => <span className="font-medium tabular">{p.defaultOffer ? formatMoney(p.defaultOffer.priceCents, p.defaultOffer.currency) : "—"}</span> },
+            { key: "type", header: "Tipo", mobile: "hide", cell: (p) => <span className="text-muted">{PRODUCT_TYPE_LABELS[p.type]}</span> },
+            { key: "price", header: "Preço", mobile: "meta", align: "right", cell: (p) => <span className="font-medium tabular">{p.defaultOffer ? formatMoney(p.defaultOffer.priceCents, p.defaultOffer.currency) : "—"}</span> },
             {
               key: "status",
               header: "Estado",
-              mobile: "end",
+              mobile: "meta",
               cell: (p) => {
                 const st = readiness.get(p.id)?.stage ?? (p.status === "UNPUBLISHED" ? "unpublished" : "draft");
                 const stage: ProductStage = p.status === "UNPUBLISHED" && st === "incomplete" ? "incomplete" : st;
@@ -148,7 +148,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
               cell: (p) =>
                 p.primaryCheckout ? (
                   <span className="flex min-w-0 items-center gap-2" data-testid="product-row-link">
-                    <span className="max-w-[200px] truncate font-mono text-[12px] text-muted" title={checkoutPath(p.primaryCheckout)}>
+                    <span className="hidden max-w-[200px] truncate font-mono text-[12px] text-muted md:inline-block" title={checkoutPath(p.primaryCheckout)}>
                       {checkoutPath(p.primaryCheckout)}
                     </span>
                     <CopyButton value={checkoutPath(p.primaryCheckout)} size="sm" label="Copiar link" />
@@ -157,13 +157,13 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                   <span className="text-subtle">—</span>
                 ),
             },
-            { key: "orders", header: "Pedidos", align: "right", cell: (p) => <span className="text-muted tabular">{p._count.orderItems}</span> },
-            { key: "created", header: "Criado em", cell: (p) => <span className="text-muted tabular">{formatDate(p.createdAt, settings.timezone)}</span> },
+            { key: "orders", header: "Pedidos", align: "right", mobile: "hide", cell: (p) => <span className="text-muted tabular">{p._count.orderItems}</span> },
+            { key: "created", header: "Criado em", mobile: "hide", cell: (p) => <span className="text-muted tabular">{formatDate(p.createdAt, settings.timezone)}</span> },
             {
               key: "actions",
               header: <span className="sr-only">Ações</span>,
               align: "right",
-              mobile: "hide",
+              mobile: "action",
               cell: (p) => (
                 <RowMenu
                   label={`Ações para ${p.name}`}

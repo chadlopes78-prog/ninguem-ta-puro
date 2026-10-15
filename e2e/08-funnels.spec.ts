@@ -153,7 +153,7 @@ test.describe.serial("funis: upsell e página de obrigado", () => {
     await login(page);
     await page.goto("/checkouts");
     await page.getByTestId("personalization-card").filter({ hasText: "Ebook Moçambique" }).getByTestId("personalize").click();
-    await page.getByRole("button", { name: "Definições da página" }).click();
+    await page.getByRole("button", { name: "Estilo do checkout" }).click();
     await page.getByTestId("checkout-theme-light").click();
     await expect(page.getByTestId("editor-preview").getByTestId("checkout-root")).toHaveAttribute("data-mode", "light");
     await page.getByTestId("publish").click();

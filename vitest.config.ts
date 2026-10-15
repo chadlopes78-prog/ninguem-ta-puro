@@ -16,6 +16,8 @@ Object.assign(process.env, testEnv);
 
 export default defineConfig({
   plugins: [tsconfigPaths()],
+  // componentes React (.tsx) renderizados nos testes com o runtime automático de JSX
+  esbuild: { jsx: "automatic" },
   resolve: { alias: { "server-only": new URL("./tests/server-only-stub.ts", import.meta.url).pathname } },
   test: {
     include: ["tests/**/*.test.ts"],

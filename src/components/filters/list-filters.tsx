@@ -48,7 +48,7 @@ export function ListFilters({ placeholder = "Pesquisar…", selects = [] }: { pl
           onChange={(e) => setQ(e.target.value)}
           placeholder={placeholder}
           aria-label="Pesquisar"
-          className="h-10 w-full rounded-[var(--radius-md)] border border-line bg-surface-2 pl-9 pr-9 text-sm text-fg placeholder:text-subtle focus:border-accent/60 focus:outline-none focus:ring-2 focus:ring-accent/20"
+          className="h-10 w-full rounded-[var(--radius-md)] border border-line bg-surface-2 pl-9 pr-9 text-base text-fg placeholder:text-subtle sm:text-sm focus:border-accent/60 focus:outline-none focus:ring-2 focus:ring-accent/20"
         />
         {q && (
           <button onClick={() => setQ("")} className="absolute right-2 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded text-subtle hover:text-fg" aria-label="Limpar pesquisa">
@@ -56,14 +56,14 @@ export function ListFilters({ placeholder = "Pesquisar…", selects = [] }: { pl
           </button>
         )}
       </div>
-      <div className="grid grid-cols-2 gap-2 sm:flex">
+      <div className="grid grid-cols-1 gap-2 min-[440px]:grid-cols-2 sm:flex">
         {selects.map((s) => (
           <select
             key={s.name}
             aria-label={s.label}
             value={params.get(s.name) ?? ""}
             onChange={(e) => push({ [s.name]: e.target.value })}
-            className="h-10 min-w-0 rounded-[var(--radius-md)] border border-line bg-surface-2 px-3 text-sm text-fg"
+            className="h-10 w-full min-w-0 rounded-[var(--radius-md)] border border-line bg-surface-2 px-3 text-base text-fg sm:w-auto sm:text-sm"
           >
             {s.options.map((o) => (
               <option key={o.value} value={o.value}>

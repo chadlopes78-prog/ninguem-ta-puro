@@ -4,7 +4,7 @@ import { forwardRef, useId } from "react";
 import { cn } from "@/lib/utils";
 
 const control =
-  "w-full rounded-[var(--radius-md)] border border-line bg-surface-2 px-3 text-sm text-fg placeholder:text-subtle transition-colors hover:border-line-strong focus:border-accent/60 focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-60 aria-[invalid=true]:border-danger/60 aria-[invalid=true]:focus:ring-danger/20";
+  "w-full rounded-[var(--radius-md)] border border-line bg-surface-2 px-3 text-base text-fg sm:text-sm placeholder:text-subtle transition-colors hover:border-line-strong focus:border-accent/60 focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-60 aria-[invalid=true]:border-danger/60 aria-[invalid=true]:focus:ring-danger/20";
 
 export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(function Input({ className, ...props }, ref) {
   return <input ref={ref} className={cn(control, "h-10", className)} {...props} />;

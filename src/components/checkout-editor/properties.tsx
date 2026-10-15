@@ -1,13 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { AlignCenter, AlignLeft, AlignRight, ImageIcon, Lock, Trash2 } from "lucide-react";
+import { AlignCenter, AlignLeft, AlignRight, ImageIcon, LayoutTemplate, Lock, RotateCcw, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   CHECKOUT_THEME_PRESETS,
   CONTENT_WIDTHS,
   ELEMENT_INFO,
-  FONT_FAMILIES,
   ICONS,
   SECTION_LAYOUTS,
   themeMode,
@@ -16,7 +15,6 @@ import {
   type DesignElement,
   type DesignSection,
   type ElementStyle,
-  type FontFamily,
   type SectionLayout,
 } from "@/lib/checkout-design";
 import { ColorProp, Group, ListProp, NumberProp, Prop, Segmented, SelectProp, TextProp, Toggle } from "./controls";
@@ -32,7 +30,6 @@ const ALIGN = [
 ];
 const ICON_LABELS: Record<(typeof ICONS)[number], string> = { check: "Visto", shield: "Escudo", lock: "Cadeado", star: "Estrela", clock: "Relógio", gift: "Presente", truck: "Entrega", download: "Download", phone: "Telefone", heart: "Coração", award: "Prémio", info: "Informação" };
 const iconOptions = ICONS.map((i) => ({ value: i, label: ICON_LABELS[i] }));
-const TEXTUAL = new Set(["heading", "subtitle", "text", "price", "benefits", "testimonials", "faq", "guarantee", "infoBox", "trust", "banner", "button", "countdown", "productSummary"]);
 
 function ImageField({ src, onChange }: { src: string; onChange: (src: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -64,12 +61,13 @@ function ImageField({ src, onChange }: { src: string; onChange: (src: string) =>
 function ContentFields({ el, set }: { el: DesignElement; set: Patch }) {
   switch (el.type) {
     case "heading":
-      return (
+      return el.source === "productName" ? (
         <>
-          <Segmented label="Texto" value={el.source} onChange={(source) => set({ source })} options={[{ value: "productName", label: "Nome do produto" }, { value: "custom", label: "Personalizado" }]} />
-          {el.source === "custom" ? <TextProp label="Título" value={el.text} onChange={(text) => set({ text })} max={200} area rows={2} /> : <p className="text-[12px] text-subtle">Mostra sempre o nome atual do produto.</p>}
-          <Segmented label="Nível" value={el.level} onChange={(level) => set({ level })} options={[{ value: "h1", label: "H1" }, { value: "h2", label: "H2" }, { value: "h3", label: "H3" }]} />
+          <ProtectedNote>Nome do produto (protegido): mostra sempre o nome atual do produto e não pode ser eliminado.</ProtectedNote>
+          <Segmented label="Nível" value={el.level} onChange={(level) => set({ level })} options={[{ value: "h1", label: "Principal" }, { value: "h2", label: "Secundário" }]} />
         </>
+      ) : (
+        <TextProp label="Título" value={el.text} onChange={(text) => set({ text })} max={200} area rows={2} />
       );
     case "subtitle":
       return <TextProp label="Subtítulo" value={el.text} onChange={(text) => set({ text })} max={400} area rows={3} />;
@@ -84,17 +82,10 @@ function ContentFields({ el, set }: { el: DesignElement; set: Patch }) {
       return (
         <>
           <Segmented label="Origem" value={el.source} onChange={(source) => set({ source })} options={[{ value: "product", label: "Imagem do produto" }, { value: "custom", label: "Outra imagem" }]} />
-          {el.source === "custom" && <ImageField src={el.src} onChange={(src) => set({ src })} />}
+          {el.source === "custom" ? <ImageField src={el.src} onChange={(src) => set({ src })} /> : <p className="text-[12px] text-subtle">Mostra a imagem do produto. Se o produto não tiver imagem, nada aparece no checkout.</p>}
           <TextProp label="Texto alternativo (acessibilidade)" value={el.alt} onChange={(alt) => set({ alt })} max={160} placeholder="Descreva a imagem" />
-          <TextProp label="Legenda" value={el.caption} onChange={(caption) => set({ caption })} max={200} />
-          <NumberProp label="Largura (computador)" value={el.widthPct} onChange={(v) => set({ widthPct: v ?? 100 })} min={10} max={100} unit="%" />
-          <NumberProp label="Largura (telemóvel)" value={el.mobileWidthPct} onChange={(v) => set({ mobileWidthPct: v ?? 100 })} min={10} max={100} unit="%" />
-          <NumberProp label="Largura máxima" value={el.maxWidthPx || undefined} onChange={(v) => set({ maxWidthPx: v ?? 0 })} min={40} max={2400} step={10} optional />
-          <SelectProp label="Proporção" value={el.aspect} onChange={(aspect) => set({ aspect })} options={[{ value: "auto", label: "Original" }, { value: "1/1", label: "Quadrada 1:1" }, { value: "4/3", label: "4:3" }, { value: "3/2", label: "3:2" }, { value: "16/9", label: "16:9" }, { value: "21/9", label: "21:9 (panorâmica)" }, { value: "3/1", label: "3:1 (faixa)" }, { value: "3/4", label: "3:4 (vertical)" }]} />
-          {el.aspect === "auto" && <NumberProp label="Altura fixa" value={el.heightPx || undefined} onChange={(v) => set({ heightPx: v ?? 0 })} min={40} max={1200} step={10} optional />}
-          <Segmented label="Enquadramento" value={el.fit} onChange={(fit) => set({ fit })} options={[{ value: "cover", label: "Preencher" }, { value: "contain", label: "Mostrar toda" }]} />
-          <NumberProp label="Ponto focal horizontal" value={el.focusX} onChange={(v) => set({ focusX: v ?? 50 })} min={0} max={100} unit="%" />
-          <NumberProp label="Ponto focal vertical" value={el.focusY} onChange={(v) => set({ focusY: v ?? 50 })} min={0} max={100} unit="%" />
+          <SelectProp label="Proporção" value={el.aspect} onChange={(aspect) => set({ aspect })} options={[{ value: "auto", label: "Original" }, { value: "1/1", label: "Quadrada" }, { value: "4/3", label: "4:3" }, { value: "16/9", label: "16:9" }, { value: "3/1", label: "Faixa larga" }]} />
+          <NumberProp label="Largura" value={el.widthPct} onChange={(v) => set({ widthPct: v ?? 100, mobileWidthPct: v ?? 100 })} min={20} max={100} unit="%" />
           <NumberProp label="Cantos arredondados" value={el.imgRadius} onChange={(v) => set({ imgRadius: v ?? 0 })} min={0} max={48} />
           <Segmented label="Alinhamento" value={el.imgAlign} onChange={(imgAlign) => set({ imgAlign })} options={ALIGN} />
         </>
@@ -103,15 +94,11 @@ function ContentFields({ el, set }: { el: DesignElement; set: Patch }) {
       return (
         <>
           <ImageField src={el.src} onChange={(src) => set({ src })} />
-          <TextProp label="Texto alternativo" value={el.alt} onChange={(alt) => set({ alt })} max={160} />
           <TextProp label="Título sobre a imagem" value={el.title} onChange={(title) => set({ title })} max={160} />
           <TextProp label="Subtítulo sobre a imagem" value={el.subtitle} onChange={(subtitle) => set({ subtitle })} max={300} area rows={2} />
-          <SelectProp label="Proporção" value={el.aspect} onChange={(aspect) => set({ aspect })} options={[{ value: "3/1", label: "3:1 (faixa)" }, { value: "21/9", label: "21:9" }, { value: "16/9", label: "16:9" }, { value: "4/3", label: "4:3" }]} />
-          <NumberProp label="Escurecer imagem" value={el.overlay} onChange={(v) => set({ overlay: v ?? 0 })} min={0} max={85} unit="%" />
           <ColorProp label="Cor do texto" value={el.textColor} onChange={(v) => set({ textColor: v ?? "#FFFFFF" })} optional={false} />
-          <NumberProp label="Ponto focal horizontal" value={el.focusX} onChange={(v) => set({ focusX: v ?? 50 })} min={0} max={100} unit="%" />
-          <NumberProp label="Ponto focal vertical" value={el.focusY} onChange={(v) => set({ focusY: v ?? 50 })} min={0} max={100} unit="%" />
-          <NumberProp label="Cantos arredondados" value={el.imgRadius} onChange={(v) => set({ imgRadius: v ?? 0 })} min={0} max={48} />
+          <NumberProp label="Escurecer imagem" value={el.overlay} onChange={(v) => set({ overlay: v ?? 0 })} min={0} max={85} unit="%" />
+          <SelectProp label="Proporção" value={el.aspect} onChange={(aspect) => set({ aspect })} options={[{ value: "3/1", label: "Faixa larga" }, { value: "21/9", label: "Panorâmica" }, { value: "16/9", label: "16:9" }, { value: "4/3", label: "4:3" }]} />
         </>
       );
     case "video":
@@ -232,7 +219,7 @@ function ContentFields({ el, set }: { el: DesignElement; set: Patch }) {
     case "price":
       return (
         <>
-          <p className="text-[12px] text-subtle">O valor e a moeda vêm sempre da oferta do produto e não podem ser alterados aqui.</p>
+          <ProtectedNote>Preço (protegido): o valor e a moeda vêm sempre da oferta do produto e não podem ser alterados nem eliminados.</ProtectedNote>
           <TextProp label="Rótulo (opcional)" value={el.label} onChange={(label) => set({ label })} max={60} placeholder="Ex.: Preço de lançamento" />
           <Toggle label="Mostrar preço anterior riscado" checked={el.showCompareAt} onChange={(showCompareAt) => set({ showCompareAt })} />
         </>
@@ -268,100 +255,78 @@ function ContentFields({ el, set }: { el: DesignElement; set: Patch }) {
     case "checkout":
       return (
         <>
-          <p className="flex gap-2 rounded-[var(--radius-md)] border border-line bg-surface-2 p-3 text-[12px] leading-relaxed text-muted">
-            <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-            Componente protegido: campos obrigatórios, validação, cupões, métodos de pagamento (EPay/E2Payments), resumo e confirmação funcionam sempre como antes. Pode mudar a posição, o título e o aspeto exterior.
-          </p>
+          <ProtectedNote>
+            Formulário de compra (protegido): campos obrigatórios, validação, métodos de pagamento (EPay/E2Payments), total e botão de finalizar funcionam sempre como antes. Pode mudar a posição e o título.
+          </ProtectedNote>
           <TextProp label="Título do formulário" value={el.title} onChange={(title) => set({ title })} max={80} />
-          <TextProp label="Texto de apoio" value={el.subtitle} onChange={(subtitle) => set({ subtitle })} max={200} />
-          <Toggle label="Fixo ao deslocar (computador)" checked={el.stickyDesktop} onChange={(stickyDesktop) => set({ stickyDesktop })} />
+          <TextProp label="Texto de apoio (opcional)" value={el.subtitle} onChange={(subtitle) => set({ subtitle })} max={200} />
         </>
       );
   }
 }
 
-function StyleFields({ el, s, set }: { el: DesignElement; s: ElementStyle; set: (p: Partial<ElementStyle>) => void }) {
-  const textual = TEXTUAL.has(el.type);
+function ProtectedNote({ children }: { children: React.ReactNode }) {
   return (
-    <>
-      {textual && (
-        <Group title="Tipografia">
-          <SelectProp
-            label="Tipo de letra"
-            value={s.fontFamily ?? "inherit"}
-            onChange={(v) => set({ fontFamily: v === "inherit" ? undefined : v })}
-            options={(Object.keys(FONT_FAMILIES) as FontFamily[]).map((k) => ({ value: k, label: FONT_FAMILIES[k].label }))}
-          />
-          <NumberProp label="Tamanho (computador)" value={s.fontSize} onChange={(fontSize) => set({ fontSize })} min={10} max={96} optional />
-          <NumberProp label="Tamanho (telemóvel)" value={s.fontSizeMobile} onChange={(fontSizeMobile) => set({ fontSizeMobile })} min={10} max={72} optional />
-          <SelectProp
-            label="Peso"
-            value={String(s.fontWeight ?? "")}
-            onChange={(v) => set({ fontWeight: v ? (Number(v) as ElementStyle["fontWeight"]) : undefined })}
-            options={[{ value: "", label: "Predefinido" }, { value: "300", label: "Leve" }, { value: "400", label: "Normal" }, { value: "500", label: "Médio" }, { value: "600", label: "Semi-negrito" }, { value: "700", label: "Negrito" }, { value: "800", label: "Extra-negrito" }]}
-          />
-          <ColorProp label="Cor do texto" value={s.color} onChange={(color) => set({ color })} />
-          <Segmented label="Alinhamento" value={s.align} onChange={(align) => set({ align })} options={ALIGN} />
-          <NumberProp label="Altura da linha" value={s.lineHeight} onChange={(lineHeight) => set({ lineHeight })} min={0.9} max={2.6} step={0.05} unit="×" optional fallback={1.5} />
-          <NumberProp label="Espaçamento entre letras" value={s.letterSpacing} onChange={(letterSpacing) => set({ letterSpacing })} min={-3} max={12} step={0.1} optional fallback={0} />
-        </Group>
-      )}
-      <Group title="Fundo e contorno">
-        <ColorProp label="Cor de fundo" value={s.background} onChange={(background) => set({ background })} />
-        <NumberProp label="Cantos arredondados" value={s.radius} onChange={(radius) => set({ radius })} min={0} max={48} optional fallback={0} />
-        <NumberProp label="Espessura do contorno" value={s.borderWidth} onChange={(borderWidth) => set({ borderWidth })} min={0} max={8} optional fallback={0} />
-        {!!s.borderWidth && <ColorProp label="Cor do contorno" value={s.borderColor} onChange={(borderColor) => set({ borderColor })} />}
-      </Group>
-    </>
+    <p className="flex gap-2 rounded-[var(--radius-md)] border border-line bg-surface-2 p-3 text-[12px] leading-relaxed text-muted" data-testid="protected-note">
+      <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      <span>{children}</span>
+    </p>
   );
 }
 
-function AdvancedFields({ el, s, set }: { el: DesignElement; s: ElementStyle; set: (p: Partial<ElementStyle>) => void }) {
-  const protectedEl = el.type === "checkout";
+const TEXT_SIZE = new Set(["heading", "subtitle", "text", "price"]);
+const TEXT_COLOR = new Set(["heading", "subtitle", "text", "price", "benefits", "testimonials", "guarantee", "faq", "infoBox", "trust", "productSummary"]);
+const ALIGNABLE = new Set(["heading", "subtitle", "text", "price", "button", "trust"]);
+const BOXED = new Set(["benefits", "testimonials", "guarantee", "faq", "infoBox", "trust"]);
+
+/** Aparência: só as opções que fazem sentido para o elemento selecionado. */
+function AppearanceFields({ el, set, s, setStyle }: { el: DesignElement; set: Patch; s: ElementStyle; setStyle: (p: Partial<ElementStyle>) => void }) {
+  if (el.type === "countdown")
+    return (
+      <Group title="Aparência">
+        <ColorProp label="Cor do fundo" value={el.bgColor || undefined} onChange={(v) => set({ bgColor: v ?? "" })} />
+        <ColorProp label="Cor do texto e dos números" value={el.textColor || undefined} onChange={(v) => set({ textColor: v ?? "" })} />
+        <p className="-mt-1 text-[11.5px] text-subtle">A cor do fundo preenche todo o cronómetro. Sem cor de texto, os números ficam brancos (ou escuros, se o fundo for muito claro).</p>
+        <Segmented label="Tamanho" value={el.size} onChange={(size) => set({ size })} options={[{ value: "sm", label: "Pequeno" }, { value: "md", label: "Médio" }, { value: "lg", label: "Grande" }]} />
+      </Group>
+    );
+  const size = TEXT_SIZE.has(el.type);
+  const color = TEXT_COLOR.has(el.type);
+  const align = ALIGNABLE.has(el.type);
+  const boxed = BOXED.has(el.type);
+  if (!size && !color && !align && !boxed) return null;
   return (
-    <>
-      <Group title="Espaçamento">
-        <NumberProp label="Margem superior" value={s.marginTop} onChange={(marginTop) => set({ marginTop })} min={0} max={240} optional fallback={0} />
-        <NumberProp label="Margem inferior" value={s.marginBottom} onChange={(marginBottom) => set({ marginBottom })} min={0} max={240} optional fallback={0} />
-        <NumberProp label="Espaço interno vertical" value={s.paddingY} onChange={(paddingY) => set({ paddingY })} min={0} max={160} optional fallback={0} />
-        <NumberProp label="Espaço interno horizontal" value={s.paddingX} onChange={(paddingX) => set({ paddingX })} min={0} max={160} optional fallback={0} />
-        <NumberProp label="Largura máxima" value={s.maxWidth || undefined} onChange={(maxWidth) => set({ maxWidth })} min={80} max={1600} step={10} optional />
-      </Group>
-      <Group title="Visibilidade">
-        <Toggle label="Ocultar no computador" checked={!!s.hideDesktop} disabled={protectedEl} onChange={(v) => set({ hideDesktop: v || undefined })} />
-        <Toggle label="Ocultar no telemóvel" checked={!!s.hideMobile} disabled={protectedEl} onChange={(v) => set({ hideMobile: v || undefined })} hint={protectedEl ? "O formulário de compra está sempre visível." : "No editor, os elementos ocultos aparecem esbatidos."} />
-      </Group>
-    </>
+    <Group title="Aparência">
+      {size && <NumberProp label="Tamanho do texto" value={s.fontSize} onChange={(fontSize) => setStyle({ fontSize, fontSizeMobile: undefined })} min={10} max={96} optional />}
+      {color && <ColorProp label="Cor do texto" value={s.color} onChange={(c) => setStyle({ color: c })} />}
+      {align && <Segmented label="Alinhamento" value={s.align} onChange={(a) => setStyle({ align: a })} options={ALIGN} />}
+      {boxed && <ColorProp label="Cor de fundo" value={s.background} onChange={(background) => setStyle({ background, radius: background ? (s.radius ?? 16) : undefined, paddingY: background ? (s.paddingY ?? 16) : undefined, paddingX: background ? (s.paddingX ?? 16) : undefined })} />}
+    </Group>
   );
 }
 
 export function ElementProperties({ el, onChange, onStyle }: { el: DesignElement; onChange: Patch; onStyle: (p: Partial<ElementStyle>) => void }) {
-  const [tab, setTab] = useState<"content" | "style" | "advanced">("content");
+  const s = el.style;
+  const isCheckout = el.type === "checkout";
   return (
     <div data-testid="element-properties">
-      <div className="sticky top-0 z-10 border-b border-line bg-surface">
-        <p className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-wider text-accent">{ELEMENT_INFO[el.type].label}</p>
-        <div className="mt-2 grid grid-cols-3" role="tablist">
-          {(
-            [
-              ["content", "Conteúdo"],
-              ["style", "Estilo"],
-              ["advanced", "Avançado"],
-            ] as const
-          ).map(([k, l]) => (
-            <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={cn("h-9 text-[12.5px] font-medium", tab === k ? "border-b-2 border-accent text-fg" : "text-muted hover:text-fg")}>
-              {l}
-            </button>
-          ))}
-        </div>
-      </div>
-      {tab === "content" && (
-        <div className="flex flex-col gap-3.5 p-4">
-          <ContentFields el={el} set={onChange} />
-        </div>
+      <p className="sticky top-0 z-10 border-b border-line bg-surface px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-accent">{ELEMENT_INFO[el.type].label}</p>
+      <Group title="Conteúdo">
+        <ContentFields el={el} set={onChange} />
+      </Group>
+      <AppearanceFields el={el} set={onChange} s={s} setStyle={onStyle} />
+      {el.type !== "spacer" && (
+        <Group title="Espaçamento">
+          <NumberProp label="Espaço acima" value={s.marginTop} onChange={(marginTop) => onStyle({ marginTop })} min={0} max={160} optional fallback={0} />
+          <NumberProp label="Espaço abaixo" value={s.marginBottom} onChange={(marginBottom) => onStyle({ marginBottom })} min={0} max={160} optional fallback={0} />
+        </Group>
       )}
-      {tab === "style" && <StyleFields el={el} s={el.style} set={onStyle} />}
-      {tab === "advanced" && <AdvancedFields el={el} s={el.style} set={onStyle} />}
+      {!isCheckout && (
+        <Group title="Visibilidade">
+          <Toggle label="Mostrar no computador" checked={!s.hideDesktop} onChange={(v) => onStyle({ hideDesktop: v ? undefined : true })} />
+          <Toggle label="Mostrar no telemóvel" checked={!s.hideMobile} onChange={(v) => onStyle({ hideMobile: v ? undefined : true })} hint="No editor, os elementos ocultos aparecem esbatidos." />
+        </Group>
+      )}
     </div>
   );
 }
@@ -376,48 +341,41 @@ function LayoutIcon({ layout }: { layout: SectionLayout }) {
   );
 }
 
+const SIMPLE_LAYOUTS: SectionLayout[] = ["1", "1-1", "3-2", "2-3"];
+
 export function SectionProperties({ section, onLayout, onStyle, hasCheckout }: { section: DesignSection; onLayout: (l: SectionLayout) => void; onStyle: (p: Partial<DesignSection["style"]>) => void; hasCheckout: boolean }) {
   const st = section.style;
+  const layouts = SIMPLE_LAYOUTS.includes(section.layout) ? SIMPLE_LAYOUTS : [...SIMPLE_LAYOUTS, section.layout];
   return (
     <div data-testid="section-properties">
       <p className="border-b border-line px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-accent">Secção</p>
-      <Group title="Estrutura">
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[12.5px] font-medium text-fg/85">Colunas</span>
-          <div className="grid grid-cols-4 gap-1.5" role="radiogroup" aria-label="Colunas">
-            {(Object.keys(SECTION_LAYOUTS) as SectionLayout[]).map((l) => (
-              <button key={l} type="button" role="radio" aria-checked={section.layout === l} title={SECTION_LAYOUTS[l].label} onClick={() => onLayout(l)} className={cn("rounded-[var(--radius-sm,6px)] border p-1.5 text-muted", section.layout === l ? "border-accent text-accent" : "border-line hover:border-line-strong")} data-testid={`layout-${l}`}>
-                <LayoutIcon layout={l} />
-                <span className="sr-only">{SECTION_LAYOUTS[l].label}</span>
-              </button>
-            ))}
-          </div>
-          <p className="text-[11.5px] text-subtle">No telemóvel, as colunas ficam umas por baixo das outras. Ao reduzir colunas, nada se perde.</p>
+      <Group title="Colunas">
+        <div className="grid grid-cols-4 gap-1.5" role="radiogroup" aria-label="Colunas">
+          {layouts.map((l) => (
+            <button key={l} type="button" role="radio" aria-checked={section.layout === l} title={SECTION_LAYOUTS[l].label} onClick={() => onLayout(l)} className={cn("rounded-[var(--radius-sm,6px)] border p-1.5 text-muted", section.layout === l ? "border-accent text-accent" : "border-line hover:border-line-strong")} data-testid={`layout-${l}`}>
+              <LayoutIcon layout={l} />
+              <span className="sr-only">{SECTION_LAYOUTS[l].label}</span>
+            </button>
+          ))}
         </div>
-        <SelectProp label="Largura do conteúdo" value={st.contentWidth} onChange={(contentWidth) => onStyle({ contentWidth })} options={Object.entries(CONTENT_WIDTHS).map(([k, v]) => ({ value: k as keyof typeof CONTENT_WIDTHS, label: v.label }))} />
-        <Segmented label="Alinhamento vertical" value={st.valign} onChange={(valign) => onStyle({ valign })} options={[{ value: "start", label: "Topo" }, { value: "center", label: "Centro" }, { value: "end", label: "Base" }]} />
-        <NumberProp label="Espaço entre colunas" value={st.gap} onChange={(v) => onStyle({ gap: v ?? 40 })} min={0} max={96} />
+        <p className="text-[11.5px] text-subtle">No telemóvel, as colunas ficam umas por baixo das outras. Ao reduzir colunas, nada se perde.</p>
+        <SelectProp label="Largura" value={st.contentWidth} onChange={(contentWidth) => onStyle({ contentWidth })} options={Object.entries(CONTENT_WIDTHS).map(([k, v]) => ({ value: k as keyof typeof CONTENT_WIDTHS, label: v.label }))} />
+      </Group>
+      <Group title="Aparência">
+        <ColorProp label="Cor de fundo" value={st.background || undefined} onChange={(v) => onStyle({ background: v ?? "" })} />
+        <NumberProp label="Espaço acima e abaixo" value={st.paddingY} onChange={(v) => onStyle({ paddingY: v ?? 40 })} min={0} max={200} />
         <NumberProp label="Espaço entre elementos" value={st.rowGap} onChange={(v) => onStyle({ rowGap: v ?? 20 })} min={0} max={96} />
       </Group>
-      <Group title="Espaçamento">
-        <NumberProp label="Espaço interno vertical" value={st.paddingY} onChange={(v) => onStyle({ paddingY: v ?? 40 })} min={0} max={200} />
-        <NumberProp label="Espaço interno horizontal" value={st.paddingX} onChange={(v) => onStyle({ paddingX: v ?? 16 })} min={0} max={120} />
-      </Group>
-      <Group title="Fundo e contorno">
-        <ColorProp label="Cor de fundo" value={st.background || undefined} onChange={(v) => onStyle({ background: v ?? "" })} />
-        <NumberProp label="Cantos arredondados" value={st.radius} onChange={(v) => onStyle({ radius: v ?? 0 })} min={0} max={48} />
-        <NumberProp label="Espessura do contorno" value={st.borderWidth} onChange={(v) => onStyle({ borderWidth: v ?? 0 })} min={0} max={8} />
-        {st.borderWidth > 0 && <ColorProp label="Cor do contorno" value={st.borderColor || undefined} onChange={(v) => onStyle({ borderColor: v ?? "" })} />}
-      </Group>
       <Group title="Visibilidade">
-        <Toggle label="Ocultar no computador" checked={st.hideDesktop} disabled={hasCheckout} onChange={(hideDesktop) => onStyle({ hideDesktop })} />
-        <Toggle label="Ocultar no telemóvel" checked={st.hideMobile} disabled={hasCheckout} onChange={(hideMobile) => onStyle({ hideMobile })} hint={hasCheckout ? "Esta secção contém o formulário de compra e fica sempre visível." : undefined} />
+        <Toggle label="Mostrar no computador" checked={!st.hideDesktop} disabled={hasCheckout} onChange={(v) => onStyle({ hideDesktop: !v })} />
+        <Toggle label="Mostrar no telemóvel" checked={!st.hideMobile} disabled={hasCheckout} onChange={(v) => onStyle({ hideMobile: !v })} hint={hasCheckout ? "Esta secção contém o formulário de compra e fica sempre visível." : undefined} />
       </Group>
     </div>
   );
 }
 
-export function PageProperties({ design, onTheme }: { design: CheckoutDesign; onTheme: (t: Partial<CheckoutTheme>) => void }) {
+/** Estilo geral do checkout: tema, cores principais, botão e restauro do padrão. */
+export function PageProperties({ design, onTheme, onRestoreStyle, onRestoreTemplate }: { design: CheckoutDesign; onTheme: (t: Partial<CheckoutTheme>) => void; onRestoreStyle: () => void; onRestoreTemplate: () => void }) {
   const t = design.theme;
   const mode = themeMode(t);
   const pick = (m: "dark" | "light") => {
@@ -425,10 +383,9 @@ export function PageProperties({ design, onTheme }: { design: CheckoutDesign; on
     // muda o fundo; a cor principal só muda se ainda for a predefinição do outro tema (mantém personalizações)
     onTheme({ mode: m, backgroundColor: CHECKOUT_THEME_PRESETS[m].backgroundColor, ...(t.primaryColor.toUpperCase() === other.primaryColor ? { primaryColor: CHECKOUT_THEME_PRESETS[m].primaryColor } : {}) });
   };
-  const fontOptions = (Object.keys(FONT_FAMILIES) as FontFamily[]).filter((k) => k !== "inherit").map((k) => ({ value: k as Exclude<FontFamily, "inherit">, label: FONT_FAMILIES[k].label }));
   return (
     <div data-testid="page-properties">
-      <p className="border-b border-line px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-accent">Página</p>
+      <p className="border-b border-line px-4 py-3 text-[11px] font-semibold uppercase tracking-wider text-accent">Estilo do checkout</p>
       <Group title="Tema">
         <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Tema do checkout">
           {(["dark", "light"] as const).map((m) => (
@@ -439,22 +396,34 @@ export function PageProperties({ design, onTheme }: { design: CheckoutDesign; on
                 <span className="mt-2.5 block h-4 rounded" style={{ background: CHECKOUT_THEME_PRESETS[m].primaryColor }} />
               </span>
               <span className="flex items-center justify-between px-2.5 py-2 text-[12.5px] font-medium">
-                {m === "dark" ? "Negrito / Escuro" : "Claro"}
+                {m === "dark" ? "Escuro" : "Claro"}
                 {mode === m && <span className="text-accent">✓</span>}
               </span>
             </button>
           ))}
         </div>
-        <ColorProp label="Cor principal (botões e destaques)" value={t.primaryColor} onChange={(v) => v && /^#[0-9A-F]{6}$/i.test(v) && onTheme({ primaryColor: v })} optional={false} />
-        <ColorProp label="Cor de fundo da página" value={t.backgroundColor} onChange={(v) => v && /^#[0-9A-F]{6}$/i.test(v) && onTheme({ backgroundColor: v })} optional={false} />
       </Group>
-      <Group title="Tipografia">
-        <SelectProp label="Texto" value={t.fontFamily} onChange={(fontFamily) => onTheme({ fontFamily })} options={fontOptions} />
-        <SelectProp label="Títulos" value={t.headingFont} onChange={(headingFont) => onTheme({ headingFont })} options={fontOptions} />
+      <Group title="Cores">
+        <ColorProp label="Cor principal" value={t.primaryColor} onChange={(v) => v && /^#[0-9A-F]{6}$/i.test(v) && onTheme({ primaryColor: v })} optional={false} />
+        <ColorProp label="Cor dos botões" value={t.buttonColor || undefined} onChange={(v) => onTheme({ buttonColor: v ?? "" })} />
+        <ColorProp label="Cor dos textos" value={t.textColor || undefined} onChange={(v) => onTheme({ textColor: v ?? "" })} />
+        <ColorProp label="Cor do cronómetro" value={t.countdownColor || undefined} onChange={(v) => onTheme({ countdownColor: v ?? "" })} />
+        <ColorProp label="Cor de fundo da página" value={t.backgroundColor} onChange={(v) => v && /^#[0-9A-F]{6}$/i.test(v) && onTheme({ backgroundColor: v })} optional={false} />
+        <p className="text-[11.5px] text-subtle">Sem cor definida, os botões usam a cor principal e os textos ajustam-se automaticamente ao fundo.</p>
       </Group>
       <Group title="Compra">
         <TextProp label="Texto do botão de compra" value={t.buttonText} onChange={(buttonText) => onTheme({ buttonText })} max={40} />
         <TextProp label="Faixa de anúncio no topo (opcional)" value={t.announcement} onChange={(announcement) => onTheme({ announcement })} max={160} placeholder="Ex.: Oferta de lançamento" />
+      </Group>
+      <Group title="Restaurar">
+        <button type="button" onClick={onRestoreStyle} className="flex h-9 items-center justify-center gap-2 rounded-[var(--radius-md)] border border-line text-[13px] font-medium hover:bg-surface-2" data-testid="restore-style">
+          <RotateCcw className="h-3.5 w-3.5" /> Restaurar estilo padrão
+        </button>
+        <p className="-mt-1 text-[11.5px] text-subtle">Repõe as cores e os tamanhos; mantém os textos, as imagens e a ordem.</p>
+        <button type="button" onClick={onRestoreTemplate} className="flex h-9 items-center justify-center gap-2 rounded-[var(--radius-md)] border border-line text-[13px] font-medium hover:bg-surface-2" data-testid="restore-template">
+          <LayoutTemplate className="h-3.5 w-3.5" /> Restaurar estrutura padrão
+        </button>
+        <p className="-mt-1 text-[11.5px] text-subtle">Volta ao checkout simples: nome, imagem, preço e formulário de compra.</p>
       </Group>
       <p className="m-4 flex gap-2 rounded-[var(--radius-md)] border border-line bg-surface-2 p-3 text-[12px] leading-relaxed text-muted">
         <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />O preço, a moeda, o formulário de compra e os pagamentos (EPay/E2Payments) não são editáveis aqui: vêm sempre do produto e do servidor.
@@ -462,4 +431,3 @@ export function PageProperties({ design, onTheme }: { design: CheckoutDesign; on
     </div>
   );
 }
-

@@ -88,7 +88,7 @@ export function ProductForm({
                   <Select {...p} defaultValue={initial.currency}>
                     {ACTIVE_CURRENCIES.map((c) => (
                       <option key={c} value={c}>
-                        {CURRENCY_LABELS[c]}
+                        {c} — {CURRENCY_LABELS[c].replace(/\s*\([A-Z]{3}\)$/, "")}
                       </option>
                     ))}
                   </Select>

@@ -81,13 +81,23 @@ export function CheckoutView({
   const design = rawDesign ?? defaultDesign(rawData);
   const data: CheckoutViewData = { ...rawData, primaryColor: design.theme.primaryColor, backgroundColor: design.theme.backgroundColor, buttonText: design.theme.buttonText };
   const dark = isDark(data.backgroundColor);
+  // cores opcionais do tema (só valores completos #RRGGBB; enquanto se escreve no editor, usa-se a predefinição)
+  const okHex = (v: string | undefined) => (v && /^#[0-9a-f]{6}$/i.test(v) ? v : "");
+  const t = { textColor: okHex(design.theme.textColor), buttonColor: okHex(design.theme.buttonColor), countdownColor: okHex(design.theme.countdownColor) };
+  // cores dos textos: as do utilizador ou automáticas conforme o fundo (sempre legíveis)
+  const fgColor = t.textColor || (dark ? "#FFFFFF" : "#0A0B0D");
+  const mutedColor = t.textColor ? `${t.textColor}B3` : dark ? "#FFFFFF99" : "#0000008C";
+  const button = t.buttonColor || data.primaryColor;
   const p: Palette = {
     dark,
-    fg: dark ? "text-white" : "text-[#0a0b0d]",
-    muted: dark ? "text-white/60" : "text-black/55",
+    fg: "text-[color:var(--ck-fg)]",
+    muted: "text-[color:var(--ck-muted)]",
     panel: dark ? "bg-white/[0.04] border-white/10" : "bg-white border-black/10 shadow-sm",
     primary: data.primaryColor,
     onPrimary: readableOn(data.primaryColor),
+    button,
+    onButton: readableOn(button),
+    countdown: t.countdownColor || "",
   };
   const editing = Boolean(editor);
   const ctx: RenderCtx = {
@@ -105,7 +115,8 @@ export function CheckoutView({
       <div
         key={el.id}
         className={cn("min-w-0", visibilityClass(el.style, editing), el.type === "checkout" && el.stickyDesktop && "@2xl:sticky @2xl:top-6")}
-        style={boxStyle(el.style)}
+        // o cronómetro aplica a sua cor a todo o componente (não à caixa exterior)
+        style={boxStyle(el.type === "countdown" ? { ...el.style, background: undefined, color: undefined } : el.style)}
         data-block={el.type}
         data-element-id={el.id}
       >
@@ -161,6 +172,8 @@ export function CheckoutView({
 
   const rootStyle: Vars = {
     background: data.backgroundColor,
+    "--ck-fg": fgColor,
+    "--ck-muted": mutedColor,
     fontFamily: FONT_FAMILIES[design.theme.fontFamily].css,
     "--ck-heading": FONT_FAMILIES[design.theme.headingFont].css,
   };

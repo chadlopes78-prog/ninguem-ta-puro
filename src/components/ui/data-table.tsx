@@ -6,8 +6,11 @@ export interface Column<T> {
   cell: (row: T) => React.ReactNode;
   className?: string;
   align?: "left" | "right";
-  /** Como a coluna aparece em ecrãs pequenos: título do cartão, linha secundária ou oculta */
-  mobile?: "title" | "meta" | "hide" | "end";
+  /**
+   * Como a coluna aparece em ecrãs pequenos: título do cartão, linha secundária, coluna à direita, bloco a toda
+   * a largura por baixo (avisos longos), botão/menu no canto do cartão, ou oculta.
+   */
+  mobile?: "title" | "meta" | "hide" | "end" | "block" | "action";
 }
 
 /**
@@ -17,6 +20,8 @@ export function DataTable<T>({ rows, columns, rowKey, rowHref, empty }: { rows: 
   if (!rows.length) return <>{empty}</>;
   const title = columns.find((c) => c.mobile === "title") ?? columns[0];
   const end = columns.filter((c) => c.mobile === "end");
+  const blocks = columns.filter((c) => c.mobile === "block");
+  const actions = columns.filter((c) => c.mobile === "action");
   const meta = columns.filter((c) => c !== title && !end.includes(c) && c.mobile !== "hide" && (c.mobile === "meta" || c.mobile === undefined));
   return (
     <>
@@ -47,18 +52,28 @@ export function DataTable<T>({ rows, columns, rowKey, rowHref, empty }: { rows: 
       <ul className="divide-y divide-line md:hidden">
         {rows.map((r) => {
           const inner = (
-            <div className="flex items-start justify-between gap-3 px-4 py-3.5">
-              <div className="min-w-0 flex-1">
-                <div className="truncate font-medium text-fg">{title.cell(r)}</div>
-                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-muted">
-                  {meta.map((c) => (
-                    <span key={c.key} className="min-w-0">
-                      {c.cell(r)}
-                    </span>
-                  ))}
+            <div className="flex flex-col gap-2.5 px-4 py-3.5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="min-w-0 font-medium text-fg">{title.cell(r)}</div>
+                  {meta.length > 0 && (
+                    <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px] text-muted">
+                      {meta.map((c) => (
+                        <span key={c.key} className="min-w-0 max-w-full">
+                          {c.cell(r)}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
+                {end.length > 0 && <div className="flex max-w-[45%] shrink-0 flex-col items-end gap-1.5 text-right">{end.map((c) => <div key={c.key} className="max-w-full">{c.cell(r)}</div>)}</div>}
+                {actions.length > 0 && <div className="-mr-2 -mt-1 flex shrink-0 items-center">{actions.map((c) => <div key={c.key}>{c.cell(r)}</div>)}</div>}
               </div>
-              {end.length > 0 && <div className="flex shrink-0 flex-col items-end gap-1.5">{end.map((c) => <div key={c.key}>{c.cell(r)}</div>)}</div>}
+              {blocks.map((c) => (
+                <div key={c.key} className="min-w-0 text-[13px]">
+                  {c.cell(r)}
+                </div>
+              ))}
             </div>
           );
           return <li key={rowKey(r)}>{rowHref ? <div className="active:bg-surface-2">{inner}</div> : inner}</li>;

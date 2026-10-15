@@ -1,6 +1,6 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-14 · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
+Última atualização: 2026-10-15 · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
 
 ## Estado geral
 
@@ -10,8 +10,8 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 |---|---|---|
 | Lint | `npm run lint` | ✅ 0 erros, 0 avisos |
 | Tipos TypeScript | `npm run typecheck` | ✅ sem erros |
-| Testes unitários + integração | `npm test` | ✅ 246/246 (13 de publicação/entrega/configurações/palavra-passe, 6 de operações do editor, 5 da biblioteca de imagens, 16 de personalização do checkout, 12 de multiutilizador A–G, 16 de notificações/relatórios, 10 de funis, 18 de gateways) |
-| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 79/79 (4 de configurações/palavra-passe/telemóvel, 6 do editor visual com arrastar e soltar real, 1 de navegação lenta no telemóvel, 5 de várias contas, 10 de notificações/PWA/relatórios, 8 de funis, 9 de pagamentos, 4 de personalização, 3 de gateways) |
+| Testes unitários + integração | `npm test` | ✅ 262/262 (16 do checkout renderizado/editor simples, 13 de publicação/entrega/configurações/palavra-passe, 6 de operações do editor, 5 da biblioteca de imagens, 16 de personalização do checkout, 12 de multiutilizador A–G, 16 de notificações/relatórios, 10 de funis, 18 de gateways) |
+| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 83/83 (3 de revisão mobile a 320/375/414 px, 4 de configurações/palavra-passe/telemóvel, 6 do editor visual com arrastar e soltar real, 1 de navegação lenta no telemóvel, 5 de várias contas, 10 de notificações/PWA/relatórios, 8 de funis, 9 de pagamentos, 4 de personalização, 3 de gateways) |
 | Build de produção | `npm run build` | ✅ sem erros |
 | Fuga de segredos | build com `EPAY_SECRET_KEY`, `E2PAYMENTS_CLIENT_ID/SECRET` e `INTEGRATIONS_ENCRYPTION_KEY` fictícias + `grep` em `.next/` e log | ✅ valor ausente do bundle do browser, do output do servidor e do log; nenhuma variável `NEXT_PUBLIC_`; `.env` com segredos fora do Git |
 
@@ -26,6 +26,40 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | 5 — Operação | ✅ Concluída | Pedidos (filtros, detalhe, transições), clientes, cupões (com testador), relatórios |
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
+
+## Checkout simplificado, cronómetro, editor simples e revisão mobile (sessão 14)
+
+### O que mudou
+- **Estrutura padrão do checkout** (uma coluna, como nas plataformas de produtos digitais): 1. nome do produto · 2. imagem (só se existir — sem marcador de iniciais no checkout público) · 3. preço · 4. dados do comprador · 5. métodos de pagamento · 6. total + botão de finalizar. Aplica-se a todos os checkouts sem personalização guardada; quem já personalizou pode usar «Restaurar estrutura padrão» no editor.
+- **Sem duplicação**: o formulário já não repete «Produto · Preço principal / preço / Total». O total aparece **uma única vez**, junto ao botão; com cupão mostra só subtotal, desconto e total. Os valores continuam a vir do servidor (nada mudou no cálculo nem no que é cobrado).
+- **EPay**: a mensagem «Pagamento seguro com M-Pesa, e-Mola ou IZI. Ao continuar, será encaminhado…» foi removida (tanto com a EPay como único gateway como quando é escolhida entre vários). Mostra-se apenas «Pagamento: M-Pesa · e-Mola · IZI» e, no ambiente de teste, um aviso curto. **Alteração só visual**: criação da transação, encaminhamento, confirmação, avisos (webhooks), estado da venda, idempotência e entrega não foram tocados. A E2Payments mantém o seu fluxo e o seu aviso de confirmação no telemóvel.
+- **Cronómetro**: a cor escolhida preenche **todo** o componente (fundo, área dos números e das unidades — as áreas internas usam a mesma cor ligeiramente realçada, nunca branco/transparente); números e texto brancos (ou escuros se a cor for muito clara; ou a cor de texto escolhida). Tamanhos pequeno/médio/grande; grelha que se adapta à largura (não corta números nem ultrapassa o ecrã). A cor já não é aplicada à caixa exterior nem a outros elementos. Antes do primeiro cálculo mostra «--» (deixou de aparecer o texto de «terminado» por instantes). Novos campos no design (`bgColor`, `textColor`, `size`) com predefinições — designs antigos continuam válidos; um fundo antigo do elemento é usado como cor do cronómetro.
+- **Editor simplificado** (mantém arrastar e soltar, mover para cima/baixo, desfazer/refazer, telemóvel/computador, rascunho/publicação):
+  - Painel de elementos só com: Título, Texto, Imagem, Banner, Cronómetro, Benefícios, Depoimentos, Garantia, Espaçamento. Os restantes tipos (vídeo, perguntas, botão…) continuam a funcionar nos designs que já os têm, mas não aparecem na biblioteca.
+  - **Protegidos**: nome do produto, preço e formulário de compra/pagamento — podem mudar de posição e aspeto, mas não podem ser eliminados (botão e tecla Delete bloqueados); o formulário continua obrigatório e visível também na validação do servidor.
+  - Propriedades **por elemento**, sem separadores técnicos: título (texto, tamanho, cor, alinhamento), cronómetro (cor do fundo, cor do texto, tamanho, espaçamento, visibilidade), imagem (imagem, proporção, largura, cantos, alinhamento), etc. Espaçamento e visibilidade comuns.
+  - **Estilo do checkout**: tema claro/escuro, cor principal, cor dos botões, cor dos textos, cor do cronómetro, fundo, texto do botão, faixa de anúncio; **Restaurar estilo padrão** (cores e tamanhos, mantém conteúdo) e **Restaurar estrutura padrão** (com confirmação; ambos podem ser desfeitos). Pré-visualização imediata.
+- **Telemóvel**:
+  - Aba Produtos: cartão com nome (até 2 linhas), preço e estado, **menu de ações visível** (antes ficava escondido no telemóvel), aviso de produto incompleto a toda a largura com «Completar configuração», botão «Copiar link» sem caminho cortado; filtros que não cortam o texto (uma coluna em ecrãs estreitos).
+  - Campos de texto do checkout e do painel com 16 px no telemóvel (abaixo disso o iPhone amplia a página ao tocar); 15/14 px mantidos no computador.
+  - Moeda apresentada como «MZN — Metical moçambicano» (não corta o código).
+
+### Ficheiros principais
+`src/lib/checkout-design.ts`, `src/components/checkouts/{checkout-view,purchase-form,checkout-elements}.tsx`, `src/components/checkout-editor/{editor,properties}.tsx`, `src/components/ui/{data-table,field}.tsx`, `src/components/filters/list-filters.tsx`, `src/app/(app)/produtos/page.tsx`, `src/components/products/product-form.tsx`, `vitest.config.ts`, `e2e/global-setup.ts` (opção `E2E_KEEP_DB=1` só para desenvolvimento).
+
+### Base de dados
+Sem migração: o design do checkout é JSON validado; os campos novos têm predefinições e os designs guardados continuam a ser lidos (testado).
+
+### Preservado
+Pagamentos EPay/E2Payments, avisos/webhooks, registos de vendas, proteção contra duplicados, regras de publicação (funil, página de obrigado, WhatsApp, entrega), página de obrigado e entrega só após confirmação — todos os testes anteriores destes fluxos continuam a passar.
+
+### Testes
+- Novos: `tests/unit/checkout-render.test.ts` (13 — checkout renderizado: nome/preço/total sem repetição e ordem; mensagem da EPay ausente com EPay ativa e em teste; fluxo da E2Payments mantido; cronómetro vermelho/azul/verde com fundo completo e texto branco, cor clara com texto escuro, cor do tema, tamanhos; cores dos botões e textos), 3 novos em `checkout-design-ops` (elementos permitidos/protegidos, restaurar estilo, compatibilidade de designs antigos), `e2e/13-mobile-review.spec.ts` (Produtos, produto, funis, editor e checkout a 320/375/414 px: sem deslocamento horizontal, sem textos fora do ecrã/cortados/invisíveis/minúsculos, menu de ações, margens, botão ≥ 44 px, campos ≥ 16 px) e `e2e/11` reescrito (estrutura simples, 9 elementos, protegidos, arrastar, cronómetro com cor completa e contagem real, estilo global e restauro, telemóvel).
+- Resultados: `npm test` ✅ 262/262 · `npm run test:e2e` ✅ 83/83 · lint ✅ · typecheck ✅ · build ✅.
+
+### Pendências desta sessão
+- Checkouts **já personalizados** mantêm o seu design (não foram alterados automaticamente); o vendedor pode usar «Restaurar estrutura padrão». A duplicação do resumo e a mensagem da EPay desaparecem em todos, porque estão no formulário protegido.
+- A EPay real não foi testada nesta sessão (sem acesso aos servidores; a alteração é só de apresentação).
 
 ## Produtos incompletos, WhatsApp de suporte, entrega do produto e configurações (sessão 13)
 
@@ -755,6 +789,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 14 (2026-10-15)**: checkout simples numa coluna (nome, imagem, preço, dados, pagamento, total único e botão), mensagem longa da EPay removida (só visual), cronómetro com a cor em todo o componente e texto legível, editor simplificado (9 elementos, produto/preço/pagamento protegidos, propriedades por elemento, estilo global e restauro do padrão) e correções no telemóvel (menu de ações e avisos na aba Produtos, filtros, campos de 16 px). Sem migração. 262 testes unitários/integração e 83 E2E a passar.
 - **Sessão 13 (2026-10-14)**: produtos nascem como rascunho e só publicam com funil principal, página de obrigado, WhatsApp de suporte e entrega (validação centralizada no servidor); WhatsApp por produto acima do botão de acesso; entrega por link externo ou página de entrega interna protegida; aba Funis com estado de cada requisito; Configurações simplificadas; recuperação da palavra-passe por token temporário (email opcional via Resend, ou link gerado pelo proprietário). Migração aditiva com passagem dos dados antigos; pagamentos e credenciais intactos. 246 testes unitários/integração e 79 E2E a passar.
 - **Sessão 12 (2026-10-14)**: editor visual do checkout tipo Elementor (secções/colunas/elementos, arrastar e soltar com indicadores, propriedades de conteúdo/estilo/avançado, dispositivos, desfazer/refazer, rascunho/publicação, aviso ao sair), modelo padrão profissional com dados reais, biblioteca de imagens por conta (carregamento validado), formulário de compra protegido e remoção do "Compra segura", do cabeçalho "Ligação cifrada" e do rodapé do checkout público. Pagamentos, funis e redirecionamentos intactos. 233 testes unitários/integração e 75 E2E a passar.
 - **Sessão 11 (2026-10-14)**: desempenho no telemóvel: menos consultas e em paralelo (JOIN do Prisma, sessão numa consulta, configurações sem upsert, layout e relatórios em paralelo), tarefas de notificações limitadas, gráficos carregados à parte (Dashboard/Relatórios 217 → 110 kB) e resposta imediata ao toque (menu fecha logo, indicador e barra de progresso). 221 testes unitários/integração e 69 E2E a passar.
