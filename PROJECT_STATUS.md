@@ -11,7 +11,7 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | Lint | `npm run lint` | ✅ 0 erros, 0 avisos |
 | Tipos TypeScript | `npm run typecheck` | ✅ sem erros |
 | Testes unitários + integração | `npm test` | ✅ 262/262 (16 do checkout renderizado/editor simples, 13 de publicação/entrega/configurações/palavra-passe, 6 de operações do editor, 5 da biblioteca de imagens, 16 de personalização do checkout, 12 de multiutilizador A–G, 16 de notificações/relatórios, 10 de funis, 18 de gateways) |
-| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 83/83 (3 de revisão mobile a 320/375/414 px, 4 de configurações/palavra-passe/telemóvel, 6 do editor visual com arrastar e soltar real, 1 de navegação lenta no telemóvel, 5 de várias contas, 10 de notificações/PWA/relatórios, 8 de funis, 9 de pagamentos, 4 de personalização, 3 de gateways) |
+| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 86/86 (3 de revisão mobile a 320/375/414 px e 3 da aba Produtos no computador a 1024/1280/1440 px, 4 de configurações/palavra-passe/telemóvel, 6 do editor visual com arrastar e soltar real, 1 de navegação lenta no telemóvel, 5 de várias contas, 10 de notificações/PWA/relatórios, 8 de funis, 9 de pagamentos, 4 de personalização, 3 de gateways) |
 | Build de produção | `npm run build` | ✅ sem erros |
 | Fuga de segredos | build com `EPAY_SECRET_KEY`, `E2PAYMENTS_CLIENT_ID/SECRET` e `INTEGRATIONS_ENCRYPTION_KEY` fictícias + `grep` em `.next/` e log | ✅ valor ausente do bundle do browser, do output do servidor e do log; nenhuma variável `NEXT_PUBLIC_`; `.env` com segredos fora do Git |
 
@@ -43,6 +43,7 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
   - Aba Produtos: cartão com nome (até 2 linhas), preço e estado, **menu de ações visível** (antes ficava escondido no telemóvel), aviso de produto incompleto a toda a largura com «Completar configuração», botão «Copiar link» sem caminho cortado; filtros que não cortam o texto (uma coluna em ecrãs estreitos).
   - Campos de texto do checkout e do painel com 16 px no telemóvel (abaixo disso o iPhone amplia a página ao tocar); 15/14 px mantidos no computador.
   - Moeda apresentada como «MZN — Metical moçambicano» (não corta o código).
+- **Aba Produtos no computador** (correção posterior): a tabela tinha ficado larga demais (link, pedidos e menu de ações escondidos à direita). Agora: Produto (nome em até 2 linhas + tipo/categoria) · Preço · Estado (com «Falta: …» e «Completar configuração» quando incompleto) · Copiar link · Pedidos (≥ 1280 px) · Criado em (≥ 1536 px) · ações — cabe sem deslocamento a partir de 1024 px. O cartão do telemóvel não mudou.
 
 ### Ficheiros principais
 `src/lib/checkout-design.ts`, `src/components/checkouts/{checkout-view,purchase-form,checkout-elements}.tsx`, `src/components/checkout-editor/{editor,properties}.tsx`, `src/components/ui/{data-table,field}.tsx`, `src/components/filters/list-filters.tsx`, `src/app/(app)/produtos/page.tsx`, `src/components/products/product-form.tsx`, `vitest.config.ts`, `e2e/global-setup.ts` (opção `E2E_KEEP_DB=1` só para desenvolvimento).
@@ -55,7 +56,7 @@ Pagamentos EPay/E2Payments, avisos/webhooks, registos de vendas, proteção cont
 
 ### Testes
 - Novos: `tests/unit/checkout-render.test.ts` (13 — checkout renderizado: nome/preço/total sem repetição e ordem; mensagem da EPay ausente com EPay ativa e em teste; fluxo da E2Payments mantido; cronómetro vermelho/azul/verde com fundo completo e texto branco, cor clara com texto escuro, cor do tema, tamanhos; cores dos botões e textos), 3 novos em `checkout-design-ops` (elementos permitidos/protegidos, restaurar estilo, compatibilidade de designs antigos), `e2e/13-mobile-review.spec.ts` (Produtos, produto, funis, editor e checkout a 320/375/414 px: sem deslocamento horizontal, sem textos fora do ecrã/cortados/invisíveis/minúsculos, menu de ações, margens, botão ≥ 44 px, campos ≥ 16 px) e `e2e/11` reescrito (estrutura simples, 9 elementos, protegidos, arrastar, cronómetro com cor completa e contagem real, estilo global e restauro, telemóvel).
-- Resultados: `npm test` ✅ 262/262 · `npm run test:e2e` ✅ 83/83 · lint ✅ · typecheck ✅ · build ✅.
+- Resultados: `npm test` ✅ 262/262 · `npm run test:e2e` ✅ 86/86 · lint ✅ · typecheck ✅ · build ✅.
 
 ### Pendências desta sessão
 - Checkouts **já personalizados** mantêm o seu design (não foram alterados automaticamente); o vendedor pode usar «Restaurar estrutura padrão». A duplicação do resumo e a mensagem da EPay desaparecem em todos, porque estão no formulário protegido.

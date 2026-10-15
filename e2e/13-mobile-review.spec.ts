@@ -117,4 +117,24 @@ test.describe.serial("revisão mobile", () => {
       await ctx.close();
     });
   }
+
+  for (const width of [1024, 1280, 1440]) {
+    test(`aba Produtos no computador a ${width}px: tabela cabe sem deslocamento e o menu de ações fica visível`, async ({ browser }) => {
+      const ctx = await browser.newContext({ viewport: { width, height: 900 } });
+      const page = await ctx.newPage();
+      await login(page);
+      await page.goto("/produtos");
+      const table = page.locator("table");
+      await expect(table).toBeVisible();
+      await noHorizontalScroll(page);
+      // a tabela não precisa de deslocamento lateral dentro do cartão
+      expect(await table.evaluate((t) => t.parentElement!.scrollWidth <= t.parentElement!.clientWidth + 1)).toBe(true);
+      const menu = table.getByRole("button", { name: /Ações para/ }).first();
+      await expect(menu).toBeInViewport();
+      await expect(table.getByRole("button", { name: "Copiar link" }).first()).toBeInViewport();
+      for (const h of ["Produto", "Preço", "Estado", "Link do checkout"]) await expect(table.getByRole("columnheader", { name: h })).toBeVisible();
+      if (SHOTS) await page.screenshot({ path: `${SHOTS}/pc-produtos-${width}.png`, fullPage: true });
+      await ctx.close();
+    });
+  }
 });

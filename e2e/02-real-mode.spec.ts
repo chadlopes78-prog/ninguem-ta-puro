@@ -48,7 +48,8 @@ test.describe.serial("modo real: produto → checkout → link público (sem pag
     await errorToast(page, /Produto incompleto — não pode ser publicado/);
     await page.goto("/produtos");
     await expect(page.getByTestId("product-stage").first()).toHaveAttribute("data-stage", "draft"); // configuração ainda não iniciada
-    await expect(page.getByTestId("product-incomplete").first()).toContainText("configure o funil, a página de obrigado e a entrega do produto antes de publicar");
+    // computador: estado + o que falta, de forma compacta (o aviso completo está no produto e no cartão do telemóvel)
+    await expect(page.getByTestId("product-incomplete").first()).toContainText("Falta:");
     // "Completar configuração" → aba Funis com o produto já escolhido
     await page.getByTestId("complete-setup").first().click();
     await expect(page).toHaveURL(/\/funis\?criar=/);
