@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import type { ProductStatus } from "@prisma/client";
 import { assertId, formToObject, guarded, parseForm } from "@/server/actions";
-import { offerSchema, productSchema } from "@/server/validation/schemas";
-import { addOffer, createProduct, duplicateProduct, publishProduct, setOfferActive, setProductStatus, updateProduct } from "@/server/services/products";
+import { productSchema } from "@/server/validation/schemas";
+import { createProduct, duplicateProduct, publishProduct, setProductStatus, updateProduct } from "@/server/services/products";
 import { PublishBlockedError } from "@/server/services/product-readiness";
 
 const blockedMessage = (e: PublishBlockedError) => `Produto incompleto — não pode ser publicado. Falta: ${e.missing.map((m) => m.label.toLowerCase()).join(", ")}. Complete a configuração na aba Funis.`;
@@ -62,23 +62,6 @@ export async function duplicateProductAction(id: string) {
     const p = await duplicateProduct(assertId(id), scope);
     revalidatePath("/produtos");
     return { ok: true, data: { id: p.id }, message: "Produto duplicado como rascunho." };
-  });
-}
-
-export async function addOfferAction(productId: string, fd: FormData) {
-  return guarded(async ({ scope }) => {
-    const p = parseForm(offerSchema, formToObject(fd));
-    if (!p.ok) return p.result;
-    await addOffer(assertId(productId), p.data, scope);
-    revalidatePath(`/produtos/${productId}`);
-    return { ok: true, message: "Oferta adicionada." };
-  });
-}
-
-export async function setOfferActiveAction(offerId: string, active: boolean) {
-  return guarded(async ({ scope }) => {
-    await setOfferActive(assertId(offerId), active, scope);
-    return { ok: true, message: active ? "Oferta ativada." : "Oferta desativada." };
   });
 }
 

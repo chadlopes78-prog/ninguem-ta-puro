@@ -6,6 +6,9 @@ import { funnelMetaSchema, graphSchema } from "@/server/funnels/schema";
 import { createFunnel, deleteFunnel, duplicateFunnel, saveFunnel } from "@/server/services/funnels";
 import { activateWizardFunnel, createWizardFunnel, deactivateWizardFunnel, saveWizardFunnel } from "@/server/services/funnel-wizard";
 import { deleteProductFile } from "@/server/services/product-files";
+import { addOffer } from "@/server/services/products";
+import { offerSchema } from "@/server/validation/schemas";
+import { flattenErrors } from "@/server/validation/common";
 import type { FunnelValidation } from "@/lib/funnels/validate";
 import type { FunnelGraph } from "@/lib/funnels/types";
 
@@ -95,5 +98,19 @@ export async function deleteProductFileAction(fileId: string) {
   return guarded(async ({ scope }) => {
     await deleteProductFile(assertId(fileId), scope);
     return { ok: true, message: "PDF eliminado." };
+  });
+}
+
+/**
+ * Cria um preço (oferta) para um produto da própria conta, a partir do funil (upsell/downsell).
+ * Usa o mesmo serviço e a mesma validação de sempre (addOffer → produto da conta, valor em cêntimos, MZN).
+ */
+export async function createFunnelOfferAction(productId: string, input: { name: string; price: string; currency: string }) {
+  return guarded<{ id: string; name: string; priceCents: number; currency: string }>(async ({ scope }) => {
+    const p = offerSchema.safeParse({ name: input.name, priceCents: input.price, currency: input.currency, billingType: "ONE_TIME", isActive: true });
+    if (!p.success) return { ok: false, error: "Corrija os campos do novo preço.", fieldErrors: flattenErrors(p.error) };
+    const offer = await addOffer(assertId(productId), p.data, scope);
+    revalidatePath("/funis");
+    return { ok: true, data: { id: offer.id, name: offer.name, priceCents: offer.priceCents, currency: offer.currency }, message: "Preço criado para esta oferta." };
   });
 }

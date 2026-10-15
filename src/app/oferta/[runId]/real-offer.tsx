@@ -56,7 +56,8 @@ export function RealOfferForm({
   const onlyHosted = options.length === 1 && options[0].hosted;
   const field = dark ? "border-white/15 bg-white/[0.06]" : "border-black/15 bg-white";
 
-  const go = (url: string) => (/^https:\/\//.test(url) ? window.location.assign(url) : router.push(url));
+  // mesma página com outra oferta (ex.: recusa do upsell → downsell): recarrega os dados do servidor
+  const go = (url: string) => (/^https:\/\//.test(url) ? window.location.assign(url) : url === window.location.pathname ? router.refresh() : router.push(url));
 
   const onAccept = () =>
     start(async () => {

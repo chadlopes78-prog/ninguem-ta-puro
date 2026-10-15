@@ -99,7 +99,7 @@ export async function listMedia(ownerId: string) {
   return rows.map((r) => ({ ...r, url: mediaUrl(r.id) }));
 }
 
-/** Apaga uma imagem da própria conta. Recusa se estiver a ser usada num checkout (rascunho ou publicado). */
+/** Apaga uma imagem da própria conta. Recusa se estiver a ser usada num checkout (rascunho ou publicado) ou como foto de um produto. */
 export async function deleteMedia(ownerId: string, id: string) {
   const asset = await prisma.mediaAsset.findFirst({ where: { id, ownerId }, select: { id: true } });
   if (!asset) throw new NotFoundError("Imagem");
@@ -107,6 +107,8 @@ export async function deleteMedia(ownerId: string, id: string) {
   const designs = await prisma.checkoutDesign.findMany({ where: { checkout: { ownerId } }, select: { draft: true, published: true, checkout: { select: { product: { select: { name: true } } } } } });
   const using = designs.find((d) => JSON.stringify(d.draft).includes(path) || JSON.stringify(d.published ?? null).includes(path));
   if (using) throw new DomainError(`Esta imagem está a ser usada no checkout de “${using.checkout.product?.name ?? "um produto"}”. Remova-a do design antes de a apagar.`);
+  const product = await prisma.product.findFirst({ where: { ownerId, imageUrl: path }, select: { name: true } });
+  if (product) throw new DomainError(`Esta imagem é a foto do produto “${product.name}”. Substitua-a no produto antes de a apagar.`);
   await prisma.mediaAsset.delete({ where: { id } });
 }
 

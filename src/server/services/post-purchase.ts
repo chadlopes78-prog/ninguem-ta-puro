@@ -89,26 +89,41 @@ export async function nextDestination(publicToken: string): Promise<Destination>
   if (order.status === "APPROVED") {
     await completeRun(run.id, order.funnelStepKey!, "accept", graph, "paid");
     if (c.afterAccept === "url" && c.afterAcceptUrl) return { kind: "external", url: c.afterAcceptUrl };
+    const offerUrl = await openOfferUrl(run.id, graph);
+    if (offerUrl) return { kind: "upsell", url: offerUrl };
     return { kind: "thank_you", url: thankYouUrl(root) };
   }
   if (order.status === "DECLINED" || order.status === "CANCELED") {
     if (c.afterFail === "retry" && run.currentStepKey === order.funnelStepKey && !run.completedAt) return { kind: "upsell", url: `/oferta/${run.id}?pagamento=falhou` };
-    await completeRun(run.id, order.funnelStepKey!, "decline", graph, "payment_failed");
+    await completeRun(run.id, order.funnelStepKey!, "decline", graph, "payment_failed", true);
     return { kind: "thank_you", url: thankYouUrl(root, "?oferta=nao-paga") };
   }
   return null; // pendente: continua na página de estado do pagamento
 }
 
 /** Avança o percurso uma única vez (condição sobre a etapa atual evita repetições). */
-async function completeRun(runId: string, stepKey: string, handle: "accept" | "decline", graph: FunnelGraph, reason: string) {
+/**
+ * Avança o percurso depois de uma oferta. Se a ligação seguinte levar a outra oferta (ex.: recusa do upsell →
+ * downsell), o percurso continua aberto nessa etapa; caso contrário termina. `finish` termina sempre (usado
+ * quando o pagamento de uma oferta falha: o destino configurado para a falha prevalece).
+ */
+async function completeRun(runId: string, stepKey: string, handle: "accept" | "decline", graph: FunnelGraph, reason: string, finish = false) {
   const run = await prisma.funnelRun.findUnique({ where: { id: runId } });
   if (!run || run.completedAt || run.currentStepKey !== stepKey) return;
   const target = nextKey(graph, stepKey, handle);
+  const nextIsOffer = !finish && !!target && OFFER_STEP_TYPES.includes(graph.nodes.find((n) => n.key === target)?.type ?? "END");
   const history = [...((run.history as Prisma.JsonArray) ?? []), { key: stepKey, decision: handle, reason, at: new Date().toISOString() }];
   await prisma.funnelRun.updateMany({
     where: { id: runId, currentStepKey: stepKey, completedAt: null },
-    data: { currentStepKey: target ?? stepKey, completedAt: new Date(), history },
+    data: { currentStepKey: target ?? stepKey, completedAt: nextIsOffer ? null : new Date(), history },
   });
+}
+
+/** O percurso ficou numa nova oferta (ex.: downsell)? Então é para lá que o comprador segue. */
+async function openOfferUrl(runId: string, graph: FunnelGraph): Promise<string | null> {
+  const run = await prisma.funnelRun.findUnique({ where: { id: runId }, select: { completedAt: true, currentStepKey: true } });
+  const node = run && !run.completedAt ? graph.nodes.find((n) => n.key === run.currentStepKey) : null;
+  return node && OFFER_STEP_TYPES.includes(node.type) ? `/oferta/${runId}` : null;
 }
 
 // ───────────── Página de upsell (real) ─────────────
@@ -213,7 +228,7 @@ export async function acceptUpsell(runId: string, stepKey: string, input: { meth
           ownerId: root.ownerId,
           isDemo: false,
           isTestPayment: environment === "test",
-          items: { create: { productId: offer.productId, offerId: offer.id, kind: "UPSELL", description, unitPriceCents: offer.priceCents, quantity: 1, totalCents: offer.priceCents } },
+          items: { create: { productId: offer.productId, offerId: offer.id, kind: node.type === "DOWNSELL" ? "DOWNSELL" : "UPSELL", description, unitPriceCents: offer.priceCents, quantity: 1, totalCents: offer.priceCents } },
         },
       });
       const reference = `${order.code}-${token().slice(0, 8)}`;
@@ -261,6 +276,9 @@ export async function declineUpsell(runId: string, stepKey: string): Promise<Des
     await trackEvent({ type: EVENT_TYPES.OFFER_DECLINE, ownerId: root.ownerId, isDemo: false, funnelId: run.funnelId, orderId: root.id, stepKey });
   }
   if (step.config.afterDecline === "url" && step.config.afterDeclineUrl) return { kind: "external", url: step.config.afterDeclineUrl };
+  // recusa ligada a outra oferta (downsell): mostra-a
+  const offerUrl = await openOfferUrl(run.id, graph);
+  if (offerUrl) return { kind: "upsell", url: offerUrl };
   return { kind: "thank_you", url: thankYouUrl(root) };
 }
 

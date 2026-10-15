@@ -2,7 +2,7 @@
 // Reutiliza o motor de funis existente: o assistente escreve o mesmo grafo que o editor avançado.
 import "server-only";
 import { prisma } from "@/server/db";
-import { buildWizardGraph, upsellFromGraph, wizardSchema, type UpsellConfig, type WizardInput } from "@/lib/funnels/wizard";
+import { buildWizardGraph, downsellFromGraph, upsellFromGraph, wizardSchema, type UpsellConfig, type WizardInput } from "@/lib/funnels/wizard";
 import { defaultThankYouAction, defaultThankYouDesign, parseThankYouAction, parseThankYouDesign, type ThankYouAction, type ThankYouDesign } from "@/lib/thank-you";
 import { internalPageHasContent, normalizeWhatsApp } from "@/lib/product-setup";
 import { flattenErrors } from "@/server/validation/common";
@@ -51,6 +51,7 @@ export interface WizardState {
   productId: string;
   afterPayment: "upsell" | "thank_you";
   upsell: UpsellConfig | null;
+  downsell: UpsellConfig | null;
   thankYou: { design: ThankYouDesign; action: ThankYouAction | null; fileId: string | null };
   setup: WizardSetup;
 }
@@ -73,6 +74,7 @@ export async function getWizardFunnel(id: string, scope: Scope) {
     productId: product.id,
     afterPayment: upsell ? "upsell" : "thank_you",
     upsell,
+    downsell: downsellFromGraph(graph),
     thankYou: { design: parseThankYouDesign(page?.design), action: parseThankYouAction(page?.action), fileId: page?.fileId ?? null },
     setup: {
       support: { phone: product.supportWhatsApp ?? "", message: product.supportMessage ?? "" },
@@ -117,6 +119,12 @@ export async function saveWizardFunnel(id: string, raw: unknown, scope: Scope): 
     if (!offer || offer.product.status === "ARCHIVED") return { ok: false, error: "Produto ou preço do upsell inválido.", fieldErrors: { "upsell.offerId": "Selecione um preço do produto" } };
     if (!offer.isActive) return { ok: false, error: "O preço escolhido para o upsell está inativo.", fieldErrors: { "upsell.offerId": "Preço inativo" } };
   }
+  const downsell = input.afterPayment === "upsell" && input.upsell?.afterDecline === "downsell" ? input.downsell : undefined;
+  if (downsell) {
+    const offer = await prisma.offer.findFirst({ where: { id: downsell.offerId, productId: downsell.productId, product: own(scope) }, include: { product: true } });
+    if (!offer || offer.product.status === "ARCHIVED") return { ok: false, error: "Produto ou preço do downsell inválido.", fieldErrors: { "downsell.offerId": "Selecione um preço do produto" } };
+    if (!offer.isActive) return { ok: false, error: "O preço escolhido para o downsell está inativo.", fieldErrors: { "downsell.offerId": "Preço inativo" } };
+  }
   if (input.thankYou.fileId) {
     const file = await prisma.productFile.findFirst({ where: { id: input.thankYou.fileId, productId: product.id } });
     if (!file) return { ok: false, error: "O PDF selecionado não pertence ao produto inicial.", fieldErrors: { "thankYou.fileId": "PDF inválido" } };
@@ -142,7 +150,7 @@ export async function saveWizardFunnel(id: string, raw: unknown, scope: Scope): 
   }
 
   const checkout = await ensurePrimaryCheckout(product.id);
-  const graph = buildWizardGraph({ checkoutId: checkout.id, productName: product.name, afterPayment: input.afterPayment, upsell: input.upsell, thankYouTitle: input.thankYou.design.title });
+  const graph = buildWizardGraph({ checkoutId: checkout.id, productName: product.name, afterPayment: input.afterPayment, upsell: input.upsell, downsell, thankYouTitle: input.thankYou.design.title });
   const productChanged = f.productId !== product.id;
   const { validation, deactivated } = await saveFunnel(id, { name: input.name, graph }, scope);
 

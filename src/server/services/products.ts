@@ -1,7 +1,8 @@
 import { Prisma, type ProductStatus, type ProductType } from "@prisma/client";
 import { prisma } from "@/server/db";
 import { createPrimaryCheckoutTx, ensurePrimaryCheckout } from "./primary-checkout";
-import type { OfferInput, ProductInput } from "@/server/validation/schemas";
+import { PRODUCT_MEDIA_PATH, type OfferInput, type ProductInput } from "@/server/validation/schemas";
+import { assertOwnMedia } from "./media";
 import { own, type Scope } from "@/server/scope";
 
 export class NotFoundError extends Error {
@@ -84,7 +85,8 @@ function productData(input: ProductInput, currentStatus?: ProductStatus) {
     type: input.type,
     category: input.category ?? null,
     status,
-    salesPageUrl: input.salesPageUrl ?? null,
+    // "Página de vendas" saiu do formulário: só é alterada se vier no pedido (o valor guardado mantém-se)
+    ...(input.salesPageUrl !== undefined ? { salesPageUrl: input.salesPageUrl } : {}),
     ...(input.supportEmail !== undefined ? { supportEmail: input.supportEmail } : {}),
     ...(input.deliveryUrl !== undefined ? { deliveryUrl: input.deliveryUrl } : {}),
   };
@@ -95,7 +97,14 @@ function productData(input: ProductInput, currentStatus?: ProductStatus) {
  * ou fica tudo criado, ou nada fica criado. Se algo falhar depois (ex.: produto antigo sem checkout),
  * ensurePrimaryCheckout() recupera a associação de forma idempotente.
  */
+/** A imagem carregada tem de pertencer à biblioteca da própria conta (IDs alterados no browser são recusados). */
+async function assertProductImage(imageUrl: string | undefined, scope: Scope) {
+  const m = imageUrl ? PRODUCT_MEDIA_PATH.exec(imageUrl) : null;
+  if (m && !(await assertOwnMedia(scope.ownerId, [m[1]]))) throw new DomainError("A imagem escolhida não pertence a esta conta. Carregue a imagem novamente.");
+}
+
 export async function createProduct(input: ProductInput, scope: Scope) {
+  await assertProductImage(input.imageUrl, scope);
   for (let attempt = 0; ; attempt++) {
     try {
       return await prisma.$transaction(async (tx) => {
@@ -130,6 +139,7 @@ export async function createProduct(input: ProductInput, scope: Scope) {
 
 export async function updateProduct(id: string, input: ProductInput, scope: Scope) {
   const existing = await getProduct(id, scope);
+  if (input.imageUrl !== (existing.imageUrl ?? undefined)) await assertProductImage(input.imageUrl, scope);
   if (existing.status === "ARCHIVED") throw new DomainError("Produtos arquivados não podem ser editados. Restaure-o primeiro.");
   const defaultOffer = existing.offers.find((o) => o.isDefault);
   const wantsPublish = input.status === "PUBLISHED" && existing.status !== "PUBLISHED";
@@ -151,7 +161,10 @@ export async function updateProduct(id: string, input: ProductInput, scope: Scop
         },
       });
     }
-    const offerData = { priceCents: input.priceCents, compareAtCents: input.compareAtCents ?? null, currency: input.currency };
+    // "Preço de referência" saiu do formulário: o valor guardado mantém-se, exceto se deixar de fazer sentido
+    // (preço principal igual ou superior ao preço riscado — o mesmo critério da validação anterior)
+    const keptCompareAt = defaultOffer?.compareAtCents && defaultOffer.compareAtCents > input.priceCents ? defaultOffer.compareAtCents : null;
+    const offerData = { priceCents: input.priceCents, compareAtCents: input.compareAtCents !== undefined ? input.compareAtCents : keptCompareAt, currency: input.currency };
     if (defaultOffer) await tx.offer.update({ where: { id: defaultOffer.id }, data: offerData });
     else await tx.offer.create({ data: { ...offerData, productId: id, name: "Preço principal", isDefault: true } });
     return product;

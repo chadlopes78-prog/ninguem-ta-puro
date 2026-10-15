@@ -60,6 +60,7 @@ export default async function OfferPage({ params, searchParams }: { params: Prom
           currency={offer.currency}
         >
           <RealOfferForm
+            key={node.key}
             accept={acceptUpsellAction.bind(null, run.id, node.key)}
             decline={declineUpsellAction.bind(null, run.id, node.key)}
             options={options}

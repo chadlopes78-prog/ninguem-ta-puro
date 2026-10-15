@@ -15,17 +15,17 @@ test.describe.serial("modo real: produto → checkout → link público (sem pag
     await page.goto("/produtos");
     await expect(page.getByText("Ainda não tem produtos")).toBeVisible();
     await page.getByRole("link", { name: "Criar primeiro produto" }).click();
-    await page.getByRole("button", { name: "Criar produto" }).click();
+    await page.getByRole("button", { name: "Guardar produto" }).click();
     await expect(page.getByText("O nome deve ter pelo menos 2 caracteres")).toBeVisible();
     await expect(page.getByText("Selecione um tipo")).toBeVisible();
 
-    await page.getByLabel("Nome").fill("Guia Digital de Exemplo");
+    await page.getByLabel("Nome do produto").fill("Guia Digital de Exemplo");
     await page.getByLabel("Descrição").fill("Produto fictício utilizado para validar a interface.");
     await page.getByLabel("Tipo").selectOption("EBOOK");
-    await page.getByLabel("Preço", { exact: true }).fill("197,00");
+    await page.getByLabel("Preço principal").fill("197,00");
     await page.getByLabel("Moeda").selectOption("MZN");
     await expect(page.getByTestId("new-product-draft-note")).toBeVisible(); // um produto novo é sempre rascunho
-    await page.getByRole("button", { name: "Criar produto" }).click();
+    await page.getByRole("button", { name: "Guardar produto" }).click();
     await toast(page, "Produto criado");
     await expect(page).toHaveURL(/\/produtos\/[a-z0-9]+\?criado=1$/);
     // link de checkout gerado automaticamente, com confirmação
@@ -33,13 +33,13 @@ test.describe.serial("modo real: produto → checkout → link público (sem pag
     await expect(page.getByTestId("product-checkout-url")).toHaveText("http://localhost:3100/checkout/guia-digital-de-exemplo");
     await expect(page.getByTestId("checkout-link-card").getByText("Indisponível")).toBeVisible(); // rascunho
 
-    await page.getByLabel("Nome").fill("Guia Digital Editado");
-    await page.getByLabel("Preço", { exact: true }).fill("247,90");
-    await page.getByRole("button", { name: "Guardar alterações" }).click();
+    await page.getByLabel("Nome do produto").fill("Guia Digital Editado");
+    await page.getByLabel("Preço principal").fill("247,90");
+    await page.getByRole("button", { name: "Guardar produto" }).click();
     await toast(page, "Produto atualizado");
     await page.reload();
-    await expect(page.getByLabel("Nome")).toHaveValue("Guia Digital Editado");
-    await expect(page.getByLabel("Preço", { exact: true })).toHaveValue("247,90");
+    await expect(page.getByLabel("Nome do produto")).toHaveValue("Guia Digital Editado");
+    await expect(page.getByLabel("Preço principal")).toHaveValue("247,90");
 
     // incompleto: a publicação é recusada (servidor) e é mostrado o que falta
     await expect(page.getByTestId("product-requirements")).toContainText("Produto incompleto");

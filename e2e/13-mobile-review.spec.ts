@@ -78,7 +78,7 @@ test.describe.serial("revisão mobile", () => {
       // detalhe do produto
       await first.getByRole("link").first().click();
       await expect(page).toHaveURL(/\/produtos\/[a-z0-9]+$/);
-      await expect(page.getByLabel("Nome", { exact: true })).toBeVisible();
+      await expect(page.getByLabel("Nome do produto")).toBeVisible();
       await review(page, "produto", width);
 
       // funis

@@ -7,6 +7,7 @@ import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
 import { useToast } from "@/components/ui/toast";
+import { IMAGE_ACCEPT, prepareImage as prepare } from "@/lib/image-upload";
 
 interface Asset {
   id: string;
@@ -17,27 +18,7 @@ interface Asset {
   height: number | null;
 }
 
-const ACCEPT = "image/jpeg,image/png,image/webp,image/gif";
-const MAX_SIDE = 2000;
-
-/** Reduz no browser imagens grandes (lado máximo 2000 px, WebP) — o checkout fica leve no telemóvel. GIF fica intacto. */
-async function prepare(file: File): Promise<File> {
-  if (file.type === "image/gif" || typeof createImageBitmap !== "function") return file;
-  try {
-    const bmp = await createImageBitmap(file);
-    const scale = Math.min(1, MAX_SIDE / Math.max(bmp.width, bmp.height));
-    if (scale === 1 && file.size <= 1_200_000) return file;
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(bmp.width * scale);
-    canvas.height = Math.round(bmp.height * scale);
-    canvas.getContext("2d")?.drawImage(bmp, 0, 0, canvas.width, canvas.height);
-    const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/webp", 0.86));
-    if (!blob || blob.type !== "image/webp" || blob.size >= file.size) return file;
-    return new File([blob], file.name.replace(/\.[a-z0-9]+$/i, "") + ".webp", { type: "image/webp" });
-  } catch {
-    return file;
-  }
-}
+const ACCEPT = IMAGE_ACCEPT;
 
 export function MediaPicker({ open, onClose, onPick, current }: { open: boolean; onClose: () => void; onPick: (src: string) => void; current?: string }) {
   const [tab, setTab] = useState<"upload" | "library" | "url">("upload");

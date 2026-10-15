@@ -72,8 +72,8 @@ test.describe.serial("personalização do checkout", () => {
     await login(page);
     await page.goto("/produtos");
     await page.getByRole("link", { name: /Guia Digital Editado/ }).first().click();
-    await page.getByLabel("Nome").fill("Guia Digital Renomeado");
-    await page.getByRole("button", { name: "Guardar alterações" }).click();
+    await page.getByLabel("Nome do produto").fill("Guia Digital Renomeado");
+    await page.getByRole("button", { name: "Guardar produto" }).click();
     await toast(page, "Produto atualizado");
     await page.reload();
     await expect(page.getByTestId("product-checkout-url")).toHaveText(`http://localhost:3100${GUIA}`);

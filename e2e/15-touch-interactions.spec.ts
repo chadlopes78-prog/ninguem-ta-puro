@@ -49,15 +49,15 @@ for (const device of [
       await page.goto("/produtos");
       await page.getByRole("link", { name: "Novo produto" }).tap();
       await expect(page).toHaveURL(/\/produtos\/novo$/);
-      await page.getByLabel("Nome", { exact: true }).fill(`Produto Toque ${device.width}`);
+      await page.getByLabel("Nome do produto").fill(`Produto Toque ${device.width}`);
       await page.getByLabel("Descrição").fill("Criado com toque no ecrã para validar o formulário.");
       await page.getByLabel("Tipo").selectOption("EBOOK");
-      await page.getByLabel("Preço", { exact: true }).fill("99,00");
+      await page.getByLabel("Preço principal").fill("99,00");
       await noHorizontalScroll(page);
-      await page.getByRole("button", { name: "Criar produto" }).tap();
+      await page.getByRole("button", { name: "Guardar produto" }).tap();
       await toast(page, "Produto criado");
-      await page.getByLabel("Nome", { exact: true }).fill(`Produto Toque ${device.width} Editado`);
-      await page.getByRole("button", { name: "Guardar alterações" }).tap();
+      await page.getByLabel("Nome do produto").fill(`Produto Toque ${device.width} Editado`);
+      await page.getByRole("button", { name: "Guardar produto" }).tap();
       await toast(page, "Produto atualizado");
       // a publicação continua bloqueada enquanto o produto estiver incompleto (regra inalterada)
       await page.getByTestId("publish-product").tap();

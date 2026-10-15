@@ -42,11 +42,11 @@ test.describe.serial("editor visual do checkout", () => {
   test("1–2. checkout padrão simples com dados reais: nome, preço e total uma só vez; sem 'Compra segura', cabeçalho nem rodapé", async ({ page }) => {
     await login(page);
     await page.goto("/produtos/novo");
-    await page.getByLabel("Nome").fill("Curso Editor Visual");
+    await page.getByLabel("Nome do produto").fill("Curso Editor Visual");
     await page.getByLabel("Descrição").fill("Aprenda a montar páginas de venda que convertem, passo a passo.");
     await page.getByLabel("Tipo").selectOption("COURSE");
-    await page.getByLabel("Preço", { exact: true }).fill("500,00");
-    await page.getByRole("button", { name: "Criar produto" }).click();
+    await page.getByLabel("Preço principal").fill("500,00");
+    await page.getByRole("button", { name: "Guardar produto" }).click();
     await toast(page, "Produto criado");
     publicPath = new URL((await page.getByTestId("product-checkout-url").textContent())!.trim()).pathname;
     const productUrl = page.url();

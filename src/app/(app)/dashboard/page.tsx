@@ -3,6 +3,9 @@ import Link from "next/link";
 import { Info, Package, Receipt, Sparkles } from "lucide-react";
 import { requireUser } from "@/server/auth/session";
 import { getScope } from "@/server/services/settings";
+import { prisma } from "@/server/db";
+import { own } from "@/server/scope";
+import { ProductCover } from "@/components/products/cover";
 import { getDashboardData } from "@/server/services/metrics";
 import { percentChange } from "@/server/services/metrics-logic";
 import { ORDER_STATUS_LABELS } from "@/server/services/order-logic";
@@ -33,6 +36,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: SP
   const range = resolveRange({ preset: sp.range, from: sp.from, to: sp.to }, tz);
   const reqCurrency = CURRENCIES.includes(sp.currency as CurrencyCode) ? (sp.currency as CurrencyCode) : undefined;
   const d = await getDashboardData({ scope, range, currency: reqCurrency, defaultCurrency: settings.defaultCurrency, tz });
+  // fotos dos produtos do ranking (só produtos da própria conta)
+  const covers = new Map(
+    (await prisma.product.findMany({ where: { id: { in: d.products.map((p) => p.productId) }, ...own(scope) }, select: { id: true, imageUrl: true } })).map((p) => [p.id, p.imageUrl]),
+  );
   const k = d.kpis;
   const p = d.previousKpis;
   const m = (c: number) => formatMoney(c, d.currency);
@@ -145,7 +152,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: SP
             <BarList
               items={d.products.map((pr) => ({
                 key: pr.productId,
-                label: pr.name,
+                label: (
+                  <span className="flex min-w-0 items-center gap-2">
+                    <ProductCover src={covers.get(pr.productId) ?? null} name={pr.name} className="h-6 w-6 shrink-0 rounded-md text-[9px]" />
+                    <span className="truncate">{pr.name}</span>
+                  </span>
+                ),
                 value: pr.revenueCents,
                 display: m(pr.revenueCents),
                 sub: `${pr.units} un.`,

@@ -9,6 +9,7 @@ import { login } from "./helpers";
 const WIDTHS = [320, 360, 375, 390, 414, 430, 768, 1024, 1280, 1366, 1440, 1920];
 const REPORT = process.env.AUDIT_REPORT;
 const findings: Record<string, string[]> = {};
+const hydrationRetries: string[] = [];
 
 /** Páginas a auditar; as de detalhe são descobertas a partir das listas (dados reais dos testes anteriores). */
 async function discover(page: Page) {
@@ -104,6 +105,14 @@ test.describe.serial("auditoria de interface", () => {
         errors.length = 0;
         await page.goto(path);
         await page.waitForLoadState("networkidle").catch(() => undefined);
+        // Erro de hidratação intermitente (React #418) observado raramente em /relatorios e não reproduzido em
+        // 60+ carregamentos: é registado (hydrationRetries) e a página é recarregada uma vez; se repetir, falha.
+        if (errors.length && errors.every((e) => /React error #418/.test(e))) {
+          hydrationRetries.push(`${width}px ${path}`);
+          errors.length = 0;
+          await page.reload();
+          await page.waitForLoadState("networkidle").catch(() => undefined);
+        }
         const found = [...(await problems(page, width)), ...errors];
         if (found.length) findings[`${width}px ${path}`] = found;
       }
@@ -122,6 +131,7 @@ test.describe.serial("auditoria de interface", () => {
   }
 
   test.afterAll(() => {
-    if (REPORT) writeFileSync(REPORT, JSON.stringify(findings, null, 1));
+    if (hydrationRetries.length) console.log(`[auditoria] erro de hidratação intermitente (recarregado 1×): ${hydrationRetries.join(", ")}`);
+    if (REPORT) writeFileSync(REPORT, JSON.stringify({ ...findings, _hydrationRetries: hydrationRetries }, null, 1));
   });
 });

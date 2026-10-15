@@ -14,9 +14,8 @@ import { Badge, DemoBadge } from "@/components/ui/badge";
 import { Alert } from "@/components/ui/alert";
 import { ActionButton } from "@/components/ui/action-button";
 import { ProductForm } from "@/components/products/product-form";
-import { OffersCard } from "@/components/products/offers-card";
 import { PRODUCT_STATUS_LABELS, PRODUCT_STATUS_TONE } from "@/components/products/labels";
-import { addOfferAction, duplicateProductAction, publishProductAction, saveProductAction, setOfferActiveAction, setProductStatusAction } from "../actions";
+import { duplicateProductAction, publishProductAction, saveProductAction, setProductStatusAction } from "../actions";
 import { getReadiness } from "@/server/services/product-readiness";
 import { STAGE_LABELS } from "@/lib/product-setup";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
@@ -151,23 +150,10 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
           type: product.type,
           category: product.category ?? "",
           priceCents: main?.priceCents ?? null,
-          compareAtCents: main?.compareAtCents ?? null,
           currency: main?.currency ?? settings.defaultCurrency,
           status: product.status,
-          salesPageUrl: product.salesPageUrl ?? "",
-          supportEmail: product.supportEmail ?? "",
-          deliveryUrl: product.deliveryUrl ?? "",
         }}
       />
-      <div className="mt-5 lg:w-2/3 lg:pr-[10px]">
-        <OffersCard
-          offers={product.offers}
-          disabled={archived}
-          defaultCurrency={main?.currency ?? settings.defaultCurrency}
-          addAction={addOfferAction.bind(null, product.id)}
-          toggleAction={setOfferActiveAction}
-        />
-      </div>
     </>
   );
 }

@@ -29,11 +29,11 @@ test.describe.serial("pagamentos (fornecedor de teste local)", () => {
   test("preparar produto MZN e checkout", async ({ page }) => {
     await login(page);
     await page.goto("/produtos/novo");
-    await page.getByLabel("Nome").fill("Ebook Moçambique");
+    await page.getByLabel("Nome do produto").fill("Ebook Moçambique");
     await page.getByLabel("Descrição").fill("Produto digital pago em meticais.");
     await page.getByLabel("Tipo").selectOption("EBOOK");
-    await page.getByLabel("Preço", { exact: true }).fill("1.250,00");
-    await page.getByRole("button", { name: "Criar produto" }).click();
+    await page.getByLabel("Preço principal").fill("1.250,00");
+    await page.getByRole("button", { name: "Guardar produto" }).click();
     await toast(page, "Produto criado");
     await expect(page).toHaveURL(/\/produtos\/[a-z0-9]{20,}\?criado=1$/);
     checkoutPath = new URL((await page.getByTestId("product-checkout-url").textContent())!.trim()).pathname;

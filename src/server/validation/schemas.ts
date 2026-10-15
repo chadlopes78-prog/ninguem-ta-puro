@@ -13,10 +13,23 @@ import { isDayKey } from "@/lib/dates";
 export const PRODUCT_TYPES = ["DIGITAL", "COURSE", "EBOOK", "PDF", "SERVICE", "OTHER"] as const;
 export const PRODUCT_STATUSES = ["DRAFT", "PUBLISHED", "UNPUBLISHED", "ARCHIVED"] as const;
 
+/**
+ * Imagem do produto: imagem carregada para a biblioteca da conta (/api/public/media/<id>) ou, por
+ * compatibilidade com produtos antigos, um URL http(s) já guardado. Vazio = sem imagem.
+ */
+export const PRODUCT_MEDIA_PATH = /^\/api\/public\/media\/([a-z0-9]{20,40})$/;
+const productImage = z
+  .string()
+  .trim()
+  .max(2000)
+  .optional()
+  .transform((v) => (v ? v : undefined))
+  .refine((v) => !v || PRODUCT_MEDIA_PATH.test(v) || /^https?:\/\/[^\s"'<>]+$/i.test(v), { message: "Carregue uma imagem (JPEG, PNG, WebP ou GIF)." });
+
 export const productSchema = z.object({
   name: z.string().trim().min(2, "O nome deve ter pelo menos 2 caracteres").max(120, "Máximo de 120 caracteres"),
   description: z.string().trim().min(10, "A descrição deve ter pelo menos 10 caracteres").max(5000),
-  imageUrl: optionalUrl,
+  imageUrl: productImage,
   type: z.enum(PRODUCT_TYPES, { errorMap: () => ({ message: "Selecione um tipo" }) }),
   category: optionalString(80),
   priceCents: moneyInput({ min: 100, label: "Preço" }),

@@ -15,7 +15,9 @@ import {
   Package,
   PackageOpen,
   PartyPopper,
+  Plus,
   Smartphone,
+  TrendingDown,
 } from "lucide-react";
 import type { ActionResult } from "@/server/validation/common";
 import type { ProductStatus } from "@prisma/client";
@@ -77,6 +79,7 @@ interface Props {
     productId: string;
     afterPayment: "upsell" | "thank_you";
     upsell: UpsellConfig | null;
+    downsell?: UpsellConfig | null;
     thankYou: {
       design: ThankYouDesign;
       action: ThankYouAction | null;
@@ -94,9 +97,10 @@ interface Props {
   activateAction: () => Promise<ActionResult<unknown>>;
   deactivateAction: () => Promise<ActionResult<unknown>>;
   deleteFileAction: (fileId: string) => Promise<ActionResult<unknown>>;
+  createOfferAction: (productId: string, input: { name: string; price: string; currency: string }) => Promise<ActionResult<{ id: string; name: string; priceCents: number; currency: string }>>;
 }
 
-type Step = "product" | "after" | "upsell" | "thank_you" | "support" | "delivery";
+type Step = "product" | "after" | "upsell" | "downsell" | "thank_you" | "support" | "delivery";
 
 const EMPTY_UPSELL: UpsellConfig = {
   productId: "",
@@ -265,6 +269,239 @@ function DevicePreview({
   );
 }
 
+type OfferErr = (k: string) => string | undefined;
+
+/**
+ * Configuração de uma oferta do funil (upsell ou downsell): produto, preço (escolher um existente ou criar
+ * um novo aqui), textos, imagem/vídeo e caminhos depois de aceitar, recusar ou falhar o pagamento.
+ * O preço cobrado vem sempre do preço guardado no servidor, nunca do browser.
+ */
+function OfferStepEditor({
+  kind,
+  value,
+  onChange,
+  products,
+  mainProductId,
+  err,
+  businessName,
+  design,
+  onCreateOffer,
+  footer,
+}: {
+  kind: "upsell" | "downsell";
+  value: UpsellConfig;
+  onChange: (patch: Partial<UpsellConfig>) => void;
+  products: WizardProduct[];
+  mainProductId: string;
+  err: OfferErr;
+  businessName: string;
+  design: ThankYouDesign;
+  onCreateOffer: (productId: string, input: { name: string; price: string; currency: string }) => Promise<{ ok: true; id: string } | { ok: false; error: string; fieldErrors: Record<string, string> }>;
+  footer: React.ReactNode;
+}) {
+  const t = kind; // prefixo dos testids e das chaves de erro
+  const label = kind === "upsell" ? "upsell" : "downsell";
+  const selProduct = products.find((p) => p.id === value.productId) ?? null;
+  const selOffer = selProduct?.offers.find((o) => o.id === value.offerId) ?? null;
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState(kind === "upsell" ? "Oferta especial" : "Oferta alternativa");
+  const [newPrice, setNewPrice] = useState("");
+  const [newErr, setNewErr] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const create = async () => {
+    if (!selProduct) return;
+    setBusy(true);
+    const r = await onCreateOffer(selProduct.id, { name: newName, price: newPrice, currency: selProduct.offers[0]?.currency ?? "MZN" });
+    setBusy(false);
+    if (!r.ok) return setNewErr({ ...r.fieldErrors, _: r.error });
+    setNewErr({});
+    setCreating(false);
+    setNewPrice("");
+    onChange({ offerId: r.id });
+  };
+  return (
+    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]" data-testid={`${t}-step`}>
+      <Card>
+        <CardHeader
+          title={kind === "upsell" ? "Configuração do upsell" : "Configuração do downsell"}
+          description={kind === "upsell" ? "Oferta mostrada logo depois do pagamento confirmado. O preço vem do servidor (nunca do browser)." : "Oferta alternativa mostrada quando o cliente recusa o upsell. Normalmente um preço mais acessível."}
+        />
+        <CardBody className="grid grid-cols-1 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Produto da oferta" error={err(`${t}.productId`)}>
+              {(p) => (
+                <Select
+                  {...p}
+                  value={value.productId}
+                  onChange={(e) => onChange({ productId: e.target.value, offerId: products.find((x) => x.id === e.target.value)?.offers.find((o) => o.isActive)?.id ?? "" })}
+                  data-testid={`${t}-product`}
+                >
+                  <option value="">Selecione…</option>
+                  {products
+                    .filter((x) => x.id !== mainProductId && x.status !== "ARCHIVED")
+                    .map((x) => (
+                      <option key={x.id} value={x.id}>
+                        {x.name}
+                      </option>
+                    ))}
+                </Select>
+              )}
+            </Field>
+            <Field label="Preço da oferta" error={err(`${t}.offerId`)}>
+              {(p) => (
+                <Select {...p} value={value.offerId} onChange={(e) => onChange({ offerId: e.target.value })} disabled={!selProduct} data-testid={`${t}-offer`}>
+                  <option value="">Selecione…</option>
+                  {selProduct?.offers
+                    .filter((o) => o.isActive)
+                    .map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.name} — {formatMoney(o.priceCents, o.currency)}
+                      </option>
+                    ))}
+                </Select>
+              )}
+            </Field>
+          </div>
+          {selProduct &&
+            (creating ? (
+              <div className="grid grid-cols-1 gap-3 rounded-[var(--radius-md)] border border-line bg-surface-2 p-3 sm:grid-cols-[1fr_140px_auto] sm:items-end" data-testid={`${t}-new-offer`}>
+                <Field label="Nome do preço" error={newErr.name}>
+                  {(p) => <Input {...p} value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={120} />}
+                </Field>
+                <Field label="Valor" error={newErr.priceCents}>
+                  {(p) => <Input {...p} value={newPrice} onChange={(e) => setNewPrice(e.target.value)} inputMode="decimal" placeholder="97,00" data-testid={`${t}-new-offer-price`} />}
+                </Field>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => void create()} loading={busy} data-testid={`${t}-new-offer-save`}>
+                    Criar preço
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setCreating(false)}>
+                    Cancelar
+                  </Button>
+                </div>
+                {newErr._ && <p className="text-[12.5px] text-danger sm:col-span-3" role="alert">{newErr._}</p>}
+              </div>
+            ) : (
+              <button type="button" onClick={() => setCreating(true)} className="inline-flex min-h-9 items-center gap-1.5 self-start text-[13px] font-medium text-accent hover:underline" data-testid={`${t}-new-offer-open`}>
+                <Plus className="h-4 w-4" aria-hidden="true" /> Criar um preço especial para esta oferta
+              </button>
+            ))}
+          <Field label="Título da oferta" error={err(`${t}.headline`)} required>
+            {(p) => (
+              <Input
+                {...p}
+                value={value.headline}
+                onChange={(e) => onChange({ headline: e.target.value })}
+                maxLength={160}
+                placeholder={kind === "upsell" ? "Ex.: Leve também o curso em vídeo com 50% de desconto" : "Ex.: Que tal só o módulo essencial, por menos?"}
+                data-testid={`${t}-headline`}
+              />
+            )}
+          </Field>
+          <Field label="Descrição" error={err(`${t}.body`)}>
+            {(p) => <Textarea {...p} value={value.body} onChange={(e) => onChange({ body: e.target.value })} maxLength={3000} rows={4} />}
+          </Field>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Imagem (https://, opcional)" error={err(`${t}.imageUrl`)}>
+              {(p) => <Input {...p} value={value.imageUrl} onChange={(e) => onChange({ imageUrl: e.target.value })} placeholder="https://" />}
+            </Field>
+            <Field label="Vídeo YouTube/Vimeo (opcional)" error={err(`${t}.videoUrl`)}>
+              {(p) => <Input {...p} value={value.videoUrl} onChange={(e) => onChange({ videoUrl: e.target.value })} placeholder="https://youtu.be/…" />}
+            </Field>
+            <Field label="Botão de aceitação">
+              {(p) => <Input {...p} value={value.acceptText} onChange={(e) => onChange({ acceptText: e.target.value })} maxLength={60} placeholder="Sim, quero adicionar" />}
+            </Field>
+            <Field label="Texto para recusar">
+              {(p) => <Input {...p} value={value.declineText} onChange={(e) => onChange({ declineText: e.target.value })} maxLength={80} placeholder="Não, obrigado" />}
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 rounded-[var(--radius-lg)] border border-line bg-surface-2 p-4">
+            <p className="text-[13px] font-semibold text-fg">Destino após o {label}</p>
+            <div className="grid grid-cols-1 gap-1.5">
+              <p className="text-[12.5px] text-muted">Depois de aceitar e o pagamento ser confirmado</p>
+              <Segmented
+                label="Destino após aceitar"
+                value={value.afterAccept}
+                onChange={(v) => onChange({ afterAccept: v })}
+                options={[
+                  { value: "thank_you", label: "Página de obrigado" },
+                  { value: "url", label: "Outro endereço" },
+                ]}
+              />
+              {value.afterAccept === "url" && (
+                <Field label="Endereço após aceitar" error={err(`${t}.afterAcceptUrl`)}>
+                  {(p) => <Input {...p} value={value.afterAcceptUrl} onChange={(e) => onChange({ afterAcceptUrl: e.target.value })} placeholder="https://" />}
+                </Field>
+              )}
+            </div>
+            <div className="grid grid-cols-1 gap-1.5">
+              <p className="text-[12.5px] text-muted">Depois de recusar (a compra inicial mantém-se)</p>
+              <Segmented
+                label="Destino após recusar"
+                value={value.afterDecline}
+                onChange={(v) => onChange({ afterDecline: v })}
+                options={[
+                  { value: "thank_you", label: "Página de obrigado" },
+                  ...(kind === "upsell" ? [{ value: "downsell" as const, label: "Mostrar downsell" }] : []),
+                  { value: "url", label: "Outro endereço" },
+                ]}
+              />
+              {value.afterDecline === "url" && (
+                <Field label="Endereço após recusar" error={err(`${t}.afterDeclineUrl`)}>
+                  {(p) => <Input {...p} value={value.afterDeclineUrl} onChange={(e) => onChange({ afterDeclineUrl: e.target.value })} placeholder="https://" />}
+                </Field>
+              )}
+              {value.afterDecline === "downsell" && <p className="text-[12px] text-subtle">Ao recusar, o cliente vê o downsell (configure-o no passo seguinte).</p>}
+            </div>
+            <div className="grid grid-cols-1 gap-1.5">
+              <p className="text-[12.5px] text-muted">Se o pagamento do {label} falhar (o produto adicional não é entregue)</p>
+              <Segmented
+                label="Destino se falhar"
+                value={value.afterFail}
+                onChange={(v) => onChange({ afterFail: v })}
+                options={[
+                  { value: "thank_you", label: "Página de obrigado" },
+                  { value: "retry", label: "Voltar à oferta" },
+                ]}
+              />
+              <p className="text-[12px] text-subtle">Enquanto o pagamento estiver pendente, o comprador fica na página de estado e a oferta não é dada como paga.</p>
+            </div>
+          </div>
+          <div className="flex justify-end">{footer}</div>
+        </CardBody>
+      </Card>
+      <Card>
+        <CardBody>
+          <DevicePreview label={`Pré-visualização do ${label}`}>
+            <UpsellContent
+              businessName={businessName}
+              primaryColor={design.primaryColor}
+              backgroundColor={design.backgroundColor}
+              headline={value.headline || "Título da oferta"}
+              body={value.body}
+              imageUrl={value.imageUrl}
+              videoUrl={value.videoUrl}
+              productName={selProduct?.name ?? "Produto adicional"}
+              offerName={selOffer?.name ?? "Preço"}
+              priceCents={selOffer?.priceCents ?? 0}
+              compareAtCents={selOffer?.compareAtCents ?? null}
+              currency={selOffer?.currency ?? "MZN"}
+            >
+              <div className="mt-8 flex flex-col gap-3">
+                <span className="rounded-xl px-6 py-3.5 font-semibold" style={{ background: design.primaryColor, color: design.mode === "light" ? "#fff" : "#0a0b0d" }}>
+                  {value.acceptText || "Sim, quero adicionar"}
+                </span>
+                <span className="text-sm underline opacity-70">{value.declineText || "Não, obrigado"}</span>
+              </div>
+            </UpsellContent>
+          </DevicePreview>
+        </CardBody>
+      </Card>
+    </div>
+  );
+}
+
 export function FunnelWizard(props: Props) {
   const router = useRouter();
   const toast = useToast();
@@ -275,6 +512,9 @@ export function FunnelWizard(props: Props) {
   const [upsell, setUpsell] = useState<UpsellConfig>(
     props.initial.upsell ?? EMPTY_UPSELL,
   );
+  const [downsell, setDownsell] = useState<UpsellConfig>(props.initial.downsell ?? EMPTY_UPSELL);
+  // produtos com os preços criados neste funil (aparecem logo nas listas de preços)
+  const [products, setProducts] = useState(props.products);
   const [design, setDesign] = useState<ThankYouDesign>(
     props.initial.thankYou.design,
   );
@@ -284,7 +524,7 @@ export function FunnelWizard(props: Props) {
   const [deliveryPage, setDeliveryPage] = useState<DeliveryPageInput>(props.initial.setup.delivery.page);
   const [isMain, setIsMain] = useState(props.initial.setup.isMain);
   const [files, setFiles] = useState<Record<string, WizardProduct["files"]>>(
-    () => Object.fromEntries(props.products.map((p) => [p.id, p.files])),
+    () => Object.fromEntries(products.map((p) => [p.id, p.files])),
   );
   const [uploading, setUploading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -297,13 +537,9 @@ export function FunnelWizard(props: Props) {
   }, []);
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const product = props.products.find((p) => p.id === productId) ?? null;
+  const product = products.find((p) => p.id === productId) ?? null;
   const mainOffer =
     product?.offers.find((o) => o.isDefault) ?? product?.offers[0] ?? null;
-  const upsellProduct =
-    props.products.find((p) => p.id === upsell.productId) ?? null;
-  const upsellOffer =
-    upsellProduct?.offers.find((o) => o.id === upsell.offerId) ?? null;
   const productFiles = files[productId] ?? [];
 
   const supportPreview = supportLink(support.phone, support.message);
@@ -312,6 +548,7 @@ export function FunnelWizard(props: Props) {
     productId,
     afterPayment,
     upsell: afterPayment === "upsell" ? upsell : undefined,
+    downsell: afterPayment === "upsell" && upsell.afterDecline === "downsell" ? downsell : undefined,
     thankYou: { design, fileId: null },
     support,
     delivery: { method: deliveryMethod, url: deliveryUrl, page: deliveryPage },
@@ -324,6 +561,9 @@ export function FunnelWizard(props: Props) {
     ...(afterPayment === "upsell"
       ? [{ key: "upsell" as const, label: "Upsell", icon: Gift }]
       : []),
+    ...(afterPayment === "upsell" && upsell.afterDecline === "downsell"
+      ? [{ key: "downsell" as const, label: "Downsell", icon: TrendingDown }]
+      : []),
     { key: "thank_you", label: "Página de obrigado", icon: PartyPopper },
     { key: "support", label: "Suporte WhatsApp", icon: MessageCircle },
     { key: "delivery", label: "Entrega do produto", icon: PackageOpen },
@@ -332,6 +572,16 @@ export function FunnelWizard(props: Props) {
   const err = (k: string) => errors[k];
   const updUpsell = (patch: Partial<UpsellConfig>) =>
     setUpsell((u) => ({ ...u, ...patch }));
+  const updDownsell = (patch: Partial<UpsellConfig>) => setDownsell((u) => ({ ...u, ...patch }));
+  /** Cria um preço para o produto da oferta (servidor valida a conta e o valor) e seleciona-o. */
+  const createOffer = async (forProductId: string, input: { name: string; price: string; currency: string }) => {
+    const r = await props.createOfferAction(forProductId, input);
+    if (!r.ok || !r.data) return { ok: false as const, error: r.ok ? "Não foi possível criar o preço." : r.error, fieldErrors: r.ok ? {} : (r.fieldErrors ?? {}) };
+    const o = r.data;
+    setProducts((all) => all.map((p) => (p.id === forProductId ? { ...p, offers: [...p.offers, { id: o.id, name: o.name, priceCents: o.priceCents, compareAtCents: null, currency: o.currency as CurrencyCode, isActive: true, isDefault: false }] } : p)));
+    toast(r.message ?? "Preço criado.");
+    return { ok: true as const, id: o.id };
+  };
   const updDesign = (patch: Partial<ThankYouDesign>) =>
     setDesign((d) => ({ ...d, ...patch }));
 
@@ -345,6 +595,7 @@ export function FunnelWizard(props: Props) {
           if (keys.some((k) => k.startsWith("support"))) setStep("support");
           else if (keys.some((k) => k.startsWith("delivery"))) setStep("delivery");
           else if (keys.some((k) => k.startsWith("upsell"))) setStep("upsell");
+          else if (keys.some((k) => k.startsWith("downsell"))) setStep("downsell");
           else if (keys.some((k) => k.startsWith("thankYou")))
             setStep("thank_you");
           else if (keys.includes("productId") || keys.includes("name"))
@@ -557,7 +808,7 @@ export function FunnelWizard(props: Props) {
                   }}
                   data-testid="wizard-product"
                 >
-                  {props.products
+                  {products
                     .filter(
                       (x) => x.status !== "ARCHIVED" || x.id === productId,
                     )
@@ -658,282 +909,48 @@ export function FunnelWizard(props: Props) {
 
       {/* ETAPA 3 — Upsell */}
       {step === "upsell" && afterPayment === "upsell" && (
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <Card>
-            <CardHeader
-              title="Configuração do upsell"
-              description="O preço vem do preço escolhido do produto (nunca do browser)."
-            />
-            <CardBody className="grid grid-cols-1 gap-4">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field
-                  label="Produto adicional"
-                  error={err("upsell.productId")}
-                >
-                  {(p) => (
-                    <Select
-                      {...p}
-                      value={upsell.productId}
-                      onChange={(e) =>
-                        updUpsell({
-                          productId: e.target.value,
-                          offerId:
-                            props.products
-                              .find((x) => x.id === e.target.value)
-                              ?.offers.find((o) => o.isActive)?.id ?? "",
-                        })
-                      }
-                      data-testid="upsell-product"
-                    >
-                      <option value="">Selecione…</option>
-                      {props.products
-                        .filter(
-                          (x) => x.id !== productId && x.status !== "ARCHIVED",
-                        )
-                        .map((x) => (
-                          <option key={x.id} value={x.id}>
-                            {x.name}
-                          </option>
-                        ))}
-                    </Select>
-                  )}
-                </Field>
-                <Field
-                  label="Preço da oferta"
-                  error={err("upsell.offerId")}
-                  hint="Crie preços especiais em Produtos → Ofertas e preços."
-                >
-                  {(p) => (
-                    <Select
-                      {...p}
-                      value={upsell.offerId}
-                      onChange={(e) => updUpsell({ offerId: e.target.value })}
-                      disabled={!upsellProduct}
-                      data-testid="upsell-offer"
-                    >
-                      <option value="">Selecione…</option>
-                      {upsellProduct?.offers
-                        .filter((o) => o.isActive)
-                        .map((o) => (
-                          <option key={o.id} value={o.id}>
-                            {o.name} — {formatMoney(o.priceCents, o.currency)}
-                          </option>
-                        ))}
-                    </Select>
-                  )}
-                </Field>
-              </div>
-              <Field
-                label="Título da oferta"
-                error={err("upsell.headline")}
-                required
-              >
-                {(p) => (
-                  <Input
-                    {...p}
-                    value={upsell.headline}
-                    onChange={(e) => updUpsell({ headline: e.target.value })}
-                    maxLength={160}
-                    placeholder="Ex.: Leve também o curso em vídeo com 50% de desconto"
-                    data-testid="upsell-headline"
-                  />
-                )}
-              </Field>
-              <Field label="Descrição" error={err("upsell.body")}>
-                {(p) => (
-                  <Textarea
-                    {...p}
-                    value={upsell.body}
-                    onChange={(e) => updUpsell({ body: e.target.value })}
-                    maxLength={3000}
-                    rows={4}
-                  />
-                )}
-              </Field>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field
-                  label="Imagem (https://, opcional)"
-                  error={err("upsell.imageUrl")}
-                >
-                  {(p) => (
-                    <Input
-                      {...p}
-                      value={upsell.imageUrl}
-                      onChange={(e) => updUpsell({ imageUrl: e.target.value })}
-                      placeholder="https://"
-                    />
-                  )}
-                </Field>
-                <Field
-                  label="Vídeo YouTube/Vimeo (opcional)"
-                  error={err("upsell.videoUrl")}
-                >
-                  {(p) => (
-                    <Input
-                      {...p}
-                      value={upsell.videoUrl}
-                      onChange={(e) => updUpsell({ videoUrl: e.target.value })}
-                      placeholder="https://youtu.be/…"
-                    />
-                  )}
-                </Field>
-                <Field label="Botão de aceitação">
-                  {(p) => (
-                    <Input
-                      {...p}
-                      value={upsell.acceptText}
-                      onChange={(e) =>
-                        updUpsell({ acceptText: e.target.value })
-                      }
-                      maxLength={60}
-                      placeholder="Sim, quero adicionar"
-                    />
-                  )}
-                </Field>
-                <Field label="Texto para recusar">
-                  {(p) => (
-                    <Input
-                      {...p}
-                      value={upsell.declineText}
-                      onChange={(e) =>
-                        updUpsell({ declineText: e.target.value })
-                      }
-                      maxLength={80}
-                      placeholder="Não, obrigado"
-                    />
-                  )}
-                </Field>
-              </div>
+        <OfferStepEditor
+          kind="upsell"
+          value={upsell}
+          onChange={updUpsell}
+          products={products}
+          mainProductId={productId}
+          err={err}
+          businessName={props.businessName}
+          design={design}
+          onCreateOffer={createOffer}
+          footer={
+            upsell.afterDecline === "downsell" ? (
+              <Button onClick={() => setStep("downsell")} data-testid="go-downsell">
+                Configurar downsell <ArrowRight className="h-4 w-4" />
+              </Button>
+            ) : (
+              <Button onClick={() => setStep("thank_you")}>
+                Página de obrigado <ArrowRight className="h-4 w-4" />
+              </Button>
+            )
+          }
+        />
+      )}
 
-              <div className="grid grid-cols-1 gap-4 rounded-[var(--radius-lg)] border border-line bg-surface-2 p-4">
-                <p className="text-[13px] font-semibold text-fg">
-                  Destino após o upsell
-                </p>
-                <div className="grid grid-cols-1 gap-1.5">
-                  <p className="text-[12.5px] text-muted">
-                    Depois de aceitar e o pagamento ser confirmado
-                  </p>
-                  <Segmented
-                    label="Destino após aceitar"
-                    value={upsell.afterAccept}
-                    onChange={(v) => updUpsell({ afterAccept: v })}
-                    options={[
-                      { value: "thank_you", label: "Página de obrigado" },
-                      { value: "url", label: "Outro endereço" },
-                    ]}
-                  />
-                  {upsell.afterAccept === "url" && (
-                    <Field
-                      label="Endereço após aceitar"
-                      error={err("upsell.afterAcceptUrl")}
-                    >
-                      {(p) => (
-                        <Input
-                          {...p}
-                          value={upsell.afterAcceptUrl}
-                          onChange={(e) =>
-                            updUpsell({ afterAcceptUrl: e.target.value })
-                          }
-                          placeholder="https://"
-                        />
-                      )}
-                    </Field>
-                  )}
-                </div>
-                <div className="grid grid-cols-1 gap-1.5">
-                  <p className="text-[12.5px] text-muted">
-                    Depois de recusar (a compra inicial mantém-se)
-                  </p>
-                  <Segmented
-                    label="Destino após recusar"
-                    value={upsell.afterDecline}
-                    onChange={(v) => updUpsell({ afterDecline: v })}
-                    options={[
-                      { value: "thank_you", label: "Página de obrigado" },
-                      { value: "url", label: "Outro endereço" },
-                    ]}
-                  />
-                  {upsell.afterDecline === "url" && (
-                    <Field
-                      label="Endereço após recusar"
-                      error={err("upsell.afterDeclineUrl")}
-                    >
-                      {(p) => (
-                        <Input
-                          {...p}
-                          value={upsell.afterDeclineUrl}
-                          onChange={(e) =>
-                            updUpsell({ afterDeclineUrl: e.target.value })
-                          }
-                          placeholder="https://"
-                        />
-                      )}
-                    </Field>
-                  )}
-                </div>
-                <div className="grid grid-cols-1 gap-1.5">
-                  <p className="text-[12.5px] text-muted">
-                    Se o pagamento do upsell falhar (o produto adicional não é
-                    entregue)
-                  </p>
-                  <Segmented
-                    label="Destino se falhar"
-                    value={upsell.afterFail}
-                    onChange={(v) => updUpsell({ afterFail: v })}
-                    options={[
-                      { value: "thank_you", label: "Página de obrigado" },
-                      { value: "retry", label: "Voltar à oferta" },
-                    ]}
-                  />
-                  <p className="text-[12px] text-subtle">
-                    Enquanto o pagamento estiver pendente, o comprador fica na
-                    página de estado e a oferta não é dada como paga.
-                  </p>
-                </div>
-              </div>
-              <div className="flex justify-end">
-                <Button onClick={() => setStep("thank_you")}>
-                  Página de obrigado <ArrowRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </CardBody>
-          </Card>
-          <Card>
-            <CardBody>
-              <DevicePreview label="Pré-visualização do upsell">
-                <UpsellContent
-                  businessName={props.businessName}
-                  primaryColor={design.primaryColor}
-                  backgroundColor={design.backgroundColor}
-                  headline={upsell.headline || "Título da oferta"}
-                  body={upsell.body}
-                  imageUrl={upsell.imageUrl}
-                  videoUrl={upsell.videoUrl}
-                  productName={upsellProduct?.name ?? "Produto adicional"}
-                  offerName={upsellOffer?.name ?? "Preço"}
-                  priceCents={upsellOffer?.priceCents ?? 0}
-                  compareAtCents={upsellOffer?.compareAtCents ?? null}
-                  currency={upsellOffer?.currency ?? "MZN"}
-                >
-                  <div className="mt-8 flex flex-col gap-3">
-                    <span
-                      className="rounded-xl px-6 py-3.5 font-semibold"
-                      style={{
-                        background: design.primaryColor,
-                        color: design.mode === "light" ? "#fff" : "#0a0b0d",
-                      }}
-                    >
-                      {upsell.acceptText || "Sim, quero adicionar"}
-                    </span>
-                    <span className="text-sm underline opacity-70">
-                      {upsell.declineText || "Não, obrigado"}
-                    </span>
-                  </div>
-                </UpsellContent>
-              </DevicePreview>
-            </CardBody>
-          </Card>
-        </div>
+      {/* ETAPA 3b — Downsell (oferta alternativa depois de recusar o upsell) */}
+      {step === "downsell" && afterPayment === "upsell" && upsell.afterDecline === "downsell" && (
+        <OfferStepEditor
+          kind="downsell"
+          value={downsell}
+          onChange={updDownsell}
+          products={products}
+          mainProductId={productId}
+          err={err}
+          businessName={props.businessName}
+          design={design}
+          onCreateOffer={createOffer}
+          footer={
+            <Button onClick={() => setStep("thank_you")}>
+              Página de obrigado <ArrowRight className="h-4 w-4" />
+            </Button>
+          }
+        />
       )}
 
       {/* ETAPA 4 — Página de obrigado */}

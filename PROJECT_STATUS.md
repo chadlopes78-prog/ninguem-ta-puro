@@ -1,6 +1,6 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-15 · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
+Última atualização: 2026-10-15 · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
 
 ## Estado geral
 
@@ -10,8 +10,8 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 |---|---|---|
 | Lint | `npm run lint` | ✅ 0 erros, 0 avisos |
 | Tipos TypeScript | `npm run typecheck` | ✅ sem erros |
-| Testes unitários + integração | `npm test` | ✅ 262/262 (16 do checkout renderizado/editor simples, 13 de publicação/entrega/configurações/palavra-passe, 6 de operações do editor, 5 da biblioteca de imagens, 16 de personalização do checkout, 12 de multiutilizador A–G, 16 de notificações/relatórios, 10 de funis, 18 de gateways) |
-| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 112/112 (13 da auditoria em 12 larguras, 13 de interações com toque, 3 de revisão mobile a 320/375/414 px e 3 da aba Produtos no computador a 1024/1280/1440 px, 4 de configurações/palavra-passe/telemóvel, 6 do editor visual com arrastar e soltar real, 1 de navegação lenta no telemóvel, 5 de várias contas, 10 de notificações/PWA/relatórios, 8 de funis, 9 de pagamentos, 4 de personalização, 3 de gateways) |
+| Testes unitários + integração | `npm test` | ✅ 272/272 (10 do formulário de produto/imagem/downsell, 16 do checkout renderizado/editor simples, 13 de publicação/entrega/configurações/palavra-passe, 6 de operações do editor, 5 da biblioteca de imagens, 16 de personalização do checkout, 12 de multiutilizador A–G, 16 de notificações/relatórios, 10 de funis, 18 de gateways) |
+| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 117/117 (5 do formulário de produto e ofertas nos funis, 13 da auditoria em 12 larguras, 13 de interações com toque, 3 de revisão mobile a 320/375/414 px e 3 da aba Produtos no computador a 1024/1280/1440 px, 4 de configurações/palavra-passe/telemóvel, 6 do editor visual com arrastar e soltar real, 1 de navegação lenta no telemóvel, 5 de várias contas, 10 de notificações/PWA/relatórios, 8 de funis, 9 de pagamentos, 4 de personalização, 3 de gateways) |
 | Build de produção | `npm run build` | ✅ sem erros |
 | Fuga de segredos | build com `EPAY_SECRET_KEY`, `E2PAYMENTS_CLIENT_ID/SECRET` e `INTEGRATIONS_ENCRYPTION_KEY` fictícias + `grep` em `.next/` e log | ✅ valor ausente do bundle do browser, do output do servidor e do log; nenhuma variável `NEXT_PUBLIC_`; `.env` com segredos fora do Git |
 
@@ -26,6 +26,41 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | 5 — Operação | ✅ Concluída | Pedidos (filtros, detalhe, transições), clientes, cupões (com testador), relatórios |
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
+
+## Formulário de produto simplificado, foto por upload e ofertas centralizadas nos funis (sessão 16)
+
+### Análise antes de alterar
+| Campo/secção | Onde é usado | Decisão |
+|---|---|---|
+| URL da imagem (`Product.imageUrl`) | cartões, checkout, editor; EPay só recebe `image_url` se for https | Saiu da interface → upload para a biblioteca de imagens já existente; URLs antigos continuam válidos |
+| Preço de referência (`Offer.compareAtCents`) | checkout (preço riscado), página de upsell | Saiu do formulário; **o valor guardado mantém-se** (antes, guardar sem o campo apagava-o) |
+| Configurações adicionais (só «Página de vendas», `salesPageUrl`) | não usada por checkout, pagamentos nem entrega | Saiu do formulário; o valor guardado mantém-se |
+| Ofertas e preços (tabela `Offer`) | upsell do funil escolhe um preço; checkouts | Cartão removido do produto; os preços passam a criar-se no funil; nada foi apagado |
+
+**Base de dados: sem migração.** Nenhum campo, tabela ou dado foi apagado.
+
+### O que mudou
+- **Formulário de produto** (criar e editar): Nome do produto → Descrição → **Imagem do produto** → Preço principal + Moeda → Tipo + Categoria → (Estado, na edição) → **Guardar produto**. Nota a indicar que upsells, downsells e outras ofertas se configuram na aba Funis.
+- **Imagem do produto**: botão «Carregar imagem» (seletor nativo: galeria, câmara ou ficheiros em computador/Android/iPhone), pré-visualização, «Substituir imagem», «Remover». Validação no browser (tipo e 3 MB) e no servidor (tipo real pelos bytes, tamanho, dimensões); mensagem clara em caso de erro; fotos grandes reduzidas no browser. A imagem é guardada na biblioteca da conta e o produto aponta para ela ao guardar (persiste ao recarregar). O servidor recusa imagens de outra conta e caminhos forjados; uma imagem usada como foto de produto não pode ser apagada da biblioteca. Aparece nos cartões/tabela de Produtos, no checkout, no editor, nos funis e — novo — no Dashboard («Desempenho por produto»).
+- **Funis (assistente)**: «Criar um preço especial para esta oferta» diretamente no upsell/downsell (mesmo serviço `addOffer`, conta verificada). **Downsell**: no upsell, «Destino após recusar → Mostrar downsell» abre a etapa Downsell (produto, preço, textos, destinos). Implementado com a etapa `DOWNSELL` que o motor de funis já suportava — não é um sistema novo. Funis existentes não mudam.
+- **Correção no motor de funis** (pós-compra, sem tocar em pagamentos): ao recusar uma oferta, o percurso ia sempre para a página de obrigado mesmo que a ligação seguinte fosse outra oferta — o downsell (também em funis do editor avançado) nunca era mostrado. Agora o percurso continua na oferta seguinte; se o pagamento de uma oferta falhar, o destino configurado para a falha prevalece (como antes). A compra feita num downsell fica registada como «Downsell» (antes «Upsell»; só etiqueta, sem mudança de valores).
+
+### Ficheiros principais
+`src/components/products/{product-form,product-image-field}.tsx` (novo campo), `src/lib/image-upload.ts` (novo, partilhado com o editor), `src/components/checkout-editor/media-picker.tsx`, `src/server/validation/schemas.ts`, `src/server/services/{products,media,funnel-wizard,post-purchase}.ts`, `src/lib/funnels/wizard.ts`, `src/components/funnels/funnel-wizard.tsx`, `src/app/(app)/funis/{actions.ts,[id]/page.tsx}`, `src/app/(app)/produtos/{actions.ts,novo/page.tsx,[id]/page.tsx}`, `src/app/(app)/dashboard/page.tsx`, `src/app/oferta/[runId]/{page,real-offer}.tsx`. Removido: `src/components/products/offers-card.tsx` e as ações `addOfferAction`/`setOfferActiveAction` do produto (o serviço `addOffer` mantém-se e é usado pelo funil).
+
+### Testes
+- Integração (`tests/integration/product-form-funnels.test.ts`, 10): criar/substituir/remover imagem e persistência; imagem de outra conta e caminhos forjados recusados; URL antigo mantido; foto de produto protegida contra eliminação; preço de referência e página de vendas preservados ao guardar (e preço riscado limpo se deixar de fazer sentido); ofertas existentes preservadas; funil com upsell + downsell (grafo, reabrir, validação, preço de outra conta recusado); **compra real com o fornecedor de teste**: recusar upsell → downsell → aceitar → cobrança do preço do downsell, registada como DOWNSELL, compra inicial intacta; recusar também o downsell → página de obrigado; funil só com upsell igual ao anterior.
+- E2E (`e2e/16-product-form-funnel-offers.spec.ts`, 5): criar produto com foto do dispositivo (ficheiro inválido → mensagem), campos removidos ausentes e ordem do formulário, persistência após recarregar, foto na lista e no checkout de um produto publicado com o preço correto, substituir/remover/persistir, criação no telemóvel por toque, funil com preço criado no funil + downsell, compra de teste completa com downsell. Testes anteriores atualizados para os novos textos («Nome do produto», «Preço principal», «Guardar produto»).
+- Resultados: `npm test` ✅ 272/272 · `npm run test:e2e` ✅ 117/117 · lint ✅ · typecheck ✅ · build ✅.
+
+### APIs e pagamentos
+Não alterados: EPay, E2Payments, endpoints, webhooks, criação/confirmação de pagamentos, regras de cobrança, credenciais. A alteração em `post-purchase.ts` é só no encaminhamento do percurso do funil depois de uma oferta (e na etiqueta do item).
+
+### Pendências
+- **EPay e imagens carregadas**: a EPay só recebe a imagem do produto se for um endereço `https://` completo (`epay.ts`); imagens carregadas são caminhos internos (`/api/public/media/…`), por isso a página de pagamento alojada da EPay deixa de mostrar a foto desses produtos (campo opcional; o pagamento funciona). Corrigir exige enviar o endereço absoluto no fluxo de pagamento — aguarda autorização.
+- Ofertas antigas ficam guardadas e utilizáveis nos funis; já não há ecrã para as desativar (antes no cartão do produto).
+- **Erro de hidratação intermitente** (React #418): visto 1 vez por corrida completa em páginas diferentes (Relatórios, utilizador da Administração), não reproduzido em 60+ carregamentos em produção e desenvolvimento; o React recupera sozinho. A auditoria recarrega a página uma vez e regista a ocorrência. Causa por identificar.
+- Fotos HEIC escolhidas em «Ficheiros» no Android são recusadas com mensagem (o iPhone converte para JPEG automaticamente).
 
 ## Auditoria de interface, compatibilidade entre dispositivos e remoção da aba Cupom (sessão 15)
 
@@ -833,6 +868,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 16 (2026-10-15)**: formulário de produto simplificado (nome, descrição, foto carregada do dispositivo, preço principal, tipo), sem preço de referência/página de vendas/ofertas (valores guardados preservados); ofertas centralizadas nos funis (preço criado no funil + downsell com a etapa existente do motor); correção do motor para mostrar a oferta seguinte depois de uma recusa. Sem migração. 272 testes unitários/integração e 117 E2E a passar.
 - **Sessão 15 (2026-10-15)**: auditoria de todas as páginas em 12 larguras e de interações com toque (simulação no Chromium); 12 grupos de problemas corrigidos (página do pedido mais larga que o ecrã, dicas inacessíveis no iPhone, menu de ações cortado nas tabelas, modais com teclado, faixas de chips/separadores/etapas do funil escondidas, tabelas com deslocamento lateral, controlos só com hover, alvos de toque pequenos); aba Cupom removida da interface sem apagar dados nem lógica do checkout. APIs e pagamentos não alterados. 262 testes unitários/integração e 112 E2E a passar.
 - **Sessão 14 (2026-10-15)**: checkout simples numa coluna (nome, imagem, preço, dados, pagamento, total único e botão), mensagem longa da EPay removida (só visual), cronómetro com a cor em todo o componente e texto legível, editor simplificado (9 elementos, produto/preço/pagamento protegidos, propriedades por elemento, estilo global e restauro do padrão) e correções no telemóvel (menu de ações e avisos na aba Produtos, filtros, campos de 16 px). Sem migração. 262 testes unitários/integração e 83 E2E a passar.
 - **Sessão 13 (2026-10-14)**: produtos nascem como rascunho e só publicam com funil principal, página de obrigado, WhatsApp de suporte e entrega (validação centralizada no servidor); WhatsApp por produto acima do botão de acesso; entrega por link externo ou página de entrega interna protegida; aba Funis com estado de cada requisito; Configurações simplificadas; recuperação da palavra-passe por token temporário (email opcional via Resend, ou link gerado pelo proprietário). Migração aditiva com passagem dos dados antigos; pagamentos e credenciais intactos. 246 testes unitários/integração e 79 E2E a passar.
