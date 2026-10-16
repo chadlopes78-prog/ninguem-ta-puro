@@ -12,7 +12,7 @@ export async function recoverAccessAction(input: { email?: string; code?: string
   const h = await headers();
   const ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || "local";
   const email = typeof input?.email === "string" ? input.email.slice(0, 200) : "";
-  if (!rateLimit(`recover:${ip}`, 10, 15 * 60_000) || !rateLimit(`recover-email:${email.toLowerCase()}`, 6, 15 * 60_000)) {
+  if (!rateLimit(`recover:${ip}`, 200, 15 * 60_000) || !rateLimit(`recover-email:${email.toLowerCase()}`, 6, 15 * 60_000)) {
     return { ok: false, error: "Demasiadas tentativas. Aguarde alguns minutos." };
   }
   const code = typeof input?.code === "string" ? input.code.slice(0, 40) : "";

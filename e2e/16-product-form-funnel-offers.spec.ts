@@ -72,7 +72,8 @@ test.describe.serial("produto simples com imagem e ofertas nos funis", () => {
     await page.getByRole("button", { name: "Guardar produto" }).click();
     await toast(page, "Produto atualizado");
     await page.goto("/checkout/ebook-mocambique");
-    const img = page.locator(`img[src="${ebookImg}"]`).first();
+    // a mesma imagem, servida redimensionada no checkout (?w=…)
+    const img = page.locator(`img[src^="${ebookImg}"]`).first();
     await expect(img).toBeVisible();
     expect(await img.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth > 0)).toBe(true);
     await expect(page.getByTestId("price")).toContainText(mzn("1250,00"));

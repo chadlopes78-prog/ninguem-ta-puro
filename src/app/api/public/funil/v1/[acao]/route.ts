@@ -9,7 +9,7 @@
 // atual desse percurso — pedidos para outras etapas seguem para onde o percurso realmente está.
 import { NextResponse, type NextRequest } from "next/server";
 import { getRealOfferView, declineUpsell, nextDestination } from "@/server/services/post-purchase";
-import { rateLimit } from "@/server/rate-limit";
+import { BUYER_IP_CEILING, rateLimit } from "@/server/rate-limit";
 import { formatMoney } from "@/lib/money";
 
 export const dynamic = "force-dynamic";
@@ -69,8 +69,9 @@ export async function OPTIONS() {
 export async function GET(req: NextRequest, { params }: { params: Promise<{ acao: string }> }) {
   const { acao } = await params;
   if (acao !== "estado") return NextResponse.json({ ok: false, error: "Ação desconhecida." }, { status: 404, headers: CORS });
-  if (!rateLimit(`funil-estado:${ip(req)}`, 120, 60_000)) return NextResponse.json({ ok: false, error: "Demasiados pedidos." }, { status: 429, headers: CORS });
   const { run, step } = await readParams(req);
+  // por percurso + teto por IP (CGNAT: muitos compradores no mesmo IP)
+  if (!rateLimit(`funil-estado:${run.slice(0, 64)}`, 120, 60_000) || !rateLimit(`funil-estado-ip:${ip(req)}`, BUYER_IP_CEILING, 60_000)) return NextResponse.json({ ok: false, error: "Demasiados pedidos." }, { status: 429, headers: CORS });
   if (!RUN_RE.test(run) || !STEP_RE.test(step)) return NextResponse.json({ ok: false, error: "Parâmetros inválidos." }, { status: 400, headers: CORS });
   const view = await getRealOfferView(run);
   if (!view) return NextResponse.json({ ok: false, error: "Percurso não encontrado." }, { status: 404, headers: CORS });
@@ -92,7 +93,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ aca
   const { acao } = await params;
   const { run, step, json } = await readParams(req);
   if (acao !== "aceitar" && acao !== "recusar") return fail(req, json, 404, "Ação desconhecida.");
-  if (!rateLimit(`funil-${acao}:${ip(req)}`, 30, 10 * 60_000)) return fail(req, json, 429, "Demasiadas tentativas. Aguarde alguns minutos.");
+  if (!rateLimit(`funil-${acao}:${ip(req)}:${String(run).slice(0, 64)}`, 30, 10 * 60_000) || !rateLimit(`funil-${acao}-ip:${ip(req)}`, BUYER_IP_CEILING, 10 * 60_000)) return fail(req, json, 429, "Demasiadas tentativas. Aguarde alguns minutos.");
   if (!RUN_RE.test(run) || !STEP_RE.test(step)) return fail(req, json, 400, "Esta oferta não está disponível (ligação incompleta).");
   const view = await getRealOfferView(run);
   if (!view) return fail(req, json, 404, "Esta oferta não está disponível.");

@@ -81,7 +81,34 @@ export function PurchaseForm({
     crypto.getRandomValues(bytes);
     idempotencyKey.current = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
   };
-  useEffect(newIdempotencyKey, []);
+  // Tentativa sem resposta (ex.: o browser do Facebook/Instagram recarregou a página enquanto o comprador confirmava
+  // no telemóvel): a chave fica guardada e é reutilizada, para que um novo clique devolva a MESMA encomenda e nunca
+  // inicie uma segunda cobrança. É apagada assim que o servidor responde.
+  const pendingKey = `ntp:co-attempt:${data.publicId}`;
+  const forgetAttempt = () => {
+    try {
+      localStorage.removeItem(pendingKey);
+    } catch {}
+  };
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(pendingKey) ?? "null") as { k?: string; t?: number } | null;
+      if (saved?.k && /^[0-9a-f]{36}$/.test(saved.k) && Date.now() - (saved.t ?? 0) < 30 * 60_000) {
+        idempotencyKey.current = saved.k;
+        return;
+      }
+      localStorage.removeItem(pendingKey);
+    } catch {}
+    newIdempotencyKey();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Aviso quando o servidor/gateway demora (rede lenta): o pedido continua e não há cobrança em duplicado
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!pending) return setSlow(false);
+    const t = setTimeout(() => setSlow(true), 10_000);
+    return () => clearTimeout(t);
+  }, [pending]);
 
   useEffect(() => {
     if (mode !== "live" || !data.publicId) return;
@@ -150,9 +177,16 @@ export function PurchaseForm({
       input.idempotencyKey = idempotencyKey.current;
     }
     setNotice(null);
+    if (payable) {
+      try {
+        localStorage.setItem(pendingKey, JSON.stringify({ k: idempotencyKey.current, t: Date.now() }));
+      } catch {}
+    }
     start(async () => {
       try {
         const r = await submitAction(input, sessionId.current);
+        // o servidor respondeu: a tentativa deixa de estar "sem resposta"
+        forgetAttempt();
         setErrors(r.kind === "invalid" ? r.fieldErrors : {});
         if (r.kind === "invalid") setNotice({ tone: "error", text: r.fieldErrors._form ?? "Verifique os campos assinalados." });
         else if (r.kind === "coupon_error") {
@@ -172,7 +206,8 @@ export function PurchaseForm({
           router.push(r.runId ? `/oferta/${r.runId}` : `/checkout/${data.publicId}/sucesso?pedido=${encodeURIComponent(r.orderCode)}`);
         }
       } catch {
-        setNotice({ tone: "error", text: "Erro de rede. Os seus dados foram mantidos — tente novamente." });
+        // A chave mantém-se: tentar de novo devolve a mesma encomenda se o pedido chegou ao servidor (sem 2.ª cobrança)
+        setNotice({ tone: "error", text: "Erro de rede. Os seus dados foram mantidos — tente novamente. Se o pedido já tiver sido registado, não será cobrado duas vezes." });
       }
     });
   };
@@ -363,6 +398,11 @@ export function PurchaseForm({
       {pending && selectedMethod && !selectedMethod.hosted && (
         <p className={cn("text-center text-[12.5px]", muted)} role="status" data-testid="awaiting-phone">
           Confirme o pagamento no telemóvel ({selectedMethod.label}). Pode demorar até 2 minutos — não feche esta página.
+        </p>
+      )}
+      {pending && slow && (!selectedMethod || selectedMethod.hosted) && (
+        <p className={cn("text-center text-[12.5px]", muted)} role="status" data-testid="slow-connection">
+          A ligação está lenta. Aguarde um pouco — não feche a página nem toque outra vez; não será cobrado duas vezes.
         </p>
       )}
       {data.isDemo && <p className={cn("text-center text-[12px]", muted)}>Compra simulada: será criado apenas um pedido de demonstração.</p>}

@@ -1,5 +1,6 @@
 // Página de obrigado (apresentação). Usada na página pública e na pré-visualização do editor.
 // Não decide nada sobre pagamentos: recebe o estado e o botão já calculados no servidor.
+import { ResponsiveImg } from "./responsive-img";
 import { CheckCircle2, Clock, Download, ExternalLink, Info, MessageCircle, XCircle } from "lucide-react";
 import { FONT_STACKS, type ThankYouDesign } from "@/lib/thank-you";
 import { formatMoney, type CurrencyCode } from "@/lib/money";
@@ -78,8 +79,7 @@ export function ThankYouContent(p: ThankYouContentProps) {
         </span>
 
         {d.heroImageUrl && confirmed && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={d.heroImageUrl} alt="" className="w-full rounded-2xl object-cover" />
+          <ResponsiveImg src={d.heroImageUrl} alt="" className="w-full rounded-2xl object-cover" />
         )}
 
         <div>

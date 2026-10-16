@@ -16,6 +16,15 @@ export function rateLimit(key: string, limit: number, windowMs: number, now = Da
   return true;
 }
 
+/**
+ * Limites para compradores. Em Moçambique as operadoras móveis usam CGNAT: centenas de clientes reais podem
+ * partilhar o MESMO IP público. Por isso os limites dos fluxos de compra são por comprador/percurso (proteção contra
+ * abuso) com um teto por IP alto (só trava rajadas automáticas), nunca um limite baixo partilhado por todo o IP.
+ */
+export const BUYER_IP_CEILING = 3000;
+/** Consulta do estado do pagamento: cada comprador à espera consulta a cada 4–10 s (já limitada por encomenda). */
+export const STATUS_IP_CEILING = 30000;
+
 /** Verifica sem consumir: verdadeiro se a chave já atingiu o limite na janela atual. */
 export function isLimited(key: string, limit: number, now = Date.now()): boolean {
   const b = buckets.get(key);

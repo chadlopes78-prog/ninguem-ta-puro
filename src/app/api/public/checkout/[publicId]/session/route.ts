@@ -1,11 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { startCheckoutSession } from "@/server/services/purchase";
-import { rateLimit } from "@/server/rate-limit";
+import { BUYER_IP_CEILING, rateLimit } from "@/server/rate-limit";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ publicId: string }> }) {
   const { publicId } = await params;
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
-  if (!rateLimit(`co-session:${ip}`, 60, 10 * 60_000)) return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+  // registo da visita (estatística): teto por IP alto por causa do CGNAT das operadoras móveis
+  if (!rateLimit(`co-session:${ip}`, BUYER_IP_CEILING, 10 * 60_000)) return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   let body: { source?: unknown; medium?: unknown; campaign?: unknown } = {};
   try {
     body = await req.json();

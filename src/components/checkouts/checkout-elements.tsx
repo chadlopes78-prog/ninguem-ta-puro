@@ -1,5 +1,6 @@
 "use client";
 
+import { ResponsiveImg } from "@/components/public/responsive-img";
 import { useEffect, useState } from "react";
 import { Award, Check, ChevronDown, Clock, Download, Gift, Heart, Info, Lock, Phone, ShieldCheck, Star, Truck, type LucideIcon } from "lucide-react";
 import { formatMoney } from "@/lib/money";
@@ -192,8 +193,7 @@ export function ElementContent({ el, ctx }: { el: DesignElement; ctx: RenderCtx 
       const vars: Vars = { "--w": `${el.widthPct}%`, "--wm": `${el.mobileWidthPct}%` };
       if (el.maxWidthPx) vars.maxWidth = el.maxWidthPx;
       const media = src ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
+        <ResponsiveImg
           src={src}
           alt={el.source === "product" ? el.alt || data.productName : el.alt}
           loading={el.source === "product" ? "eager" : "lazy"}
@@ -226,8 +226,7 @@ export function ElementContent({ el, ctx }: { el: DesignElement; ctx: RenderCtx 
       return (
         <div className="relative w-full overflow-hidden" style={{ aspectRatio: el.aspect.replace("/", " / "), borderRadius: el.imgRadius }}>
           {el.src ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={el.src} alt={el.alt} decoding="async" className="absolute inset-0 h-full w-full object-cover" style={{ objectPosition: `${el.focusX}% ${el.focusY}%` }} />
+            <ResponsiveImg src={el.src} alt={el.alt} decoding="async" sizes="(max-width: 1080px) 100vw, 1080px" className="absolute inset-0 h-full w-full object-cover" style={{ objectPosition: `${el.focusX}% ${el.focusY}%` }} />
           ) : (
             <div className={cn("absolute inset-0 grid place-items-center border border-dashed text-sm", p.panel, p.muted)}>Escolha uma imagem para o banner</div>
           )}
@@ -368,8 +367,7 @@ export function ElementContent({ el, ctx }: { el: DesignElement; ctx: RenderCtx 
         <div className={cn("flex gap-4 rounded-2xl border p-4", p.panel)}>
           {el.showImage &&
             (data.imageUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={data.imageUrl} alt="" loading="lazy" className="h-20 w-20 shrink-0 rounded-xl object-cover" />
+              <ResponsiveImg src={data.imageUrl} alt="" loading="lazy" sizes="80px" maxWidth={160} className="h-20 w-20 shrink-0 rounded-xl object-cover" />
             ) : (
               <span className={cn("grid h-20 w-20 shrink-0 place-items-center rounded-xl border font-display text-xl font-semibold", p.panel)} style={{ color: p.primary }} aria-hidden="true">
                 {initials(data.productName)}

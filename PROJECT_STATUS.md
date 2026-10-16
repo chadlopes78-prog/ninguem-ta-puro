@@ -1,6 +1,6 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-16 · Sessão 21 (página de obrigado personalizada; área Operações com abas; Dashboard com atividades de hoje e metas de faturamento; partilha das credenciais de pagamento do administrador; logótipos sem fundo) · Sessão 20 (modo simples: vender sem funil; logótipos nas Integrações) · Sessão 19 (entrega do produto PDF/link no produto, área «Os meus produtos», recuperação de acesso, Integrações em cartões) · Sessão 18 (funis: entrada única, várias ofertas, páginas externas com código de integração, obrigado externo) · Sessão 17 (Facebook Pixel / API de Conversões) · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
+Última atualização: 2026-10-16 · Sessão 22 (preparação para tráfego pago: carga, concorrência, telemóvel, imagens otimizadas, limites CGNAT) · Sessão 21 (página de obrigado personalizada; área Operações com abas; Dashboard com atividades de hoje e metas de faturamento; partilha das credenciais de pagamento do administrador; logótipos sem fundo) · Sessão 20 (modo simples: vender sem funil; logótipos nas Integrações) · Sessão 19 (entrega do produto PDF/link no produto, área «Os meus produtos», recuperação de acesso, Integrações em cartões) · Sessão 18 (funis: entrada única, várias ofertas, páginas externas com código de integração, obrigado externo) · Sessão 17 (Facebook Pixel / API de Conversões) · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
 
 ## Estado geral
 
@@ -26,6 +26,102 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | 5 — Operação | ✅ Concluída | Pedidos (filtros, detalhe, transições), clientes, cupões (com testador), relatórios |
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
+
+## Preparação para tráfego pago: auditoria, carga, concorrência e telemóvel (sessão 22)
+
+**Ambiente dos testes (o que foi realmente medido).**
+- Build de produção (`next start`) num único processo Node: 4 vCPU, 16 GB e Postgres 16 local (`ntp_test`).
+- Pagamentos com o fornecedor de **teste** local. Não houve chamadas à EPay ou à E2Payments reais nem testes contra produção (este ambiente não tem acesso à Vercel).
+- Os números são de **uma instância**. Na Vercel cada instância escala horizontalmente, mas a base de dados (Neon), a latência Vercel↔BD e os limites dos gateways não foram medidos.
+
+Scripts reutilizáveis em `scripts/load/`:
+- `seed.ts`: dados de carga;
+- `http-load.mjs`: N clientes simultâneos com p50/p95/p99, códigos HTTP, memória e ligações à BD;
+- `webhook-load.ts`: confirmações duplicadas em massa;
+- `mobile-perf.mjs`: LCP, CLS, INP e bytes em perfis de telemóvel emulados.
+
+**Arquitetura relevante.**
+- **Checkout:** página `/checkout/<slug>` renderizada no servidor a cada visita, mais `POST /api/public/checkout/<id>/session` (estatística).
+- **Compra:** uma server action (`submitCheckoutAction`) cria a encomenda e o pagamento numa transação. Depois chama o gateway fora da transação: na EPay redireciona; na E2Payments espera a confirmação no telemóvel, até 180 s (`maxDuration = 180`).
+- **Confirmação:** aviso assinado (EPay) e/ou consulta do estado (`/api/public/pagamento/<token>`, de 4 em 4 s e depois de 10 em 10 s). É idempotente, com o evento único por fornecedor e as transições condicionais.
+- **Imagens:** imagens dos produtos guardadas na base de dados (`MediaAsset.data`).
+
+**Problemas encontrados (medidos) e correções.**
+
+1. **CGNAT, bloqueava clientes reais.** Os limites anti-abuso eram por IP: 10 compras por IP e checkout a cada 10 min, 60 aberturas e 120 consultas de estado. As operadoras móveis em Moçambique põem muitos clientes atrás do mesmo IP.
+   - Teste com 25 clientes no mesmo IP: **98,6% das compras recusadas** («Demasiadas tentativas») e 46% das aberturas com 429.
+   - Correção (`src/server/rate-limit.ts` e rotas públicas): os limites passam a ser por comprador ou percurso (telefone ou email por checkout, token da encomenda, run do funil), com um teto por IP alto (3000 por 10 min; 30000 por 10 min na consulta de estado).
+   - Depois: **0% de falhas** com 25 e 100 clientes no mesmo IP.
+2. **Imagem do produto em tamanho original e sem cache na CDN.** A rota só enviava `max-age` (a CDN da Vercel ignora-o) e cada visita lia o original da BD.
+   - Com uma foto de 1600 px: 782 KB por visita, ~135 pedidos/s e a memória do servidor a subir para 1,1 GB.
+   - Correção (`/api/public/media/<id>`): variantes `?w=160…1080` e `&f=webp` geradas com `sharp`, sem aumentar a imagem; se `sharp` falhar, serve o original. Junta `CDN-Cache-Control: immutable` e uma cache LRU de 48 MB por instância. Novo componente `ResponsiveImg` (`<picture>` com WebP e srcset) no checkout, no resumo, no banner e na página de obrigado.
+   - Depois: imagem de 143 KB num telemóvel de 360 px, ~450 pedidos/s e memória estável (~850 MB sob carga).
+3. **Resposta perdida no browser do Facebook/Instagram.** Se a WebView recarregar a página enquanto o comprador confirma no telemóvel, a chave de idempotência era nova e um segundo clique podia criar uma **segunda encomenda e cobrança**.
+   - Correção (só no formulário; a API de pagamento não mudou): a chave da tentativa sem resposta fica em `localStorage` durante 30 min e é reutilizada, para que o servidor devolva a mesma encomenda. É apagada logo que o servidor responde.
+   - Mensagem de erro de rede: «não será cobrado duas vezes».
+   - Aviso «A ligação está lenta…» ao fim de 10 s.
+4. **Consultas do checkout.**
+   - A leitura do checkout era feita duas vezes (metadados e página): agora usa `cache()` e é feita uma só vez.
+   - As configurações e os gateways passaram a ser lidos em paralelo.
+   - Localmente o ganho não é mensurável (BD local); em produção poupa idas à BD por visita.
+
+**Capacidade medida (1 processo, depois das correções).** Valores de p95; nenhum erro HTTP em nenhum nível.
+
+| Clientes simultâneos | 10 | 25 | 50 | 100 | 250 |
+|---|---|---|---|---|---|
+| Abrir checkout (página + sessão), pedidos/s | 110 | 139 | 145 | 136 | 138 |
+| Abrir checkout, p95 | 0,17 s | 0,32 s | 0,58 s | 1,3 s | 5,5 s |
+| Submeter compra, compras/s | 68 | 77 | 82 | 73 | 78 |
+| Submeter compra, p95 | 0,21 s | 0,42 s | 0,75 s | 1,6 s | 4,7 s |
+| Consulta de estado, p95 | 0,10 s | 0,17 s | 0,39 s | 0,72 s | 8,1 s |
+| Imagem (variante WebP), pedidos/s | 347 | 405 | 403 | 427 | 451 |
+
+- Um processo satura em ~70 aberturas completas/s (CPU do render) e em ~75–90 compras/s (pool de 10 ligações à BD). Acima disso a latência cresce, mas sem erros.
+- **Avisos de pagamento:** 2000 confirmações, cada uma enviada em duplicado e em simultâneo (até 250 em paralelo).
+- **Integridade** (5418 compras de carga): 0 aprovações duplicadas, entregas duplicadas, notificações duplicadas, pagamentos duplicados por encomenda, chaves repetidas, preços errados ou clientes trocados.
+
+**Pagamentos: os 10 cenários obrigatórios** (`tests/integration/checkout-concurrency.test.ts`, 7 testes, todos a passar sem alterar a lógica de pagamento):
+1. 40 compras simultâneas em 2 produtos;
+2. produtos e preços certos;
+3. dados de clientes não misturados (incluindo na página de estado);
+4. 15 envios simultâneos com a mesma chave dão 1 encomenda e 1 pagamento;
+5. reenvio depois de atualizar a página devolve a mesma encomenda;
+6. falha de rede no gateway deixa «estado incerto», sem nova cobrança automática;
+7. aviso repetido 6× em simultâneo dá 1 venda;
+8. confirmação só pelo aviso, com o browser fechado;
+9. confirmação demorada não é dada como falhada (não existe expiração por tempo);
+10. regresso ao checkout mostra o estado certo;
+- e ainda: o mesmo email em dois separadores e isolamento entre lojas.
+- E2E `e2e/24-checkout-resilience.spec.ts`: link do anúncio com UTM e fbclid no browser do Facebook, resposta perdida seguida de recarregamento (a mesma chave é reutilizada), e rede lenta (botão desativado, 1 único envio, aviso).
+
+**Telemóvel (emulação no Chromium com CPU e rede limitadas; não são dispositivos físicos nem Safari/WebKit).** Mediana de 3 execuções, primeira visita sem cache.
+
+| Perfil | LCP antes | LCP depois | CLS | INP | Bytes depois |
+|---|---|---|---|---|---|
+| Android económico (Android 8, CPU ×6) · 4G lento | 5,4 s | **2,3 s** | 0 | ≤ 96 ms | 381 KB |
+| Android económico · 3G lento (400 kbps) | 21,5 s | **8,6 s** | 0 | 56 ms | 381 KB |
+| Android recente · 4G | 1,1 s | 0,64 s | 0 | 32 ms | 433 KB |
+| Browser do Facebook (Android) · 4G lento | 5,4 s | 2,2 s | 0 | 48 ms | 381 KB |
+| Browser do Instagram (Android) · 4G lento | 5,4 s | 2,2 s | 0 | 48 ms | 381 KB |
+| iPhone SE (UA iOS, emulado) · 4G lento | 5,4 s | 2,3 s | 0 | 40 ms | 381 KB |
+| iPhone + Facebook (emulado) · 4G | 1,1 s | 0,64 s | 0 | 16 ms | 433 KB |
+| Computador · rede rápida | 0,12 s | 0,18 s | 0 | 16 ms | 344 KB |
+
+- Em todos os perfis: preço e imagem visíveis, teclado de telefone (`type=tel`) e de email, botão visível depois de deslocar e sem deslocamento horizontal.
+- O checkout não usa pop-ups nem cookies de terceiros; só `sessionStorage` e `localStorage`, com falha silenciosa.
+- **Objetivo de 3G lento (4 s) não cumprido:** 381 KB (JS 145, imagem 143, fontes 70) a 400 kbps levam ~7,6 s só a descarregar.
+
+**Problemas que permanecem / limites da infraestrutura.**
+- **Não medido em produção:**
+  - latência Vercel↔Neon e região;
+  - limite de ligações do Neon (usar o URL *pooled* em `DATABASE_URL`);
+  - limites das APIs EPay/E2Payments;
+  - plano da Vercel (a E2Payments precisa de `maxDuration = 180`).
+- **E2Payments:** cada compra ocupa uma função até 180 s à espera da confirmação no telemóvel. Com muitos compradores em simultâneo isto multiplica funções ativas e custo. Mudar para confirmação assíncrona exige alterar o fluxo de pagamento: **fica proposto, por aprovar**.
+- **Limites de pedidos em memória por instância:** com várias instâncias são aproximados. Para limites globais seria precisa uma loja partilhada (ex.: Redis/Upstash).
+- **Render do checkout:** a página é renderizada a cada visita (`force-dynamic`). Uma cache curta da página aumentaria muito a capacidade por instância, mas exige invalidação em todas as edições de produto, preço e checkout; não foi feito.
+- **Safari/WebKit e dispositivos físicos não testados.** Recomenda-se uma compra real de valor baixo num iPhone (Safari e Instagram) e num Android económico antes de aumentar o orçamento.
+- O pico de memória do processo sob carga foi de ~870 MB.
 
 ## Partilha das credenciais de pagamento do administrador (sessão 21)
 
@@ -1113,6 +1209,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 22 (2026-10-16)**: auditoria para tráfego pago com testes de carga reais (10–250 clientes, 1 processo), concorrência de pagamentos e telemóvel emulado; correções: limites anti-abuso por comprador (CGNAT), imagens redimensionadas em WebP com cache na CDN, tentativa de compra preservada quando a WebView recarrega, aviso de ligação lenta, menos consultas no checkout. Lógica de pagamento e APIs EPay/E2Payments inalteradas. Sem migração. 341 testes unitários/integração e 150 E2E a passar.
 - **Sessão 21 (2026-10-16)**: página de obrigado personalizada em Personalizar Checkout (rascunho, pré-visualização, publicação e restauro; botão ligado à entrega real; com e sem funil); área **Operações** com uma única entrada no menu e abas Pedidos/Clientes/Relatórios/Notificações (rotas antigas preservadas); logótipos das Integrações sem fundo; **Dashboard**: atividades recentes só do dia atual no fuso da conta (data real de cada evento) e barra de meta de faturamento (10 mil → 1 milhão MZN) com celebrações únicas guardadas por utilizador. **Partilha das credenciais de pagamento do administrador** por utilizador e método (EPay/E2Payments), sem expor credenciais, com venda e faturamento no vendedor, revogação só para novos pagamentos e pedidos de remoção. Migrações aditivas `CheckoutThankYou`, `RevenueMilestone` e `PaymentCredentialGrant` (+ `Payment.credentialOwnerId`). 334 testes unitários/integração e 147 E2E a passar.
 - **Sessão 20 (2026-10-16)**: logótipos oficiais (fundo removido) na aba Integrações; **modo simples** — publicar só exige produto, checkout e entrega (funil, página de obrigado e WhatsApp opcionais, no servidor e na interface); sem funil, o comprador vai do pagamento confirmado diretamente para a página de acesso ao produto. Funis, upsell e downsell inalterados. Sem migração. 308 testes unitários/integração e E2E completos a passar.
 - **Sessão 19 (2026-10-16)**: «Entrega do produto» no formulário do produto (PDF carregado do dispositivo, privado, substituir/remover; ou link de acesso validado para SaaS/área de membros), entrega automática só depois do pagamento confirmado com o acesso de cada produto pago (principal, upsell, downsell) na página de obrigado e na área «Os meus produtos», recuperação do acesso em `/acesso` (email + código ou telemóvel), aba Integrações em cartões com páginas de configuração por integração. Migração aditiva (`FILE`, `deliveryFileId`); EPay/E2Payments/webhooks/checkout intactos. 303 testes unitários/integração e 129 E2E a passar.

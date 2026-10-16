@@ -110,7 +110,8 @@ test.describe.serial("editor visual do checkout", () => {
     await page.getByTestId("choose-image").click();
     await page.getByTestId("media-file").setInputFiles({ name: "capa.png", mimeType: "image/png", buffer: PNG });
     await toast(page, "Imagem carregada");
-    await expect(el(page, imageId).locator("img")).toHaveAttribute("src", /^\/api\/public\/media\/[a-z0-9]+$/);
+    // imagem da biblioteca, servida em versão redimensionada (?w=…)
+    await expect(el(page, imageId).locator("img")).toHaveAttribute("src", /^\/api\/public\/media\/[a-z0-9]+(\?w=\d+)?$/);
     await page.getByLabel("Texto alternativo (acessibilidade)").fill("Capa do curso");
     await page.getByLabel("Proporção").selectOption("3/1");
     await expect(el(page, imageId).locator("img")).toHaveCSS("aspect-ratio", "3 / 1");
