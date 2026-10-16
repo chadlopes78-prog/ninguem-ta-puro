@@ -65,7 +65,7 @@ export async function listProducts(query: ProductListQuery) {
 export async function getProduct(id: string, scope: Scope) {
   const product = await prisma.product.findFirst({
     where: { id, ...own(scope) },
-    include: { offers: { orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }] }, _count: { select: { orderItems: true, checkouts: true } } },
+    include: { offers: { orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }] }, deliveryFile: { select: { id: true, filename: true, sizeBytes: true } }, _count: { select: { orderItems: true, checkouts: true } } },
   });
   if (!product) throw new NotFoundError("Produto");
   return product;
@@ -89,7 +89,20 @@ function productData(input: ProductInput, currentStatus?: ProductStatus) {
     ...(input.salesPageUrl !== undefined ? { salesPageUrl: input.salesPageUrl } : {}),
     ...(input.supportEmail !== undefined ? { supportEmail: input.supportEmail } : {}),
     ...(input.deliveryUrl !== undefined ? { deliveryUrl: input.deliveryUrl } : {}),
+    // Entrega do produto (secção do formulário): só muda quando é enviada
+    ...(input.deliveryMethod !== undefined ? { deliveryMethod: input.deliveryMethod } : {}),
+    ...(input.deliveryMethod === "EXTERNAL_LINK" && input.accessUrl !== undefined ? { deliveryUrl: input.accessUrl || null } : {}),
   };
+}
+
+/**
+ * Um produto publicado não pode ficar sem entrega: os compradores ficariam sem acesso.
+ * (Rascunhos podem ser guardados incompletos — a publicação volta a validar tudo.)
+ */
+function assertDeliveryKeepsWorking(input: ProductInput, existing: { status: ProductStatus; deliveryFileId: string | null; deliveryUrl: string | null }) {
+  if (existing.status !== "PUBLISHED" || input.deliveryMethod === undefined) return;
+  if (input.deliveryMethod === "FILE" && !existing.deliveryFileId) throw new DomainError("O produto está publicado: carregue o ficheiro do produto antes de mudar a entrega para ficheiro.");
+  if (input.deliveryMethod === "EXTERNAL_LINK" && !(input.accessUrl ?? existing.deliveryUrl)) throw new DomainError("O produto está publicado: indique o link de acesso ao produto.");
 }
 
 /**
@@ -111,8 +124,8 @@ export async function createProduct(input: ProductInput, scope: Scope) {
         const product = await tx.product.create({
           data: {
             // um produto novo nunca nasce publicado: fica em rascunho até cumprir os requisitos
+            ...(input.deliveryUrl && !input.deliveryMethod ? { deliveryMethod: "EXTERNAL_LINK" as const } : {}),
             ...productData(input, "DRAFT"),
-            ...(input.deliveryUrl ? { deliveryMethod: "EXTERNAL_LINK" as const } : {}),
             ...own(scope),
             offers: {
               create: {
@@ -143,10 +156,11 @@ export async function updateProduct(id: string, input: ProductInput, scope: Scop
   if (existing.status === "ARCHIVED") throw new DomainError("Produtos arquivados não podem ser editados. Restaure-o primeiro.");
   const defaultOffer = existing.offers.find((o) => o.isDefault);
   const wantsPublish = input.status === "PUBLISHED" && existing.status !== "PUBLISHED";
+  assertDeliveryKeepsWorking(input, existing);
   const updated = await prisma.$transaction(async (tx) => {
     const product = await tx.product.update({
       where: { id },
-      data: { ...productData(input, existing.status), ...(input.deliveryUrl && !existing.deliveryMethod ? { deliveryMethod: "EXTERNAL_LINK" as const } : {}) },
+      data: { ...(input.deliveryUrl && !existing.deliveryMethod && !input.deliveryMethod ? { deliveryMethod: "EXTERNAL_LINK" as const } : {}), ...productData(input, existing.status) },
     });
     // O checkout principal acompanha o nome/descrição do produto enquanto não tiverem sido personalizados.
     // O endereço (slug) nunca muda, para não invalidar links já partilhados.

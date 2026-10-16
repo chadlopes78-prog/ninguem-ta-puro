@@ -15,7 +15,7 @@ import { Alert } from "@/components/ui/alert";
 import { ActionButton } from "@/components/ui/action-button";
 import { ProductForm } from "@/components/products/product-form";
 import { PRODUCT_STATUS_LABELS, PRODUCT_STATUS_TONE } from "@/components/products/labels";
-import { duplicateProductAction, publishProductAction, saveProductAction, setProductStatusAction } from "../actions";
+import { duplicateProductAction, publishProductAction, removeDeliveryFileAction, saveProductAction, setProductStatusAction } from "../actions";
 import { getReadiness } from "@/server/services/product-readiness";
 import { STAGE_LABELS } from "@/lib/product-setup";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
@@ -143,6 +143,9 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
         isNew={false}
         readOnly={archived}
         action={saveProductAction.bind(null, product.id)}
+        productId={product.id}
+        removeDeliveryFileAction={removeDeliveryFileAction.bind(null, product.id)}
+        funnelHref={readiness.mainFunnelId ? `/funis/${readiness.mainFunnelId}` : undefined}
         initial={{
           name: product.name,
           description: product.description,
@@ -152,6 +155,7 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
           priceCents: main?.priceCents ?? null,
           currency: main?.currency ?? settings.defaultCurrency,
           status: product.status,
+          delivery: { method: product.deliveryMethod ?? "", url: product.deliveryUrl ?? "", file: product.deliveryFile },
         }}
       />
     </>

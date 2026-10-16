@@ -144,6 +144,12 @@ export async function saveMetaPixel(scope: Scope, raw: unknown): Promise<SaveMet
   return { ok: true, id };
 }
 
+/** Ativa ou desativa todos os Pixels da conta (interruptor do cartão na aba Integrações). Nada é apagado. */
+export async function setMetaPixelsEnabled(scope: Scope, enabled: boolean) {
+  const r = await prisma.metaPixel.updateMany({ where: { ownerId: scope.ownerId }, data: { enabled } });
+  return r.count;
+}
+
 export async function deleteMetaPixel(scope: Scope, id: string) {
   const p = await prisma.metaPixel.findFirst({ where: { id, ownerId: scope.ownerId } });
   if (!p) throw new NotFoundError("Pixel");

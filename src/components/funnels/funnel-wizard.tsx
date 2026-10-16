@@ -454,6 +454,7 @@ export function FunnelWizard(props: Props) {
   const [support, setSupport] = useState(props.initial.setup.support);
   const [deliveryMethod, setDeliveryMethod] = useState(props.initial.setup.delivery.method);
   const [deliveryUrl, setDeliveryUrl] = useState(props.initial.setup.delivery.url);
+  const [deliveryFileId, setDeliveryFileId] = useState<string | null>(props.initial.setup.delivery.fileId);
   const [deliveryPage, setDeliveryPage] = useState<DeliveryPageInput>(props.initial.setup.delivery.page);
   const [isMain, setIsMain] = useState(props.initial.setup.isMain);
   const [files, setFiles] = useState<Record<string, WizardProduct["files"]>>(() => Object.fromEntries(products.map((p) => [p.id, p.files])));
@@ -481,7 +482,7 @@ export function FunnelWizard(props: Props) {
     offers,
     thankYou: { design, fileId: null, ...tyStep },
     support,
-    delivery: { method: deliveryMethod, url: deliveryUrl, page: deliveryPage },
+    delivery: { method: deliveryMethod, url: deliveryUrl, fileId: deliveryFileId, page: deliveryPage },
     isMain,
   };
 
@@ -572,7 +573,9 @@ export function FunnelWizard(props: Props) {
       const j = (await res.json()) as { file?: { id: string; filename: string; sizeBytes: number }; error?: string };
       if (!res.ok || !j.file) throw new Error(j.error ?? "Não foi possível carregar o PDF.");
       setFiles((all) => ({ ...all, [productId]: [j.file!, ...(all[productId] ?? [])] }));
-      setDeliveryPage((pg) => ({ ...pg, fileId: j.file!.id }));
+      // método "Ficheiro": o ficheiro carregado passa a ser o entregue; página de entrega: o do botão
+      if (deliveryMethod === "FILE") setDeliveryFileId(j.file!.id);
+      else setDeliveryPage((pg) => ({ ...pg, fileId: j.file!.id }));
       toast("PDF carregado. Fica privado: só compradores com a compra confirmada o podem descarregar.");
     } catch (e) {
       toast(e instanceof Error ? e.message : "Não foi possível carregar o PDF.", "error");
@@ -588,10 +591,11 @@ export function FunnelWizard(props: Props) {
       if (!r.ok) return toast(r.error, "error");
       setFiles((all) => ({ ...all, [productId]: (all[productId] ?? []).filter((x) => x.id !== id) }));
       if (deliveryPage.fileId === id) setDeliveryPage((pg) => ({ ...pg, fileId: null }));
+      if (deliveryFileId === id) setDeliveryFileId(null);
       toast("PDF eliminado.");
     });
 
-  const previewButton = deliveryMethod ? { label: "Aceder ao meu produto", href: "#", external: false } : null;
+  const previewButton = deliveryMethod ? { label: deliveryMethod === "FILE" ? "Descarregar produto" : "Aceder ao meu produto", href: "#", external: false } : null;
   const sampleItems = product && mainOffer ? [{ description: `${product.name} — ${mainOffer.name}`, totalCents: mainOffer.priceCents }] : [];
   const selOffer = sel.startsWith("offer:") ? offers.find((o) => `offer:${o.key}` === sel) ?? null : null;
   const offerIndex = selOffer ? offers.indexOf(selOffer) : -1;
@@ -696,7 +700,7 @@ export function FunnelWizard(props: Props) {
           <p className="mb-2 mt-5 text-[12px] font-medium uppercase tracking-wider text-subtle">Produto principal</p>
           <div className="grid grid-cols-2 gap-2">
             <MapNode selected={sel === "support"} onClick={() => select("support")} icon={MessageCircle} tint="#25D366" kicker="Suporte WhatsApp" title={support.phone ? support.phone : "Por configurar"} testId="map-support" />
-            <MapNode selected={sel === "delivery"} onClick={() => select("delivery")} icon={PackageOpen} tint="#60a5fa" kicker="Entrega do produto" title={deliveryMethod === "EXTERNAL_LINK" ? "Link externo" : deliveryMethod === "INTERNAL_PAGE" ? "Página interna" : "Por escolher"} testId="map-delivery" />
+            <MapNode selected={sel === "delivery"} onClick={() => select("delivery")} icon={PackageOpen} tint="#60a5fa" kicker="Entrega do produto" title={deliveryMethod === "FILE" ? "Ficheiro (PDF)" : deliveryMethod === "EXTERNAL_LINK" ? "Link de acesso" : deliveryMethod === "INTERNAL_PAGE" ? "Página interna" : "Por escolher"} testId="map-delivery" />
           </div>
         </nav>
 
@@ -915,7 +919,7 @@ export function FunnelWizard(props: Props) {
                         items={sampleItems}
                         currency={mainOffer?.currency ?? "MZN"}
                         button={previewButton}
-                        buttonKind={deliveryMethod === "EXTERNAL_LINK" ? "link" : "access"}
+                        buttonKind={deliveryMethod === "FILE" ? "pdf" : deliveryMethod === "EXTERNAL_LINK" ? "link" : "access"}
                         support={supportPreview ? { href: supportPreview, label: "Precisa de ajuda? Fale connosco no WhatsApp" } : null}
                         continueUrl={tyStep.redirectUrl || null}
                       />
@@ -944,6 +948,8 @@ export function FunnelWizard(props: Props) {
             <div className="grid max-w-3xl grid-cols-1 gap-5">
               <DeliveryStep
                 method={deliveryMethod}
+                fileId={deliveryFileId}
+                onFileId={setDeliveryFileId}
                 url={deliveryUrl}
                 page={deliveryPage}
                 onMethod={setDeliveryMethod}

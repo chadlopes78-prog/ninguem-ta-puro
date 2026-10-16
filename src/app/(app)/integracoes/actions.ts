@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { guarded } from "@/server/actions";
 import { checkIntegration, isGatewayId, setGatewayEnabled, testGatewayConnection, updateE2Credentials, updateEPayCredentials } from "@/server/services/integrations";
 import { reconcilePendingPayments } from "@/server/services/payment-flow";
-import { deleteMetaPixel, saveMetaPixel } from "@/server/services/meta-capi";
+import { deleteMetaPixel, saveMetaPixel, setMetaPixelsEnabled } from "@/server/services/meta-capi";
 import { scopeOf } from "@/server/scope";
 
 // Todas as ações exigem sessão válida e conta aprovada (guarded) e atuam APENAS sobre a conta da sessão:
@@ -14,7 +14,7 @@ export async function checkIntegrationAction(provider: string) {
   return guarded(async ({ user }) => {
     if (!isGatewayId(provider)) return { ok: false, error: "Fornecedor desconhecido." };
     const r = await checkIntegration(user.id, provider);
-    revalidatePath("/integracoes");
+    revalidatePath("/integracoes", "layout");
     return r.configured ? { ok: true, message: r.message } : { ok: false, error: `Não configurado: ${r.message}` };
   });
 }
@@ -23,7 +23,7 @@ export async function setGatewayEnabledAction(provider: string, enabled: boolean
   return guarded(async ({ user }) => {
     if (!isGatewayId(provider) || typeof enabled !== "boolean") return { ok: false, error: "Pedido inválido." };
     const r = await setGatewayEnabled(user.id, provider, enabled);
-    revalidatePath("/integracoes");
+    revalidatePath("/integracoes", "layout");
     return r.ok ? { ok: true, message: r.message } : { ok: false, error: r.message };
   });
 }
@@ -32,7 +32,7 @@ export async function testGatewayConnectionAction(provider: string) {
   return guarded(async ({ user }) => {
     if (provider !== "e2payments") return { ok: false, error: "Teste de ligação não disponível para este gateway." };
     const r = await testGatewayConnection(user.id, "e2payments");
-    revalidatePath("/integracoes");
+    revalidatePath("/integracoes", "layout");
     return r.ok ? { ok: true, message: r.message } : { ok: false, error: r.message };
   });
 }
@@ -44,7 +44,7 @@ export async function saveE2CredentialsAction(fd: FormData) {
       return typeof v === "string" ? v.slice(0, 300) : undefined;
     };
     const r = await updateE2Credentials(user.id, { clientId: get("clientId"), clientSecret: get("clientSecret"), mpesaWalletId: get("mpesaWalletId"), emolaWalletId: get("emolaWalletId") });
-    revalidatePath("/integracoes");
+    revalidatePath("/integracoes", "layout");
     return r.ok ? { ok: true, message: r.message } : { ok: false, error: r.error, fieldErrors: "fieldErrors" in r ? r.fieldErrors : undefined };
   });
 }
@@ -61,7 +61,7 @@ export async function saveEPayCredentialsAction(fd: FormData) {
   return guarded(async ({ user }) => {
     const v = fd.get("secretKey");
     const r = await updateEPayCredentials(user.id, { secretKey: typeof v === "string" ? v.slice(0, 300) : undefined });
-    revalidatePath("/integracoes");
+    revalidatePath("/integracoes", "layout");
     return r.ok ? { ok: true, message: r.message } : { ok: false, error: r.error, fieldErrors: "fieldErrors" in r ? r.fieldErrors : undefined };
   });
 }
@@ -84,7 +84,7 @@ export async function saveMetaPixelAction(fd: FormData) {
       enabled: fd.get("enabled") === "on",
       productIds,
     });
-    revalidatePath("/integracoes");
+    revalidatePath("/integracoes", "layout");
     return r.ok ? { ok: true, message: "Pixel guardado." } : { ok: false, error: r.error, fieldErrors: r.fieldErrors };
   });
 }
@@ -93,7 +93,17 @@ export async function deleteMetaPixelAction(id: string) {
   return guarded(async ({ user }) => {
     if (typeof id !== "string" || !/^[a-z0-9]{10,40}$/i.test(id)) return { ok: false, error: "Pedido inválido." };
     await deleteMetaPixel(scopeOf(user.id, false), id);
-    revalidatePath("/integracoes");
+    revalidatePath("/integracoes", "layout");
     return { ok: true, message: "Pixel removido. Deixam de ser enviados eventos para este Pixel." };
+  });
+}
+
+export async function setMetaEnabledAction(enabled: boolean) {
+  return guarded(async ({ user }) => {
+    if (typeof enabled !== "boolean") return { ok: false, error: "Pedido inválido." };
+    const n = await setMetaPixelsEnabled(scopeOf(user.id, false), enabled);
+    revalidatePath("/integracoes", "layout");
+    if (!n) return { ok: false, error: "Configure primeiro um Pixel." };
+    return { ok: true, message: enabled ? "Pixel da Meta ativado." : "Pixel da Meta desativado. Nenhum evento é enviado." };
   });
 }

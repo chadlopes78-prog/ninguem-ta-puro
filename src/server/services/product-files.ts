@@ -25,10 +25,45 @@ export async function saveProductPdf(productId: string, scope: Scope, file: { na
 }
 
 export async function deleteProductFile(fileId: string, scope: Scope) {
-  const f = await prisma.productFile.findFirst({ where: { id: fileId, product: own(scope) }, include: { thankYouPages: { select: { id: true } } } });
+  const f = await prisma.productFile.findFirst({
+    where: { id: fileId, product: own(scope) },
+    include: { thankYouPages: { select: { id: true } }, deliveredBy: { select: { status: true, deliveryMethod: true } } },
+  });
   if (!f) throw new NotFoundError("Ficheiro");
   if (f.thankYouPages.length) throw new DomainError("Este PDF está a ser entregue numa página de obrigado. Escolha outro destino antes de o eliminar.");
+  // os compradores de um produto publicado ficariam sem o produto: substitua-o em vez de o remover
+  if (f.deliveredBy.some((p) => p.status === "PUBLISHED" && p.deliveryMethod === "FILE")) {
+    throw new DomainError("Este ficheiro é o produto entregue aos compradores de um produto publicado. Carregue outro ficheiro para o substituir.");
+  }
   await prisma.productFile.delete({ where: { id: fileId } });
+}
+
+/**
+ * Define o ficheiro entregue do produto (método "Ficheiro"). Ao substituir, o ficheiro anterior é eliminado se não
+ * for usado noutro sítio (página de entrega ou página de obrigado) — assim deixa de poder ser descarregado.
+ * Compras já feitas passam a receber o ficheiro novo pelo mesmo acesso pessoal.
+ */
+export async function setProductDeliveryFile(productId: string, fileId: string, scope: Scope) {
+  const product = await prisma.product.findFirst({ where: { id: productId, ...own(scope) }, select: { id: true, deliveryFileId: true } });
+  if (!product) throw new NotFoundError("Produto");
+  const file = await prisma.productFile.findFirst({ where: { id: fileId, productId: product.id }, select: { id: true } });
+  if (!file) throw new DomainError("O ficheiro não pertence a este produto.");
+  const previous = product.deliveryFileId && product.deliveryFileId !== fileId ? product.deliveryFileId : null;
+  await prisma.$transaction(async (tx) => {
+    await tx.product.update({ where: { id: product.id }, data: { deliveryFileId: fileId } });
+    if (previous) {
+      const used = await tx.productFile.findUnique({ where: { id: previous }, select: { _count: { select: { thankYouPages: true, deliveryPages: true, deliveredBy: true } } } });
+      if (used && used._count.thankYouPages === 0 && used._count.deliveryPages === 0 && used._count.deliveredBy === 0) await tx.productFile.delete({ where: { id: previous } });
+    }
+  });
+}
+
+/** Remove o ficheiro entregue do produto (o produto fica sem entregável até carregar outro). */
+export async function removeProductDeliveryFile(productId: string, scope: Scope) {
+  const product = await prisma.product.findFirst({ where: { id: productId, ...own(scope) }, select: { id: true, deliveryFileId: true } });
+  if (!product) throw new NotFoundError("Produto");
+  if (!product.deliveryFileId) return;
+  await deleteProductFile(product.deliveryFileId, scope);
 }
 
 /**
@@ -43,15 +78,4 @@ export async function fileForBuyer(deliveryToken: string, fileId: string) {
   if (!file || !delivery.order.items.some((i) => i.productId === file.productId)) return null;
   await prisma.delivery.update({ where: { id: delivery.id }, data: { accessCount: { increment: 1 }, lastAccessAt: new Date() } });
   return file;
-}
-
-/** PDFs disponíveis para uma encomenda paga (para a página de acesso). */
-export async function filesForDelivery(deliveryToken: string) {
-  const delivery = await prisma.delivery.findUnique({ where: { token: deliveryToken }, include: { order: { include: { items: { select: { productId: true } } } } } });
-  if (!delivery || delivery.order.status !== "APPROVED" || delivery.order.isDemo) return [];
-  return prisma.productFile.findMany({
-    where: { productId: { in: delivery.order.items.map((i) => i.productId) } },
-    select: { id: true, filename: true, sizeBytes: true, product: { select: { name: true } } },
-    orderBy: { createdAt: "asc" },
-  });
 }

@@ -92,7 +92,7 @@ test.describe.serial("várias contas, aprovação e Administração da Plataform
     await page.goto("/produtos");
     await expect(page.getByText("Ainda não tem produtos")).toBeVisible();
     // integrações próprias: formulário EPay vazio (nunca herda a chave do proprietário)
-    await page.goto("/integracoes");
+    await page.goto("/integracoes/epay");
     await expect(page.getByTestId("epay-form")).toBeVisible();
     await expect(page.locator("body")).not.toContainText(/sk_(test|live)_[A-Za-z0-9]{6,}/);
   });

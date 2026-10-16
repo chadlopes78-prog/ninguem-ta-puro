@@ -32,6 +32,7 @@ const PRODUCT_INCLUDE = {
   checkouts: { where: { primaryProductId: { not: null } }, select: { id: true, slug: true, isActive: true, funnelId: true } },
   mainFunnel: { include: { thankYouPage: true } },
   deliveryPage: true,
+  deliveryFile: { select: { id: true, productId: true } },
 } satisfies Prisma.ProductInclude;
 
 type ProductForReadiness = Prisma.ProductGetPayload<{ include: typeof PRODUCT_INCLUDE }>;
@@ -52,14 +53,16 @@ export function evaluate(p: ProductForReadiness): Readiness {
     req("funnel", Boolean(funnel), p.mainFunnelId ? "O funil associado não pertence a este produto." : "Crie um funil para este produto na aba Funis.", funnelHref),
     req("thankYou", Boolean(funnel?.thankYouPage && design?.title.trim()), "Configure a página de obrigado no funil.", `${funnelHref}#obrigado`),
     req("whatsapp", Boolean(p.supportWhatsApp && normalizeWhatsApp(p.supportWhatsApp)), p.supportWhatsApp ? "O número de suporte WhatsApp é inválido." : "Indique o número de suporte via WhatsApp.", `${funnelHref}#suporte`),
-    req("delivery", p.deliveryMethod !== null, "Escolha o método de entrega: link externo ou página de entrega.", `${funnelHref}#entrega`),
+    req("delivery", p.deliveryMethod !== null, "Escolha como o cliente recebe o produto: ficheiro (PDF) ou link de acesso.", `/produtos/${p.id}#entrega`),
   ];
-  if (p.deliveryMethod === "EXTERNAL_LINK") {
-    requirements.push(req("deliveryContent", Boolean(p.deliveryUrl && isValidDeliveryUrl(p.deliveryUrl)), "Indique um link de acesso ao produto válido.", `${funnelHref}#entrega`));
+  if (p.deliveryMethod === "FILE") {
+    requirements.push(req("deliveryContent", Boolean(p.deliveryFile && p.deliveryFile.productId === p.id), "Carregue o ficheiro do produto.", `/produtos/${p.id}#entrega`));
+  } else if (p.deliveryMethod === "EXTERNAL_LINK") {
+    requirements.push(req("deliveryContent", Boolean(p.deliveryUrl && isValidDeliveryUrl(p.deliveryUrl)), "Indique um link de acesso ao produto válido.", `/produtos/${p.id}#entrega`));
   } else if (p.deliveryMethod === "INTERNAL_PAGE") {
     requirements.push(req("deliveryContent", Boolean(page && page.title.trim() && internalPageHasContent(page)), "Configure a página de entrega com um ficheiro, um link ou conteúdo.", `${funnelHref}#entrega`));
   } else {
-    requirements.push(req("deliveryContent", false, "Depende do método de entrega escolhido.", `${funnelHref}#entrega`));
+    requirements.push(req("deliveryContent", false, "Depende do método de entrega escolhido.", `/produtos/${p.id}#entrega`));
   }
   const missing = requirements.filter((r) => !r.ok);
   const ready = missing.length === 0;

@@ -358,7 +358,7 @@ export async function getDeliveryView(deliveryToken: string) {
   if (!/^[A-Za-z0-9_-]{30,40}$/.test(deliveryToken)) return null;
   const d = await prisma.delivery.findUnique({
     where: { token: deliveryToken },
-    include: { order: { include: { items: { include: { product: { select: { id: true, name: true, deliveryUrl: true, deliveryMethod: true, supportEmail: true, supportWhatsApp: true, supportMessage: true } } } } } } },
+    include: { order: { include: { items: { include: { product: { select: { id: true, name: true, deliveryUrl: true, deliveryMethod: true, deliveryFileId: true, supportEmail: true, supportWhatsApp: true, supportMessage: true } } } } } } },
   });
   // Acesso só para encomendas pagas (reembolsos revogam o acesso)
   if (!d || d.order.status !== "APPROVED" || d.order.isDemo) return null;

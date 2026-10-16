@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useToast } from "@/components/ui/toast";
+import { ProductDeliveryField, type DeliveryChoice, type DeliveryFile } from "./product-delivery-field";
 import { Button, LinkButton } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Alert } from "@/components/ui/alert";
@@ -21,6 +24,7 @@ export interface ProductFormValues {
   priceCents: number | null;
   currency: string;
   status: string;
+  delivery: { method: DeliveryChoice; url: string; file: DeliveryFile | null };
 }
 
 /**
@@ -34,14 +38,47 @@ export function ProductForm({
   initial,
   isNew,
   readOnly,
+  productId,
+  removeDeliveryFileAction,
+  funnelHref,
 }: {
   action: (fd: FormData) => Promise<ActionResult<{ id: string }>>;
   initial: ProductFormValues;
   isNew: boolean;
   readOnly?: boolean;
+  productId?: string;
+  removeDeliveryFileAction?: () => Promise<ActionResult<unknown>>;
+  funnelHref?: string;
 }) {
+  const router = useRouter();
+  const toast = useToast();
+  // produto novo: o ficheiro escolhido fica em memória e é enviado logo a seguir à criação
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const afterCreate = async (id: string) => {
+    if (pendingFile) {
+      setUploading(true);
+      try {
+        const fd = new FormData();
+        fd.append("file", pendingFile);
+        const res = await fetch(`/api/produtos/${id}/ficheiros?entrega=1`, { method: "POST", body: fd });
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        if (!res.ok) toast(`Produto criado, mas o ficheiro não foi guardado: ${j.error ?? "tente carregá-lo de novo"}.`, "error");
+      } catch {
+        toast("Produto criado, mas o ficheiro não foi guardado (erro de rede). Carregue-o de novo na secção Entrega do produto.", "error");
+      } finally {
+        setUploading(false);
+      }
+    }
+    router.push(`/produtos/${id}?criado=1`);
+  };
   const { onSubmit, pending, error, fieldErrors: fe } = useFormAction(action, {
-    redirectTo: (d) => (isNew && d ? `/produtos/${d.id}?criado=1` : undefined),
+    // sem ficheiro por enviar: segue logo para o produto; com ficheiro: envia-o primeiro e depois segue
+    redirectTo: (d) => (isNew && d && !pendingFile ? `/produtos/${d.id}?criado=1` : undefined),
+    onSuccess: (d) => {
+      if (isNew && d && pendingFile) void afterCreate(d.id);
+    },
+    skipRefresh: () => isNew && Boolean(pendingFile),
   });
   const [name, setName] = useState(initial.name);
 
@@ -93,13 +130,29 @@ export function ProductForm({
           </CardBody>
         </Card>
 
+        <Card id="entrega" className="scroll-mt-6">
+          <CardHeader title="Entrega do produto" description="O que o comprador recebe depois de o pagamento ser confirmado." />
+          <CardBody>
+            <ProductDeliveryField
+              productId={isNew ? null : (productId ?? null)}
+              initial={initial.delivery}
+              errors={fe}
+              disabled={readOnly || pending || uploading}
+              pendingFile={pendingFile}
+              onPendingFile={setPendingFile}
+              removeFileAction={removeDeliveryFileAction}
+              funnelHref={funnelHref}
+            />
+          </CardBody>
+        </Card>
+
         <Card>
           <CardBody className="grid gap-4">
             {isNew ? (
               <>
                 <input type="hidden" name="status" value="DRAFT" />
                 <p className="text-[12.5px] leading-relaxed text-muted" data-testid="new-product-draft-note">
-                  O produto é guardado como <strong>rascunho</strong>. Para o publicar, crie o funil e configure a página de obrigado, o suporte WhatsApp e a entrega.
+                  O produto é guardado como <strong>rascunho</strong>. Para o publicar, crie o funil e configure a página de obrigado e o suporte WhatsApp.
                 </p>
               </>
             ) : (
@@ -116,14 +169,14 @@ export function ProductForm({
               </Field>
             )}
             <p className="text-[12.5px] leading-relaxed text-subtle" data-testid="funnel-offers-note">
-              Upsells, downsells e outras ofertas configuram-se na aba <Link href="/funis" className="font-medium text-accent hover:underline">Funis</Link>, tal como o suporte WhatsApp e a entrega do produto.
+              Upsells, downsells, página de obrigado e suporte WhatsApp configuram-se na aba <Link href="/funis" className="font-medium text-accent hover:underline">Funis</Link>.
             </p>
             {!readOnly && (
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                 <LinkButton href="/produtos" variant="ghost">
                   Cancelar
                 </LinkButton>
-                <Button type="submit" loading={pending}>
+                <Button type="submit" loading={pending || uploading}>
                   Guardar produto
                 </Button>
               </div>

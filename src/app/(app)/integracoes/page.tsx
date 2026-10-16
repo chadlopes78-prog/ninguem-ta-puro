@@ -1,337 +1,154 @@
 import type { Metadata } from "next";
-import { randomBytes } from "crypto";
-import { CheckCircle2, Plug, XCircle } from "lucide-react";
+import Link from "next/link";
+import { ChevronRight, Plug, Settings2 } from "lucide-react";
 import { requireUser } from "@/server/auth/session";
 import { getSettings } from "@/server/services/settings";
-import { listGateways, recentIntegrationLogs, type GatewayView } from "@/server/services/integrations";
-import type { GatewayStatus } from "@/server/payments/gateways";
+import { listGateways, recentIntegrationLogs } from "@/server/services/integrations";
+import { listMetaPixels } from "@/server/services/meta-capi";
+import { scopeOf } from "@/server/scope";
 import { formatDate } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
-import { Card, CardBody, CardHeader } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Badge, type Tone } from "@/components/ui/badge";
-import { Alert } from "@/components/ui/alert";
 import { ActionButton } from "@/components/ui/action-button";
-import { CopyButton } from "@/components/ui/copy-button";
-import { E2PaymentsForm } from "@/components/integrations/e2payments-form";
-import { EPayForm } from "@/components/integrations/epay-form";
-import { MetaPixelForm, type MetaProductOption } from "@/components/integrations/meta-pixel-form";
-import { listMetaPixels, listMetaProductOptions, type MetaPixelView } from "@/server/services/meta-capi";
-import { secretStorageAvailable } from "@/server/secret-box";
-import { scopeOf } from "@/server/scope";
-import { checkIntegrationAction, deleteMetaPixelAction, reconcileAction, saveMetaPixelAction, saveE2CredentialsAction, saveEPayCredentialsAction, setGatewayEnabledAction, testGatewayConnectionAction } from "./actions";
+import { IntegrationLogo, STATUS_TONE } from "./integration-parts";
+import { setGatewayEnabledAction, setMetaEnabledAction } from "./actions";
 
 export const metadata: Metadata = { title: "Integrações" };
 export const dynamic = "force-dynamic";
 
-const STATUS_TONE: Record<GatewayStatus, Tone> = { active: "success", inactive: "neutral", credentials_missing: "warning", config_error: "danger", unverified: "warning" };
-
-function Info({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-start justify-between gap-3 py-1.5 text-[13px]">
-      <span className="text-muted">{label}</span>
-      <span className="text-right text-fg">{children}</span>
-    </div>
-  );
+interface CardData {
+  id: string;
+  name: string;
+  description: string;
+  status: { label: string; tone: Tone; value: string };
+  meta?: string;
+  toggle?: { enabled: boolean; action: () => Promise<unknown>; disabled?: boolean; name: string };
 }
 
-function Checks({ g }: { g: GatewayView }) {
+function IntegrationCard({ c }: { c: CardData }) {
   return (
-    <ul className="flex flex-col gap-2" data-testid={`checks-${g.id}`}>
-      {g.checks.map((c) => (
-        <li key={c.label} className="flex items-start gap-2 text-[13px]">
-          {c.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-label="OK" /> : <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-danger" aria-label="Em falta" />}
-          <span>
-            <code className="break-all text-fg">{c.label}</code>
-            <span className="block text-[12.5px] text-muted">{c.detail}</span>
-          </span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function GatewayCard({ g, tz }: { g: GatewayView; tz: string }) {
-  const ready = g.configured && g.status !== "config_error";
-  return (
-    <Card className="flex flex-col" data-testid={`gateway-${g.id}`}>
-      <CardHeader
-        title={g.name}
-        description={g.description}
-        action={
-          <Badge tone={STATUS_TONE[g.status]} dot>
-            <span data-testid="gateway-status" data-status={g.status}>{g.statusLabel}</span>
-          </Badge>
-        }
-      />
-      <CardBody className="flex flex-1 flex-col gap-4">
-        <div className="divide-y divide-line rounded-[var(--radius-md)] border border-line px-3">
-          <Info label="Novos pagamentos">{g.enabled ? (g.status === "active" ? "Ativado" : "Ativado, mas indisponível") : "Desativado"}</Info>
-          <Info label="Credenciais">{g.configured ? "Configuradas" : "Por configurar"}</Info>
-          {g.configured && <Info label="Ambiente">{g.environment === "test" ? "Teste (sandbox)" : "Produção"}</Info>}
-          <Info label="Métodos">{g.methods.length ? g.methods.join(", ") : g.id === "epay" ? "M-Pesa, e-Mola e IZI (página da EPay)" : "—"}</Info>
-          {g.supportsConnectionTest && <Info label="Ligação">{g.verifiedAt ? `Verificada ${formatDate(g.verifiedAt, tz, true)}` : "Não verificada"}</Info>}
-          {g.e2?.apiHost && g.verifiedAt && <Info label="Servidor">{g.e2.apiHost}</Info>}
+    <Card className="flex h-full flex-col gap-4 p-5" data-testid={`integration-${c.id}`}>
+      <div className="flex items-start gap-3">
+        <IntegrationLogo id={c.id} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-display text-[15px] font-semibold text-fg">{c.name}</h3>
+            <Badge tone={c.status.tone} dot>
+              <span data-testid="integration-status" data-status={c.status.value}>
+                {c.status.label}
+              </span>
+            </Badge>
+          </div>
+          <p className="mt-1 text-[13px] leading-snug text-muted">{c.description}</p>
+          {c.meta && <p className="mt-1 text-[12px] text-subtle">{c.meta}</p>}
         </div>
-
-        {g.lastError && g.status === "config_error" && (
-          <p className="rounded-[var(--radius-md)] border border-danger/30 bg-danger/[0.06] p-2.5 text-[12.5px] text-danger" role="alert">
-            {g.lastError}
-          </p>
-        )}
-
-        <div className="flex flex-wrap gap-2">
-          {g.enabled ? (
+      </div>
+      <div className="mt-auto flex flex-wrap items-center gap-2">
+        <Link
+          href={`/integracoes/${c.id}`}
+          className="inline-flex h-10 items-center gap-1.5 rounded-[var(--radius-md)] border border-line bg-surface-3 px-4 text-[13px] font-medium text-fg hover:bg-surface-hover"
+          data-testid={`configure-${c.id}`}
+        >
+          <Settings2 className="h-4 w-4" aria-hidden="true" /> Configurar <ChevronRight className="h-4 w-4 text-subtle" aria-hidden="true" />
+        </Link>
+        {c.toggle &&
+          (c.toggle.enabled ? (
             <ActionButton
               size="sm"
-              variant="secondary"
-              action={setGatewayEnabledAction.bind(null, g.id, false)}
-              confirm={{ title: `Desativar ${g.name}`, description: "Deixa de aceitar novos pagamentos. As credenciais, a configuração e o histórico ficam guardados, e os pagamentos já iniciados continuam a ser confirmados.", confirmLabel: "Desativar" }}
+              variant="ghost"
+              className="h-10"
+              action={c.toggle.action as () => Promise<{ ok: true; message?: string } | { ok: false; error: string }>}
+              confirm={{ title: `Desativar ${c.toggle.name}`, description: "A configuração e as credenciais ficam guardadas. Pode voltar a ativar quando quiser.", confirmLabel: "Desativar" }}
+              data-testid={`toggle-${c.id}`}
             >
               Desativar
             </ActionButton>
           ) : (
-            <ActionButton size="sm" action={setGatewayEnabledAction.bind(null, g.id, true)} disabled={!g.configured}>
+            <ActionButton size="sm" variant="ghost" className="h-10" action={c.toggle.action as () => Promise<{ ok: true; message?: string } | { ok: false; error: string }>} disabled={c.toggle.disabled} data-testid={`toggle-${c.id}`}>
               Ativar
             </ActionButton>
-          )}
-          {g.supportsConnectionTest ? (
-            <ActionButton size="sm" variant="secondary" action={testGatewayConnectionAction.bind(null, g.id)} disabled={!g.configured}>
-              Testar ligação
-            </ActionButton>
-          ) : (
-            <ActionButton size="sm" variant="secondary" action={checkIntegrationAction.bind(null, g.id)}>
-              Verificar configuração
-            </ActionButton>
-          )}
-          {g.id === "epay" && ready && (
-            <ActionButton size="sm" variant="secondary" action={reconcileAction}>
-              Verificar pagamentos pendentes
-            </ActionButton>
-          )}
-        </div>
-
-        <details className="group rounded-[var(--radius-md)] border border-line p-3 text-[13px]">
-          <summary className="cursor-pointer font-medium text-fg">Configuração no servidor</summary>
-          <div className="mt-3">
-            <Checks g={g} />
-            <p className="mt-3 text-[12px] text-subtle">Última verificação: {g.lastCheckedAt ? formatDate(g.lastCheckedAt, tz, true) : "nunca"}</p>
-          </div>
-        </details>
-
-        {g.id === "epay" ? <EPayNotes g={g} /> : <E2Section g={g} />}
-      </CardBody>
-    </Card>
-  );
-}
-
-function EPayNotes({ g }: { g: GatewayView }) {
-  return (
-    <div className="text-[12.5px] leading-relaxed text-muted">
-      <p className="mb-2 text-[12px] font-medium uppercase tracking-wider text-subtle">Credenciais desta conta</p>
-      {g.epay?.fromEnv ? (
-        <p>
-          A chave da EPay desta conta está guardada no servidor (<code className="text-fg">EPAY_SECRET_KEY</code>) e nunca é apresentada. Para a atualizar, altere a variável nas definições do alojamento (Vercel → Settings → Environment Variables) e volte a publicar. A API da EPay não documenta um teste de ligação.
-        </p>
-      ) : g.epay?.storageAvailable ? (
-        <div className="flex flex-col gap-2">
-          <p>A sua chave fica guardada cifrada e só é usada nos seus checkouts. Nunca é partilhada com outras contas nem volta a ser mostrada. A API da EPay não documenta um teste de ligação: a chave fica “configurada”, não “verificada”.</p>
-          <EPayForm key={g.epay.keyMasked ?? "none"} action={saveEPayCredentialsAction} initial={{ keyMasked: g.epay.keyMasked, keyEnvironment: g.epay.keyEnvironment }} />
-        </div>
-      ) : (
-        <KeySetup />
-      )}
-      <p className="mb-2 mt-3 text-[12px] font-medium uppercase tracking-wider text-subtle">Como funciona</p>
-      <ol className="flex list-decimal flex-col gap-1.5 pl-5">
-        <li>O checkout cria o pagamento na EPay (valor sempre calculado no servidor, em MZN).</li>
-        <li>O comprador é enviado para a página segura da EPay e paga com M-Pesa, e-Mola ou IZI.</li>
-        <li>A EPay envia um aviso assinado (X-EducavelPay-Signature) para <code className="break-all text-fg">/api/webhooks/epay</code>.</li>
-        <li>A encomenda só passa a paga após a assinatura e o valor serem validados — nunca pelo regresso do comprador.</li>
-      </ol>
-      {g.environment === "test" && <p className="mt-3 rounded-[var(--radius-md)] border border-warning/30 bg-warning/[0.06] p-2.5 text-warning">Chave de teste ativa: os pagamentos são simulados pela EPay e as encomendas ficam marcadas como teste (não contam como receita).</p>}
-    </div>
-  );
-}
-
-function E2Section({ g }: { g: GatewayView }) {
-  const e2 = g.e2!;
-  return (
-    <div className="flex flex-col gap-3 border-t border-line pt-4">
-      <p className="text-[12px] font-medium uppercase tracking-wider text-subtle">Credenciais da E2Payments</p>
-      {e2.fromEnv ? (
-        <p className="text-[12.5px] text-muted">
-          Definidas nas variáveis de ambiente do servidor (<code className="text-fg">E2PAYMENTS_CLIENT_ID</code>, <code className="text-fg">E2PAYMENTS_CLIENT_SECRET</code>, <code className="text-fg">E2PAYMENTS_MPESA_WALLET_ID</code>, <code className="text-fg">E2PAYMENTS_EMOLA_WALLET_ID</code>). Para as alterar, edite-as no alojamento.
-        </p>
-      ) : e2.storageAvailable ? (
-        <>
-          <p className="text-[12.5px] text-muted">Pode alterar estes dados aqui sempre que precisar. Ficam guardados cifrados no servidor e o Client Secret nunca volta a ser mostrado.</p>
-          <E2PaymentsForm key={`${e2.clientIdMasked}-${e2.mpesaWalletId}-${e2.emolaWalletId}`} action={saveE2CredentialsAction} initial={e2} />
-        </>
-      ) : (
-        <KeySetup />
-      )}
-      <div className="text-[12.5px] leading-relaxed text-muted">
-        <p className="mb-2 text-[12px] font-medium uppercase tracking-wider text-subtle">Como funciona</p>
-        <ol className="flex list-decimal flex-col gap-1.5 pl-5">
-          <li>O comprador escolhe M-Pesa ou e-Mola no checkout e indica o número.</li>
-          <li>O servidor pede a cobrança à E2Payments (valor calculado no servidor) e o comprador confirma no telemóvel.</li>
-          <li>A encomenda só fica paga quando a E2Payments responde com sucesso a esse pedido autenticado.</li>
-          <li>Sem resposta (tempo esgotado), o pagamento fica “por verificar” no pedido: confirme-o no painel da E2Payments antes de o marcar.</li>
-        </ol>
+          ))}
       </div>
-    </div>
-  );
-}
-
-function MetaCard({ pixels, products, tz }: { pixels: MetaPixelView[]; products: MetaProductOption[]; tz: string }) {
-  const active = pixels.some((p) => p.enabled && p.productIds.length > 0);
-  const name = new Map(products.map((p) => [p.id, p.name]));
-  return (
-    <Card data-testid="meta-integration">
-      <CardHeader
-        title="Facebook Pixel / API de Conversões"
-        description="Envia o evento Purchase à Meta a partir do servidor, só quando o pagamento é confirmado pelo gateway."
-        action={
-          <Badge tone={active ? "success" : "neutral"} dot>
-            <span data-testid="meta-status" data-status={active ? "active" : "inactive"}>{active ? "Ativa" : "Inativa"}</span>
-          </Badge>
-        }
-      />
-      <CardBody className="flex flex-col gap-5">
-        {!secretStorageAvailable() ? (
-          <KeySetup />
-        ) : (
-          <>
-            {pixels.map((p) => (
-              <div key={p.id} className="flex flex-col gap-4 rounded-[var(--radius-md)] border border-line p-4" data-testid={`meta-pixel-${p.pixelId}`}>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="font-medium text-fg">
-                      Pixel <span className="tabular">{p.pixelId}</span>
-                    </p>
-                    <p className="text-[12.5px] text-muted">
-                      {p.enabled ? "Ativo" : "Desativado"} · {p.productIds.length} produto(s) · Token {p.tokenHint}
-                    </p>
-                  </div>
-                  <ActionButton
-                    size="sm"
-                    variant="secondary"
-                    action={deleteMetaPixelAction.bind(null, p.id)}
-                    confirm={{ title: `Remover o Pixel ${p.pixelId}`, description: "O token guardado é apagado e deixam de ser enviados eventos para este Pixel. As vendas e os pedidos não são alterados.", confirmLabel: "Remover", danger: true }}
-                  >
-                    Remover
-                  </ActionButton>
-                </div>
-                <div className="grid grid-cols-3 gap-2 text-center text-[12.5px]" data-testid="meta-stats">
-                  <div className="rounded-[var(--radius-md)] bg-surface-2 p-2"><span className="block text-base font-semibold tabular text-fg">{p.stats.sent}</span>enviadas</div>
-                  <div className="rounded-[var(--radius-md)] bg-surface-2 p-2"><span className="block text-base font-semibold tabular text-fg">{p.stats.pending}</span>em fila</div>
-                  <div className="rounded-[var(--radius-md)] bg-surface-2 p-2"><span className="block text-base font-semibold tabular text-fg">{p.stats.failed}</span>falhadas</div>
-                </div>
-                <p className="text-[12px] text-subtle">Último envio: {p.lastSentAt ? formatDate(p.lastSentAt, tz, true) : "nenhum"}</p>
-                {p.lastError && (
-                  <p className="rounded-[var(--radius-md)] border border-danger/30 bg-danger/[0.06] p-2.5 text-[12.5px] text-danger" role="alert" data-testid="meta-last-error">
-                    {p.lastError}
-                  </p>
-                )}
-                {p.productIds.some((id) => !name.has(id)) && <p className="text-[12px] text-subtle">Alguns produtos selecionados já não existem e são ignorados.</p>}
-                <details className="rounded-[var(--radius-md)] border border-line p-3 text-[13px]">
-                  <summary className="cursor-pointer font-medium text-fg" data-testid="meta-edit">Editar Pixel, token e produtos</summary>
-                  <div className="mt-4">
-                    <MetaPixelForm action={saveMetaPixelAction} products={products} initial={p} />
-                  </div>
-                </details>
-              </div>
-            ))}
-            <details className="rounded-[var(--radius-md)] border border-dashed border-line p-3 text-[13px]" open={pixels.length === 0}>
-              <summary className="cursor-pointer font-medium text-fg" data-testid="meta-add">{pixels.length ? "Adicionar outro Pixel" : "Configurar Pixel"}</summary>
-              <div className="mt-4">
-                <MetaPixelForm action={saveMetaPixelAction} products={products} />
-              </div>
-            </details>
-          </>
-        )}
-        <div className="text-[12.5px] leading-relaxed text-muted">
-          <p className="mb-2 text-[12px] font-medium uppercase tracking-wider text-subtle">Como funciona</p>
-          <ul className="flex list-disc flex-col gap-1.5 pl-5">
-            <li>O evento Purchase só é enviado depois de o pagamento ser confirmado pela EPay ou pela E2Payments — nunca ao abrir o checkout, com pagamento pendente, falhado ou abandonado.</li>
-            <li>Cada compra tem um identificador único (event_id): novas tentativas reutilizam-no e a mesma compra nunca é contada duas vezes.</li>
-            <li>Só os produtos selecionados enviam eventos. Upsells e downsells aceites geram a sua própria compra, com o produto e o valor pagos.</li>
-            <li>O token fica cifrado no servidor e nunca é mostrado. Email e telefone do comprador são enviados apenas com hash SHA-256, como a Meta exige.</li>
-          </ul>
-        </div>
-      </CardBody>
     </Card>
-  );
-}
-
-function KeySetup() {
-  // Chave aleatória gerada agora, só para facilitar: não é guardada em lado nenhum.
-  const suggestion = randomBytes(32).toString("base64");
-  return (
-    <div className="rounded-[var(--radius-md)] border border-warning/30 bg-warning/[0.06] p-3 text-[12.5px] leading-relaxed text-muted" data-testid="e2payments-key-setup">
-      <p className="font-medium text-fg">Falta um passo para poder guardar credenciais aqui</p>
-      <p className="mt-1">
-        As credenciais são guardadas cifradas. Adicione no alojamento (Vercel → Settings → Environment Variables) a variável <code className="text-fg">INTEGRATIONS_ENCRYPTION_KEY</code> com um valor aleatório e volte a publicar. Pode usar este valor gerado agora:
-      </p>
-      <div className="mt-2 flex items-center gap-2">
-        <code className="min-w-0 flex-1 break-all rounded bg-surface-2 px-2 py-1.5 font-mono text-[11.5px] text-fg">{suggestion}</code>
-        <CopyButton value={suggestion} size="icon" label="Copiar chave gerada" />
-      </div>
-      <p className="mt-2">Em alternativa, defina diretamente E2PAYMENTS_CLIENT_ID, E2PAYMENTS_CLIENT_SECRET e E2PAYMENTS_MPESA_WALLET_ID e/ou E2PAYMENTS_EMOLA_WALLET_ID.</p>
-    </div>
   );
 }
 
 export default async function IntegrationsPage() {
   const user = await requireUser();
   // integrações e registos apenas da conta autenticada
-  const metaScope = scopeOf(user.id, false); // pixels da conta real (vendas de demonstração nunca são enviadas)
-  const [gateways, logs, settings, pixels] = await Promise.all([listGateways(user.id), recentIntegrationLogs(user.id), getSettings(user.id), listMetaPixels(metaScope)]);
-  const metaProducts = await listMetaProductOptions(metaScope, pixels.flatMap((p) => p.productIds));
+  const [gateways, logs, settings, pixels] = await Promise.all([listGateways(user.id), recentIntegrationLogs(user.id), getSettings(user.id), listMetaPixels(scopeOf(user.id, false))]);
   const tz = settings.timezone;
-  const active = gateways.filter((g) => g.status === "active");
+  const metaActive = pixels.some((p) => p.enabled && p.productIds.length > 0);
+  const payments: CardData[] = gateways.map((g) => ({
+    id: g.id,
+    name: g.name,
+    description: g.description,
+    status: { label: g.statusLabel, tone: STATUS_TONE[g.status], value: g.status },
+    meta: g.methods.length ? g.methods.join(" · ") : g.id === "epay" ? "M-Pesa · e-Mola · IZI" : undefined,
+    toggle: { enabled: g.enabled, action: setGatewayEnabledAction.bind(null, g.id, !g.enabled), disabled: !g.configured, name: g.name },
+  }));
+  const tracking: CardData[] = [
+    {
+      id: "meta",
+      name: "Facebook Pixel / API de Conversões",
+      description: "Envia as compras confirmadas dos produtos escolhidos para o seu Pixel.",
+      status: metaActive ? { label: "Ativa", tone: "success", value: "active" } : { label: pixels.length ? "Inativa" : "Por configurar", tone: pixels.length ? "neutral" : "warning", value: "inactive" },
+      meta: pixels.length ? `${pixels.length} Pixel(s) · ${new Set(pixels.flatMap((p) => p.productIds)).size} produto(s)` : undefined,
+      toggle: pixels.length ? { enabled: pixels.some((p) => p.enabled), action: setMetaEnabledAction.bind(null, !pixels.some((p) => p.enabled)), name: "o Pixel da Meta" } : undefined,
+    },
+  ];
+  const activePayments = gateways.filter((g) => g.status === "active").length;
+
   return (
     <>
-      <PageHeader title="Integrações" description="Gateways de pagamento e serviços externos. Os segredos ficam apenas no servidor e nunca são apresentados." />
-      <Alert tone={active.length ? "success" : "warning"} className="mb-6" title={active.length ? `Pagamentos ativos: ${active.map((g) => g.name).join(" e ")}` : "Nenhum gateway de pagamento ativo"}>
-        {active.length
-          ? "O checkout mostra os métodos dos gateways ativos. Cada pagamento vai apenas para o gateway escolhido e só fica pago após confirmação válida desse gateway."
-          : "O checkout informa o comprador de que não existem métodos de pagamento disponíveis. Nada é cobrado."}
-      </Alert>
+      <PageHeader title="Integrações" description="Pagamentos e rastreamento. As credenciais ficam cifradas no servidor e nunca são mostradas." />
 
-      <section aria-labelledby="gateways-title">
-        <h2 id="gateways-title" className="mb-1 font-display text-lg font-semibold">Gateways de Pagamento</h2>
-        <p className="mb-4 text-sm text-muted">Ative ou desative cada gateway de forma independente. Desativar não apaga credenciais nem histórico.</p>
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          {gateways.map((g) => (
-            <GatewayCard key={g.id} g={g} tz={tz} />
+      <section aria-labelledby="payments-title">
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <h2 id="payments-title" className="font-display text-lg font-semibold">
+            Pagamentos
+          </h2>
+          <p className="text-[12.5px] text-muted" data-testid="payments-summary">
+            {activePayments ? `${activePayments} gateway(s) ativo(s) no checkout` : "Nenhum gateway ativo: o checkout não aceita pagamentos"}
+          </p>
+        </div>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {payments.map((c) => (
+            <IntegrationCard key={c.id} c={c} />
           ))}
         </div>
       </section>
 
       <section aria-labelledby="tracking-title" className="mt-8">
-        <h2 id="tracking-title" className="mb-1 font-display text-lg font-semibold">Rastreamento de anúncios</h2>
-        <p className="mb-4 text-sm text-muted">Envie as compras confirmadas dos produtos escolhidos para o seu Pixel da Meta.</p>
-        <MetaCard pixels={pixels} products={metaProducts} tz={tz} />
+        <h2 id="tracking-title" className="mb-3 font-display text-lg font-semibold">
+          Rastreamento de anúncios
+        </h2>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {tracking.map((c) => (
+            <IntegrationCard key={c.id} c={c} />
+          ))}
+        </div>
       </section>
 
-      <Card className="mt-6">
-        <CardHeader title="Registo de integrações" description="Últimas 20 entradas (sem dados sensíveis)" />
+      <details className="mt-8 rounded-[var(--radius-lg)] border border-line bg-surface" data-testid="integration-logs">
+        <summary className="flex min-h-12 cursor-pointer items-center gap-2 px-5 text-[14px] font-medium">
+          <Plug className="h-4 w-4 text-subtle" aria-hidden="true" /> Registo de integrações <span className="text-[12px] font-normal text-subtle">(últimas 20 entradas, sem dados sensíveis)</span>
+        </summary>
         {logs.length === 0 ? (
-          <div className="flex items-center gap-3 p-5 text-sm text-subtle">
-            <Plug className="h-4 w-4" /> Sem registos.
-          </div>
+          <p className="border-t border-line px-5 py-4 text-sm text-subtle">Sem registos.</p>
         ) : (
-          <ul className="divide-y divide-line">
+          <ul className="divide-y divide-line border-t border-line">
             {logs.map((l) => (
               <li key={l.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-2.5 text-[13px]">
                 <span className="tabular text-subtle">{formatDate(l.createdAt, tz, true)}</span>
                 <Badge tone={l.level === "warn" ? "warning" : l.level === "error" ? "danger" : "neutral"}>{l.provider}</Badge>
-                <span className="text-muted">{l.message}</span>
+                <span className="min-w-0 text-muted [overflow-wrap:anywhere]">{l.message}</span>
               </li>
             ))}
           </ul>
         )}
-      </Card>
+      </details>
     </>
   );
 }

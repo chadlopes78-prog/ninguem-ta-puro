@@ -1,6 +1,6 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-16 · Sessão 18 (funis: entrada única, várias ofertas, páginas externas com código de integração, obrigado externo) · Sessão 17 (Facebook Pixel / API de Conversões) · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
+Última atualização: 2026-10-16 · Sessão 19 (entrega do produto PDF/link no produto, área «Os meus produtos», recuperação de acesso, Integrações em cartões) · Sessão 18 (funis: entrada única, várias ofertas, páginas externas com código de integração, obrigado externo) · Sessão 17 (Facebook Pixel / API de Conversões) · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
 
 ## Estado geral
 
@@ -10,8 +10,8 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 |---|---|---|
 | Lint | `npm run lint` | ✅ 0 erros, 0 avisos |
 | Tipos TypeScript | `npm run typecheck` | ✅ sem erros |
-| Testes unitários + integração | `npm test` | ✅ 294/294 (12 de funis com páginas externas/obrigado externo, 10 da API de Conversões da Meta, 10 do formulário de produto/imagem/downsell, 16 do checkout renderizado/editor simples, 13 de publicação/entrega/configurações/palavra-passe, 6 de operações do editor, 5 da biblioteca de imagens, 16 de personalização do checkout, 12 de multiutilizador A–G, 16 de notificações/relatórios, 10 de funis, 18 de gateways) |
-| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 124/124 (5 de funis com páginas externas e obrigado externo, 2 do Pixel da Meta, 5 do formulário de produto e ofertas nos funis, 13 da auditoria em 12 larguras, 13 de interações com toque, 3 de revisão mobile a 320/375/414 px e 3 da aba Produtos no computador a 1024/1280/1440 px, 4 de configurações/palavra-passe/telemóvel, 6 do editor visual com arrastar e soltar real, 1 de navegação lenta no telemóvel, 5 de várias contas, 10 de notificações/PWA/relatórios, 8 de funis, 9 de pagamentos, 4 de personalização, 3 de gateways) |
+| Testes unitários + integração | `npm test` | ✅ 303/303 (9 de entrega do produto/área de acesso/recuperação, 12 de funis com páginas externas/obrigado externo, 10 da API de Conversões da Meta, 10 do formulário de produto/imagem/downsell, 16 do checkout renderizado/editor simples, 13 de publicação/entrega/configurações/palavra-passe, 6 de operações do editor, 5 da biblioteca de imagens, 16 de personalização do checkout, 12 de multiutilizador A–G, 16 de notificações/relatórios, 10 de funis, 18 de gateways) |
+| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 129/129 (5 de entrega do produto e integrações, 5 de funis com páginas externas e obrigado externo, 2 do Pixel da Meta, 5 do formulário de produto e ofertas nos funis, 13 da auditoria em 12 larguras, 13 de interações com toque, 3 de revisão mobile a 320/375/414 px e 3 da aba Produtos no computador a 1024/1280/1440 px, 4 de configurações/palavra-passe/telemóvel, 6 do editor visual com arrastar e soltar real, 1 de navegação lenta no telemóvel, 5 de várias contas, 10 de notificações/PWA/relatórios, 8 de funis, 9 de pagamentos, 4 de personalização, 3 de gateways) |
 | Build de produção | `npm run build` | ✅ sem erros |
 | Fuga de segredos | build com `EPAY_SECRET_KEY`, `E2PAYMENTS_CLIENT_ID/SECRET` e `INTEGRATIONS_ENCRYPTION_KEY` fictícias + `grep` em `.next/` e log | ✅ valor ausente do bundle do browser, do output do servidor e do log; nenhuma variável `NEXT_PUBLIC_`; `.env` com segredos fora do Git |
 
@@ -26,6 +26,41 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | 5 — Operação | ✅ Concluída | Pedidos (filtros, detalhe, transições), clientes, cupões (com testador), relatórios |
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
+
+## Entrega do produto, área de acesso do comprador e Integrações reorganizadas (sessão 19)
+
+**Análise prévia:** a entrega existia como método no produto (`EXTERNAL_LINK` ou `INTERNAL_PAGE`), configurada só no editor de funis; PDFs privados guardados na base de dados (`ProductFile`) e descarregados apenas por `/acesso/<token>/ficheiro/<id>` (token secreto da encomenda + pagamento confirmado); cada encomenda (principal, upsell, downsell) recebe o seu `Delivery` só quando é aprovada por `applyPaymentStatus`. A aba Integrações mostrava todos os formulários e explicações numa só página.
+
+**Entrega do produto (formulário de criar/editar produto):**
+- Nova secção **«Entrega do produto» → «Como o cliente vai receber este produto?»**:
+  - **Produto digital (PDF)**: carregar do computador/telemóvel, ver nome e tamanho, **Substituir**, **Remover**. Guardado na base de dados (privado, sem URL público). Num produto novo o ficheiro fica em memória e é enviado logo após a criação.
+  - **SaaS ou acesso online**: link da aplicação/área de membros, validado (`https://…`), com «Testar link».
+  - Produtos que já usavam a **página de entrega interna** continuam com essa opção (editada no funil).
+- Não enviar a secção = manter a configuração; produto **publicado** não pode ficar sem entrega (remover o ficheiro entregue ou mudar para PDF sem ficheiro é recusado).
+- Substituir o ficheiro elimina o anterior (se não for usado noutra página), para deixar de poder ser descarregado.
+- Requisitos de publicação: método + conteúdo (ficheiro ou link) com ligação para `/produtos/<id>#entrega`.
+- O editor de funis («Entrega do produto») também oferece o método **Ficheiro (PDF)**, sincronizado com o produto.
+- **Migração aditiva** `20261028090000_delivery_file`: valor `FILE` no enum `DeliveryMethod` e `Product.deliveryFileId` (FK `SET NULL`). Nenhum dado alterado.
+
+**Entrega depois do pagamento (principal, upsell, downsell):**
+- `purchasedProducts()` (`src/server/services/delivery.ts`) junta a compra principal e cada upsell/downsell **pago**; cada produto usa o seu método de entrega e o acesso (token) da encomenda que o pagou.
+- Página de obrigado: «O seu produto: <nome>» + **Descarregar produto** (PDF) ou **Aceder ao meu produto** (link); upsells/downsells pagos aparecem com o seu próprio botão; pendentes ou falhados não aparecem. Recusar ofertas nunca retira o produto principal.
+- **Área «Os meus produtos»** (`/acesso/<token>`): todos os produtos pagos da compra (a partir do token de qualquer encomenda da compra), com o link pessoal para guardar/copiar. Reembolso revoga o acesso.
+- O download continua a validar o token **da encomenda que pagou o produto** — conhecer o ID do ficheiro ou o token de outra compra não dá acesso.
+
+**Recuperação do acesso (sem email):** `/acesso` — o comprador indica o **email da compra + código da encomenda** (mostrado na página de obrigado) ou **email + telemóvel do pagamento**; recebe as ligações das compras **confirmadas**. Limitado por IP e por email; respostas iguais quando nada é encontrado.
+
+**Integrações:**
+- `/integracoes`: cartões compactos por categoria (Pagamentos: EPay, E2Payments; Rastreamento: Facebook Pixel) com ícone, nome, estado, descrição curta, métodos/resumo, **Configurar** e **Ativar/Desativar** (Meta: ativa/desativa todos os Pixels). Registo de integrações recolhido.
+- `/integracoes/epay`, `/integracoes/e2payments`, `/integracoes/meta`: página de configuração com credenciais (mesmos formulários e ações), estado e ações; «Detalhes técnicos» e «Como funciona» em secções recolhidas.
+- Nenhum campo, endpoint, webhook, credencial ou ação foi removido; credenciais continuam cifradas e mascaradas (testado que as guardadas se mantêm).
+
+**Testes:** `tests/integration/product-delivery.test.ts` (9: PDF e SaaS, preservação, substituir/remover, publicado protegido, isolamento entre contas, entrega só após pagamento, sem URL público, reembolso, principal PDF + upsell SaaS + downsell PDF, recusar mantém o principal, sem duplicados, recuperação); `e2e/19-delivery-integrations.spec.ts` (5: integrações preservadas e interruptores, criar produto PDF com upload, criar SaaS com validação, compra/pendente/download/área/recuperação, telemóvel); specs 07, 08, 10 e 17 adaptados.
+
+**Limitações / dependem de configuração externa:**
+- Ficheiros até 4 MB (limite de pedido da Vercel) e só PDF; ficheiros maiores exigem armazenamento de objetos (S3/Vercel Blob) — não configurado.
+- Sem envio de email: o acesso depende do link pessoal e da recuperação por email + código/telemóvel. Com um fornecedor de email (Resend já existe para a palavra-passe) seria possível enviar o link automaticamente.
+- O link pessoal é permanente enquanto a compra estiver paga (como um bilhete): quem o tiver acede. Não o partilhar.
 
 ## Funis: entrada única, várias ofertas, páginas externas e página de obrigado externa (sessão 18)
 
@@ -920,6 +955,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 19 (2026-10-16)**: «Entrega do produto» no formulário do produto (PDF carregado do dispositivo, privado, substituir/remover; ou link de acesso validado para SaaS/área de membros), entrega automática só depois do pagamento confirmado com o acesso de cada produto pago (principal, upsell, downsell) na página de obrigado e na área «Os meus produtos», recuperação do acesso em `/acesso` (email + código ou telemóvel), aba Integrações em cartões com páginas de configuração por integração. Migração aditiva (`FILE`, `deliveryFileId`); EPay/E2Payments/webhooks/checkout intactos. 303 testes unitários/integração e 129 E2E a passar.
 - **Sessão 18 (2026-10-16)**: área de Funis com entrada única «Funil avançado» (removido «Criar funil»), editor com mapa do fluxo, vários upsells/downsells com destinos por aceitar/recusar, link de página externa por etapa com código de integração (`/ntp-funil.js` + `POST /api/public/funil/v1/aceitar|recusar`, validação de percurso e etapa no servidor), página de obrigado do site ou externa, paleta do editor antigo sem Checkout principal/Página de vendas/Oferta adicional (etapas existentes preservadas). Vendas de upsell/downsell continuam encomendas próprias confirmadas só pelo gateway. Sem migração; EPay/E2Payments/webhooks/confirmação intactos. 294 testes unitários/integração e 124 E2E a passar.
 - **Sessão 17 (2026-10-15/16)**: Facebook Pixel / API de Conversões (token cifrado, produtos selecionados, Purchase só para compras confirmadas, fila idempotente com event_id estável, isolamento por conta). Migração aditiva. Testes de integração e E2E.
 - **Sessão 16 (2026-10-15)**: formulário de produto simplificado (nome, descrição, foto carregada do dispositivo, preço principal, tipo), sem preço de referência/página de vendas/ofertas (valores guardados preservados); ofertas centralizadas nos funis (preço criado no funil + downsell com a etapa existente do motor); correção do motor para mostrar a oferta seguinte depois de uma recusa. Sem migração. 272 testes unitários/integração e 117 E2E a passar.

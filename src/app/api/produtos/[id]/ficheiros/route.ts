@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getActiveUser } from "@/server/auth/session";
 import { getScope } from "@/server/services/settings";
-import { MAX_PDF_BYTES, saveProductPdf } from "@/server/services/product-files";
+import { MAX_PDF_BYTES, saveProductPdf, setProductDeliveryFile } from "@/server/services/product-files";
 import { DomainError, NotFoundError } from "@/server/services/products";
 
 // Carregamento de PDF de um produto (apenas utilizadores autenticados do painel).
@@ -25,6 +25,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   try {
     const { scope } = await getScope();
     const saved = await saveProductPdf(id, scope, { name: f.name, type: f.type, bytes: Buffer.from(await f.arrayBuffer()) });
+    // ?entrega=1 (secção "Entrega do produto"): o ficheiro passa a ser o entregue (substitui o anterior)
+    if (req.nextUrl.searchParams.get("entrega") === "1") await setProductDeliveryFile(id, saved.id, scope);
     return NextResponse.json({ file: saved });
   } catch (e) {
     if (e instanceof DomainError || e instanceof NotFoundError) return NextResponse.json({ error: e.message }, { status: 400 });

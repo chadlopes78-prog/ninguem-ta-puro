@@ -6,25 +6,36 @@ import { login, noHorizontalScroll, toast } from "./helpers";
 const SECRET = "segredo-e2e-NUNCA-MOSTRAR-123456";
 
 test.describe.serial("gateways de pagamento", () => {
-  test("dois cartões independentes com estado real", async ({ page }) => {
+  test("visão geral em cartões; cada gateway tem a sua página de configuração com o estado real", async ({ page }) => {
     await login(page);
     await page.goto("/integracoes");
-    await expect(page.getByRole("heading", { name: "Gateways de Pagamento" })).toBeVisible();
-    const epay = page.getByTestId("gateway-epay");
-    const e2 = page.getByTestId("gateway-e2payments");
-    await expect(epay.getByText("Processamento de pagamentos através da EPay.")).toBeVisible();
-    await expect(e2.getByText("Processamento de pagamentos através da E2Payments.")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Pagamentos" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Rastreamento de anúncios" })).toBeVisible();
+    const cardE2 = page.getByTestId("integration-e2payments");
+    await expect(page.getByTestId("integration-epay").getByText("Processamento de pagamentos através da EPay.")).toBeVisible();
+    await expect(cardE2.getByText("Processamento de pagamentos através da E2Payments.")).toBeVisible();
     // sem EPAY_SECRET_KEY nem credenciais E2Payments neste ambiente
-    await expect(epay.getByTestId("gateway-status")).toHaveText("Credenciais por configurar");
+    await expect(page.getByTestId("integration-epay").getByTestId("integration-status")).toHaveText("Credenciais por configurar");
+    await expect(cardE2.getByTestId("integration-status")).toHaveText("Credenciais por configurar");
+    await expect(cardE2.getByRole("button", { name: "Ativar" })).toBeDisabled();
+    // a página principal não mostra formulários nem credenciais
+    await expect(page.getByLabel("Client Secret")).toHaveCount(0);
+    await cardE2.getByTestId("configure-e2payments").click();
+    await expect(page).toHaveURL(/\/integracoes\/e2payments$/);
+    const e2 = page.getByTestId("gateway-e2payments");
     await expect(e2.getByTestId("gateway-status")).toHaveText("Credenciais por configurar");
     await expect(e2.getByRole("button", { name: "Ativar" })).toBeDisabled();
     await expect(e2.getByLabel("Client ID")).toBeVisible();
     await expect(e2.getByLabel("Client Secret")).toHaveAttribute("type", "password");
+    // detalhes técnicos recolhidos
+    await expect(page.getByTestId("checks-e2payments")).toBeHidden();
+    await page.getByTestId("gateway-technical").locator("summary").click();
+    await expect(page.getByTestId("checks-e2payments")).toBeVisible();
   });
 
   test("guardar credenciais: segredo nunca é devolvido e o gateway não fica ativo sem ligação verificada", async ({ page }) => {
     await login(page);
-    await page.goto("/integracoes");
+    await page.goto("/integracoes/e2payments");
     const e2 = page.getByTestId("gateway-e2payments");
     await e2.getByRole("button", { name: "Guardar e testar ligação" }).click();
     await expect(e2.getByText("Introduza o Client ID")).toBeVisible();
@@ -52,6 +63,9 @@ test.describe.serial("gateways de pagamento", () => {
     await page.setViewportSize({ width: 375, height: 812 });
     await login(page);
     await page.goto("/integracoes");
+    await expect(page.getByTestId("integration-e2payments")).toBeVisible();
+    await noHorizontalScroll(page);
+    await page.goto("/integracoes/e2payments");
     await expect(page.getByTestId("gateway-e2payments")).toBeVisible();
     await noHorizontalScroll(page);
   });

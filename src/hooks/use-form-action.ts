@@ -11,7 +11,7 @@ import { useToast } from "@/components/ui/toast";
  */
 export function useFormAction<T>(
   action: (fd: FormData) => Promise<ActionResult<T>>,
-  opts: { successMessage?: string; onSuccess?: (data: T | undefined) => void; redirectTo?: (data: T | undefined) => string | undefined } = {},
+  opts: { successMessage?: string; onSuccess?: (data: T | undefined) => void; redirectTo?: (data: T | undefined) => string | undefined; /** o formulário trata da navegação (sem refresh) */ skipRefresh?: (data: T | undefined) => boolean } = {},
 ) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -32,7 +32,7 @@ export function useFormAction<T>(
           opts.onSuccess?.(r.data);
           const to = opts.redirectTo?.(r.data);
           if (to) router.push(to);
-          else router.refresh();
+          else if (!opts.skipRefresh?.(r.data)) router.refresh();
         } else {
           setError(r.error);
           setFieldErrors(r.fieldErrors ?? {});

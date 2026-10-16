@@ -34,7 +34,7 @@ export function mzn(value: string): RegExp {
  * criar funil (aba Funis) → suporte WhatsApp → entrega (link externo) → "Guardar e publicar produto".
  * Se já estiver no assistente de funil do produto (ex.: vindo de "Completar configuração"), use `fromWizard`.
  */
-export async function completeAndPublish(page: Page, productName: string, opts: { deliveryUrl?: string; whatsapp?: string; message?: string; fromWizard?: boolean } = {}) {
+export async function completeAndPublish(page: Page, productName: string, opts: { deliveryUrl?: string; whatsapp?: string; message?: string; fromWizard?: boolean; keepDelivery?: boolean } = {}) {
   if (!opts.fromWizard) {
     await page.goto("/funis");
     await page.getByTestId("new-wizard-funnel").first().click();
@@ -48,10 +48,13 @@ export async function completeAndPublish(page: Page, productName: string, opts: 
   await page.getByTestId("support-phone").fill(opts.whatsapp ?? "84 123 4567");
   if (opts.message) await page.getByLabel("Mensagem inicial (opcional)").fill(opts.message);
   await expect(page.getByTestId("support-test")).toHaveAttribute("href", /^https:\/\/wa\.me\/258841234567/);
-  await flow.getByRole("button", { name: /Entrega do produto/ }).click();
-  await page.getByTestId("delivery-external").click();
-  await page.getByTestId("delivery-url").fill(opts.deliveryUrl ?? "https://conteudo.exemplo.co.mz/acesso");
-  await expect(page.getByTestId("delivery-url-test")).toBeVisible();
+  // keepDelivery: a entrega já foi configurada no próprio produto (ficheiro ou link)
+  if (!opts.keepDelivery) {
+    await flow.getByRole("button", { name: /Entrega do produto/ }).click();
+    await page.getByTestId("delivery-external").click();
+    await page.getByTestId("delivery-url").fill(opts.deliveryUrl ?? "https://conteudo.exemplo.co.mz/acesso");
+    await expect(page.getByTestId("delivery-url-test")).toBeVisible();
+  }
   await page.getByTestId("wizard-publish").click();
   await toast(page, "Produto publicado");
   return url;

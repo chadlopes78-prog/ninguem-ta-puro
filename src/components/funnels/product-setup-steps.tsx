@@ -82,12 +82,14 @@ export function SupportStep({ phone, message, onChange, error }: { phone: string
   );
 }
 
-type Method = "EXTERNAL_LINK" | "INTERNAL_PAGE" | null;
+type Method = "FILE" | "EXTERNAL_LINK" | "INTERNAL_PAGE" | null;
 
 export function DeliveryStep({
   method,
   url,
   page,
+  fileId,
+  onFileId,
   onMethod,
   onUrl,
   onPage,
@@ -102,6 +104,9 @@ export function DeliveryStep({
   method: Method;
   url: string;
   page: DeliveryPageInput;
+  /** Ficheiro entregue no método FILE */
+  fileId: string | null;
+  onFileId: (id: string | null) => void;
   onMethod: (m: Method) => void;
   onUrl: (u: string) => void;
   onPage: (p: Partial<DeliveryPageInput>) => void;
@@ -130,13 +135,40 @@ export function DeliveryStep({
   const hasContent = Boolean(page.fileId) || isValidDeliveryUrl(page.resourceUrl) || page.bodyText.trim().length >= 10;
   return (
     <Card id="entrega" className="scroll-mt-6">
-      <CardHeader title="Entrega do produto" description="Obrigatório. Escolha um dos dois métodos — o botão de acesso da página de obrigado leva o cliente para o método escolhido, só depois do pagamento confirmado." />
+      <CardHeader title="Entrega do produto" description="O que o comprador recebe depois do pagamento confirmado. Também pode configurar isto no próprio produto." />
       <CardBody className="grid grid-cols-1 gap-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Método de entrega">
-          {choice("EXTERNAL_LINK", Globe, "Usar link externo de entrega", "Área de membros, curso, plataforma de conteúdos ou página de download.", "delivery-external")}
-          {choice("INTERNAL_PAGE", PackageOpen, "Criar página de entrega na Ninguém Tá Puro", "Página da plataforma com o seu ficheiro, conteúdo ou link.", "delivery-internal")}
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3" role="radiogroup" aria-label="Método de entrega">
+          {choice("FILE", FileText, "Ficheiro (PDF)", "Ebook, guia, apostila: o comprador descarrega o ficheiro.", "delivery-file")}
+          {choice("EXTERNAL_LINK", Globe, "Link de acesso", "SaaS, área de membros, plataforma ou curso online.", "delivery-external")}
+          {choice("INTERNAL_PAGE", PackageOpen, "Página de entrega", "Página da plataforma com ficheiro, conteúdo ou link.", "delivery-internal")}
         </div>
         {errors["delivery.method"] && <p role="alert" className="text-[12px] font-medium text-danger">{errors["delivery.method"]}</p>}
+
+        {method === "FILE" && (
+          <div className="grid grid-cols-1 gap-2" data-testid="delivery-file-section">
+            <input type="file" accept="application/pdf" className="sr-only" id="delivery-main-file" onChange={(e) => e.target.files?.[0] && onUpload(e.target.files[0])} data-testid="delivery-main-file-input" />
+            <label htmlFor="delivery-main-file" className={cn("flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-[var(--radius-lg)] border border-dashed border-line-strong bg-surface-2 px-4 py-3 text-sm text-muted hover:border-accent/50 hover:text-fg", uploading && "pointer-events-none opacity-60")}>
+              {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} {uploading ? "A carregar…" : fileId ? "Substituir ficheiro (PDF, máx. 4 MB)" : "Carregar ficheiro do produto (PDF, máx. 4 MB)"}
+            </label>
+            {files.length > 0 && (
+              <ul className="flex flex-col gap-2" aria-label="Ficheiros do produto">
+                {files.map((f) => (
+                  <li key={f.id} className={cn("flex items-center gap-3 rounded-[var(--radius-md)] border px-3 py-2", fileId === f.id ? "border-accent bg-accent-soft" : "border-line")}>
+                    <input type="radio" name="delivery-main-file-choice" checked={fileId === f.id} onChange={() => onFileId(f.id)} aria-label={`Entregar ${f.filename}`} style={{ accentColor: "var(--color-accent)" }} />
+                    <FileText className="h-4 w-4 shrink-0 text-muted" aria-hidden="true" />
+                    <span className="min-w-0 flex-1 truncate text-sm">{f.filename}</span>
+                    <button type="button" onClick={() => onRemoveFile(f.id)} className="grid h-9 w-9 place-items-center rounded text-subtle hover:text-danger" aria-label={`Eliminar ${f.filename}`}>
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {errors["delivery.fileId"] && <p role="alert" className="text-[12px] font-medium text-danger">{errors["delivery.fileId"]}</p>}
+            {!fileId && <p className="text-[12.5px] text-warning">Carregue o ficheiro: sem ele o produto fica incompleto.</p>}
+            <p className="text-[12px] text-subtle">Ficheiro privado: só quem tem a compra confirmada o descarrega, pelo seu acesso pessoal.</p>
+          </div>
+        )}
 
         {method === "EXTERNAL_LINK" && (
           <div className="grid grid-cols-1 gap-3" data-testid="delivery-external-section">

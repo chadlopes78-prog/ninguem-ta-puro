@@ -136,7 +136,7 @@ export default async function FunnelsPage({ searchParams }: { searchParams: Prom
                         {row("Funil principal", isMain, isMain ? "Sim" : "Não")}
                         {row("Página de obrigado", isMain ? reqOk("thankYou") : true)}
                         {row("Número WhatsApp", reqOk("whatsapp"))}
-                        {row("Entrega", reqOk("delivery") && reqOk("deliveryContent"), info?.deliveryMethod === "EXTERNAL_LINK" ? "Link externo" : info?.deliveryMethod === "INTERNAL_PAGE" ? "Página interna" : "Por escolher")}
+                        {row("Entrega", reqOk("delivery") && reqOk("deliveryContent"), info?.deliveryMethod === "FILE" ? "Ficheiro (PDF)" : info?.deliveryMethod === "EXTERNAL_LINK" ? "Link externo" : info?.deliveryMethod === "INTERNAL_PAGE" ? "Página interna" : "Por escolher")}
                         {row("Conclusão", isMain && r.ready, STAGE_LABELS[r.stage])}
                       </ul>
                     );

@@ -16,7 +16,7 @@ import { OFFER_STEP_TYPES, type FunnelGraph, type GraphNode } from "@/lib/funnel
 import { buttonLabel, parseThankYouAction, parseThankYouDesign, whatsappLink, defaultThankYouDesign, type ThankYouDesign } from "@/lib/thank-you";
 import { getActivePaymentProviders } from "@/server/payments/registry";
 import { supportLink } from "@/lib/product-setup";
-import { accessTarget } from "./delivery";
+import { accessTarget, purchasedProducts } from "./delivery";
 import { audit } from "@/server/payments/confirm";
 import { toGraph } from "./funnels";
 import { chargeWithProvider, maskPhone, normalizeMzPhone, refreshPaymentStatus, resolvePaymentOption, listPaymentOptions, type PaymentOptionView } from "./payment-flow";
@@ -328,7 +328,7 @@ export async function getThankYouView(publicToken: string, opts: { refresh?: boo
   const root = await prisma.order.findUnique({
     where: { id: rootId },
     include: {
-      items: { include: { product: { select: { id: true, name: true, deliveryMethod: true, deliveryUrl: true, supportWhatsApp: true, supportMessage: true } } } },
+      items: { include: { product: { select: { id: true, name: true, deliveryMethod: true, deliveryUrl: true, deliveryFileId: true, supportWhatsApp: true, supportMessage: true } } } },
       delivery: { select: { token: true } },
       customer: { select: { name: true } },
       checkout: { select: { supportEmail: true, publicId: true, slug: true } },
@@ -355,7 +355,7 @@ export async function getThankYouView(publicToken: string, opts: { refresh?: boo
     if (wa) support = { href: wa, label: "Precisa de ajuda? Fale connosco no WhatsApp" };
     else if (action?.type === "whatsapp") support = { href: whatsappLink(action.phone, action.message), label: "Precisa de ajuda? Fale connosco no WhatsApp" };
     const target = product ? accessTarget(product, root.delivery?.token ?? null) : null;
-    if (target) [button, buttonKind] = [{ label: "Aceder ao meu produto", href: target.href, external: target.external }, target.kind === "internal" ? "access" : "link"];
+    if (target) [button, buttonKind] = [{ label: target.label, href: target.href, external: target.external }, target.kind === "file" ? "pdf" : target.kind === "internal" ? "access" : "link"];
     // configuração anterior (produtos sem método de entrega escolhido): mantém o comportamento antigo
     else if (action?.type === "whatsapp") [button, buttonKind] = [root.delivery ? { label: "Aceder ao meu produto", href: `/acesso/${root.delivery.token}`, external: false } : null, root.delivery ? "access" : null];
     else if (action?.type === "product" && action.delivery === "link") [button, buttonKind] = [{ label: buttonLabel(action), href: action.url, external: true }, "link"];
@@ -376,9 +376,19 @@ export async function getThankYouView(publicToken: string, opts: { refresh?: boo
     accessHref: u.status === "APPROVED" && u.delivery ? `/acesso/${u.delivery.token}` : null,
   }));
 
+  // Upsells/downsells PAGOS: cada um com o seu próprio acesso (método de entrega do produto comprado)
+  const purchase = state === "confirmed" ? await purchasedProducts(root.id) : null;
+  const extraProducts = (purchase?.products ?? [])
+    .filter((x) => x.orderCode !== root.code && x.action)
+    .map((x) => ({ name: x.name, kind: x.kind, label: x.action!.label, href: x.action!.href, external: x.action!.external, file: x.action!.kind === "file" }));
+
   return {
     state,
     code: root.code,
+    mainProductName: state === "confirmed" && button ? (product?.name ?? null) : null,
+    extraProducts,
+    /** Área de acesso pessoal com todos os produtos pagos desta compra */
+    accessAreaHref: state === "confirmed" && root.delivery ? `/acesso/${root.delivery.token}` : null,
     /** Conta dona da venda (para mostrar o nome do negócio dessa conta) */
     ownerId: root.ownerId,
     customerFirstName: root.customer.name.split(/\s+/)[0] ?? "",

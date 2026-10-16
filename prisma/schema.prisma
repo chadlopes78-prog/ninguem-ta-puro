@@ -152,6 +152,9 @@ model Product {
   supportMessage  String?
   /// Método de entrega escolhido pelo vendedor (obrigatório para publicar)
   deliveryMethod  DeliveryMethod?
+  /// Ficheiro privado entregue ao comprador (método FILE). Sempre um ficheiro deste produto.
+  deliveryFileId  String?
+  deliveryFile    ProductFile?       @relation("ProductDeliveryFile", fields: [deliveryFileId], references: [id], onDelete: SetNull)
   /// Funil principal do produto (o que segue o fluxo de compra do checkout principal). Sempre da mesma conta.
   mainFunnelId    String?
   mainFunnel      Funnel?            @relation("ProductMainFunnel", fields: [mainFunnelId], references: [id], onDelete: SetNull)
@@ -168,7 +171,7 @@ model Product {
   checkouts       Checkout[]
   orderItems      OrderItem[]
   coupons         CouponProduct[]
-  files           ProductFile[]
+  files           ProductFile[] @relation("ProductFiles")
   funnels         Funnel[]
 
   @@index([isDemo, status])
@@ -181,6 +184,8 @@ enum DeliveryMethod {
   EXTERNAL_LINK
   /// Página de entrega criada na própria plataforma (/entrega/<token>/<produto>)
   INTERNAL_PAGE
+  /// Ficheiro do produto (PDF) descarregado pelo acesso pessoal do comprador
+  FILE
 }
 
 /// Página de entrega interna de um produto. Só é mostrada a quem tem uma encomenda paga que inclua o produto.
@@ -390,7 +395,7 @@ model ThankYouPage {
 model ProductFile {
   id            String         @id @default(cuid())
   productId     String
-  product       Product        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product       Product        @relation("ProductFiles", fields: [productId], references: [id], onDelete: Cascade)
   filename      String
   mimeType      String
   sizeBytes     Int
@@ -399,6 +404,8 @@ model ProductFile {
   createdAt     DateTime       @default(now())
   thankYouPages ThankYouPage[]
   deliveryPages DeliveryPage[]
+  /// Produtos que entregam este ficheiro diretamente (método FILE)
+  deliveredBy   Product[]      @relation("ProductDeliveryFile")
 
   @@index([productId])
 }

@@ -1,3 +1,4 @@
+import { isValidDeliveryUrl } from "@/lib/product-setup";
 import { z } from "zod";
 import {
   checkbox,
@@ -50,6 +51,22 @@ export const productSchema = z.object({
   salesPageUrl: optionalUrl,
   supportEmail: optionalEmail,
   deliveryUrl: optionalUrl,
+  /**
+   * Entrega do produto (secção "Entrega do produto"): não enviado = mantém a configuração atual.
+   * FILE = ficheiro privado do produto; EXTERNAL_LINK = link de acesso (SaaS, área de membros…);
+   * INTERNAL_PAGE = página de entrega da plataforma (configurações anteriores, editada no funil).
+   */
+  deliveryMethod: z
+    .enum(["FILE", "EXTERNAL_LINK", "INTERNAL_PAGE", ""])
+    .optional()
+    .transform((v) => (v ? v : undefined)),
+  /** Link de acesso ao produto (método EXTERNAL_LINK). Vazio = ainda por indicar (produto incompleto). */
+  accessUrl: z
+    .string()
+    .trim()
+    .max(2000)
+    .optional()
+    .refine((v) => !v || isValidDeliveryUrl(v), "Link inválido. Use o endereço completo, ex.: https://meusite.com/app"),
 }).refine((p) => p.compareAtCents === undefined || p.compareAtCents > p.priceCents, {
   path: ["compareAtCents"],
   message: "O preço de referência deve ser superior ao preço principal",

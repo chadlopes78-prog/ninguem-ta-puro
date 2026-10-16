@@ -23,6 +23,12 @@ export interface ThankYouContentProps {
   buttonKind?: "pdf" | "link" | "whatsapp" | "access" | null;
   upsells?: { description: string; totalCents: number; status: string; accessHref: string | null }[];
   upsellNote?: string | null;
+  /** Nome do produto principal (mostrado com o botão de acesso) */
+  mainProductName?: string | null;
+  /** Upsells/downsells PAGOS: cada produto com o seu próprio acesso */
+  extraProducts?: { name: string; kind: "UPSELL" | "DOWNSELL" | "MAIN" | "ORDER_BUMP"; label: string; href: string; external: boolean; file: boolean }[];
+  /** Área de acesso pessoal (todos os produtos desta compra) */
+  accessAreaHref?: string | null;
   /** "Redirecionar para" configurado na etapa de obrigado (só com a compra confirmada) */
   continueUrl?: string | null;
   supportEmail?: string | null;
@@ -138,6 +144,11 @@ export function ThankYouContent(p: ThankYouContentProps) {
 
         {p.button && (
           <div className={cn("flex w-full flex-col gap-2", center ? "items-center" : "items-start")}>
+            {p.mainProductName && confirmed && (
+              <p className={cn("text-[13.5px]", muted)} data-testid="thank-you-product-name">
+                O seu produto: <strong className="font-semibold" style={{ color: fg }}>{p.mainProductName}</strong>
+              </p>
+            )}
             <a
               href={p.preview ? undefined : p.button.href}
               target={p.button.external ? "_blank" : undefined}
@@ -153,7 +164,40 @@ export function ThankYouContent(p: ThankYouContentProps) {
           </div>
         )}
 
-        {(p.upsells ?? []).filter((u) => u.accessHref).length > 0 && (
+        {confirmed && p.extraProducts && p.extraProducts.length > 0 && (
+          <ul className="flex w-full flex-col gap-2 text-left" data-testid="thank-you-extra-products">
+            {p.extraProducts.map((x, k) => (
+              <li key={k} className={cn("flex flex-col gap-3 rounded-xl border px-4 py-3 sm:flex-row sm:items-center sm:justify-between", card)}>
+                <span className="min-w-0">
+                  <span className={cn("block text-[11px] font-semibold uppercase tracking-[0.12em]", muted)}>{x.kind === "DOWNSELL" ? "Downsell" : x.kind === "UPSELL" ? "Upsell" : "Produto"}</span>
+                  <span className="block font-medium">{x.name}</span>
+                </span>
+                <a
+                  href={p.preview ? undefined : x.href}
+                  target={x.external ? "_blank" : undefined}
+                  rel={x.external ? "noopener noreferrer" : undefined}
+                  className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold"
+                  style={{ background: d.primaryColor, color: onPrimary }}
+                  data-testid="thank-you-extra-access"
+                >
+                  {x.file ? <Download className="h-4 w-4" aria-hidden="true" /> : <ExternalLink className="h-4 w-4" aria-hidden="true" />} {x.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {confirmed && p.accessAreaHref && (
+          <p className={cn("w-full rounded-xl border px-4 py-3 text-[13px] leading-relaxed", card, muted)} data-testid="thank-you-access-area">
+            Guarde o seu acesso:{" "}
+            <a href={p.preview ? undefined : p.accessAreaHref} className="font-semibold underline underline-offset-2" style={{ color: fg }}>
+              Os meus produtos
+            </a>{" "}
+            — um link pessoal com todos os produtos desta compra. Perdeu-o? Recupere em <span className="font-mono">/acesso</span> com o email e o código da encomenda.
+          </p>
+        )}
+
+        {!p.extraProducts && (p.upsells ?? []).filter((u) => u.accessHref).length > 0 && (
           <ul className="flex w-full flex-col gap-2">
             {p.upsells!.filter((u) => u.accessHref).map((u, k) => (
               <li key={k}>

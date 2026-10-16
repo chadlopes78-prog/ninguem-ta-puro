@@ -37,7 +37,9 @@ export async function createWizardFunnel(productId: string, scope: Scope, name?:
 export interface WizardSetup {
   support: { phone: string; message: string };
   delivery: {
-    method: "EXTERNAL_LINK" | "INTERNAL_PAGE" | null;
+    method: "FILE" | "EXTERNAL_LINK" | "INTERNAL_PAGE" | null;
+    /** Ficheiro entregue (método FILE) */
+    fileId: string | null;
     url: string;
     page: { title: string; welcome: string; instructions: string; bodyText: string; buttonText: string; resourceUrl: string; fileId: string | null };
   };
@@ -86,6 +88,7 @@ export async function getWizardFunnel(id: string, scope: Scope) {
       delivery: {
         method: product.deliveryMethod,
         url: product.deliveryUrl ?? "",
+        fileId: product.deliveryFileId,
         page: {
           title: product.deliveryPage?.title ?? "O seu produto está pronto",
           welcome: product.deliveryPage?.welcome ?? "",
@@ -142,6 +145,11 @@ export async function saveWizardFunnel(id: string, raw: unknown, scope: Scope): 
   if (pageFileId && !(await prisma.productFile.findFirst({ where: { id: pageFileId, productId: product.id } }))) {
     return { ok: false, error: "O ficheiro escolhido não pertence a este produto.", fieldErrors: { "delivery.page.fileId": "Ficheiro inválido" } };
   }
+  // Ficheiro entregue (método FILE): também tem de ser um ficheiro DESTE produto
+  const deliveryFileId = input.delivery.method === "FILE" ? input.delivery.fileId : null;
+  if (deliveryFileId && !(await prisma.productFile.findFirst({ where: { id: deliveryFileId, productId: product.id } }))) {
+    return { ok: false, error: "O ficheiro escolhido não pertence a este produto.", fieldErrors: { "delivery.fileId": "Ficheiro inválido" } };
+  }
   // Um funil não pode mudar de produto enquanto for o principal de um produto publicado
   if (f.productId !== product.id) {
     const mainOf = await prisma.product.findFirst({ where: { mainFunnelId: f.id, status: "PUBLISHED", ...own(scope) } });
@@ -151,6 +159,7 @@ export async function saveWizardFunnel(id: string, raw: unknown, scope: Scope): 
   if (product.status === "PUBLISHED" && (product.mainFunnelId === f.id || product.mainFunnelId === null)) {
     if (!input.support.phone) return { ok: false, error: "O produto está publicado: o número de suporte WhatsApp é obrigatório.", fieldErrors: { "support.phone": "Obrigatório" } };
     if (!input.delivery.method) return { ok: false, error: "O produto está publicado: escolha o método de entrega.", fieldErrors: { "delivery.method": "Obrigatório" } };
+    if (input.delivery.method === "FILE" && !deliveryFileId) return { ok: false, error: "O produto está publicado: carregue o ficheiro do produto.", fieldErrors: { "delivery.fileId": "Obrigatório" } };
     if (input.delivery.method === "EXTERNAL_LINK" && !input.delivery.url) return { ok: false, error: "O produto está publicado: indique o link de acesso ao produto.", fieldErrors: { "delivery.url": "Obrigatório" } };
     if (input.delivery.method === "INTERNAL_PAGE" && !internalPageHasContent({ fileId: pageFileId, resourceUrl: input.delivery.page.resourceUrl || null, bodyText: input.delivery.page.bodyText })) {
       return { ok: false, error: "O produto está publicado: a página de entrega precisa de um ficheiro, um link ou conteúdo.", fieldErrors: { "delivery.page.bodyText": "Configure o conteúdo entregue" } };
@@ -186,6 +195,7 @@ export async function saveWizardFunnel(id: string, raw: unknown, scope: Scope): 
         supportMessage: input.support.message || null,
         deliveryMethod: d.method,
         ...(d.method === "EXTERNAL_LINK" ? { deliveryUrl: d.url || null } : {}),
+        ...(d.method === "FILE" ? { deliveryFileId } : {}),
         ...(becomesMain ? { mainFunnelId: id } : {}),
       },
     });

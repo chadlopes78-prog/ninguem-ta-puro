@@ -14,8 +14,12 @@ test.describe.serial("Pixel da Meta", () => {
     });
     await login(page);
     await page.goto("/integracoes");
+    await expect(page.getByTestId("integration-meta").getByTestId("integration-status")).toHaveText("Por configurar");
+    await page.getByTestId("configure-meta").click();
+    await expect(page).toHaveURL(/\/integracoes\/meta$/);
+    await expect(page.getByRole("heading", { name: /Facebook Pixel \/ API de Conversões/ })).toBeVisible();
     const card = page.getByTestId("meta-integration");
-    await expect(card).toContainText("Facebook Pixel / API de Conversões");
+    await expect(card).toBeVisible();
     await expect(page.getByTestId("meta-status")).toHaveAttribute("data-status", "inactive");
     const f = page.getByTestId("meta-form-new");
     await f.getByLabel("ID do Pixel").fill("abc");
@@ -57,6 +61,9 @@ test.describe.serial("Pixel da Meta", () => {
     const page = await ctx.newPage();
     await login(page);
     await page.goto("/integracoes");
+    await expect(page.getByTestId("integration-meta")).toBeVisible();
+    await noHorizontalScroll(page);
+    await page.goto("/integracoes/meta");
     await expect(page.getByTestId("meta-integration")).toBeVisible();
     await noHorizontalScroll(page);
     await ctx.close();

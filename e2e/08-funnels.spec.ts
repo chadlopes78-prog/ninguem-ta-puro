@@ -101,7 +101,10 @@ test.describe.serial("funis: upsell e página de obrigado", () => {
     const summary = page.getByTestId("thank-you-summary");
     await expect(summary).toContainText("Ebook Moçambique");
     await expect(summary).toContainText("Guia Digital Renomeado");
-    await expect(page.getByRole("link", { name: /Aceder: Guia Digital Renomeado/ })).toBeVisible();
+    // o upsell pago tem o seu próprio acesso
+    const extra = page.getByTestId("thank-you-extra-products");
+    await expect(extra).toContainText("Guia Digital Renomeado");
+    await expect(extra.getByTestId("thank-you-extra-access")).toBeVisible();
   });
 
   test("página de entrega interna com PDF protegido: WhatsApp acima de ACEDER AO MEU PRODUTO; só o comprador pago descarrega", async ({ page, request }) => {

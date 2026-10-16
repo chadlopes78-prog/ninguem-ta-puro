@@ -1,5 +1,5 @@
 // Regras partilhadas (browser + servidor) da configuração obrigatória de um produto antes de publicar:
-// suporte via WhatsApp e entrega do produto (link externo OU página de entrega interna).
+// suporte via WhatsApp e entrega do produto (ficheiro, link de acesso ou página de entrega interna).
 // O servidor volta sempre a validar: o browser só ajuda a mostrar os erros mais cedo.
 import { z } from "zod";
 import { normalizeWhatsApp } from "./thank-you";
@@ -61,8 +61,10 @@ export type DeliveryPageInput = z.infer<typeof deliveryPageSchema>;
 export const deliverySchema = z
   .object({
     /** null = ainda por escolher (o produto fica incompleto) */
-    method: z.enum(["EXTERNAL_LINK", "INTERNAL_PAGE"]).nullable().default(null),
+    method: z.enum(["FILE", "EXTERNAL_LINK", "INTERNAL_PAGE"]).nullable().default(null),
     url: z.string().trim().max(2000).default(""),
+    /** Ficheiro entregue (método FILE): tem de ser um ficheiro do próprio produto (validado no servidor) */
+    fileId: z.string().regex(/^[a-z0-9]{10,40}$/i).nullable().default(null),
     page: deliveryPageSchema.default({}),
   })
   .strip()

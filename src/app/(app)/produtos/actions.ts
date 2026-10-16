@@ -6,8 +6,9 @@ import { assertId, formToObject, guarded, parseForm } from "@/server/actions";
 import { productSchema } from "@/server/validation/schemas";
 import { createProduct, duplicateProduct, publishProduct, setProductStatus, updateProduct } from "@/server/services/products";
 import { PublishBlockedError } from "@/server/services/product-readiness";
+import { removeProductDeliveryFile } from "@/server/services/product-files";
 
-const blockedMessage = (e: PublishBlockedError) => `Produto incompleto — não pode ser publicado. Falta: ${e.missing.map((m) => m.label.toLowerCase()).join(", ")}. Complete a configuração na aba Funis.`;
+const blockedMessage = (e: PublishBlockedError) => `Produto incompleto — não pode ser publicado. Falta: ${e.missing.map((m) => m.label.toLowerCase()).join(", ")}. Complete a configuração (entrega no produto; funil, obrigado e suporte na aba Funis).`;
 
 export async function saveProductAction(id: string | null, fd: FormData) {
   return guarded<{ id: string }>(async ({ scope }) => {
@@ -77,5 +78,14 @@ export async function publishProductAction(id: string) {
     revalidatePath("/produtos");
     revalidatePath("/funis");
     return { ok: true, message: "Produto publicado. O checkout já pode receber compras." };
+  });
+}
+
+/** Remove o ficheiro entregue do produto (secção "Entrega do produto"). */
+export async function removeDeliveryFileAction(id: string) {
+  return guarded(async ({ scope }) => {
+    await removeProductDeliveryFile(assertId(id), scope);
+    revalidatePath(`/produtos/${id}`);
+    return { ok: true, message: "Ficheiro removido." };
   });
 }
