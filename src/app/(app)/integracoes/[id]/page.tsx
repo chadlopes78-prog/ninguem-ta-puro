@@ -40,7 +40,7 @@ function GatewayConfig({ g, tz }: { g: GatewayView; tz: string }) {
         breadcrumbs={crumbs(g.name)}
         title={
           <span className="flex flex-wrap items-center gap-3">
-            <IntegrationLogo id={g.id} className="h-9 w-9" />
+            <IntegrationLogo id={g.id} className="h-10 w-14" />
             {g.name}
           </span>
         }
@@ -172,7 +172,7 @@ async function MetaConfig({ userId, tz }: { userId: string; tz: string }) {
         breadcrumbs={crumbs("Facebook Pixel")}
         title={
           <span className="flex flex-wrap items-center gap-3">
-            <IntegrationLogo id="meta" className="h-9 w-9" />
+            <IntegrationLogo id="meta" className="h-10 w-14" />
             Facebook Pixel / API de Conversões
           </span>
         }

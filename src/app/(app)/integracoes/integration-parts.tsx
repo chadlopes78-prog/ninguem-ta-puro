@@ -1,7 +1,7 @@
 // Partes partilhadas da aba Integrações (visão geral + páginas de configuração). Componentes de servidor:
 // nunca recebem nem mostram valores de credenciais — apenas fragmentos mascarados vindos do servidor.
 import { randomBytes } from "crypto";
-import { CheckCircle2, CreditCard, Facebook, Smartphone, XCircle, type LucideIcon } from "lucide-react";
+import { CheckCircle2, XCircle } from "lucide-react";
 import type { GatewayStatus } from "@/server/payments/gateways";
 import type { GatewayView } from "@/server/services/integrations";
 import type { Tone } from "@/components/ui/badge";
@@ -10,18 +10,19 @@ import { cn } from "@/lib/utils";
 
 export const STATUS_TONE: Record<GatewayStatus, Tone> = { active: "success", inactive: "neutral", credentials_missing: "warning", config_error: "danger", unverified: "warning" };
 
-export const INTEGRATION_ICON: Record<string, { icon: LucideIcon; bg: string; fg: string }> = {
-  epay: { icon: CreditCard, bg: "#0f766e22", fg: "#2dd4bf" },
-  e2payments: { icon: Smartphone, bg: "#c2410c22", fg: "#fb923c" },
-  meta: { icon: Facebook, bg: "#1d4ed822", fg: "#60a5fa" },
+/** Logótipos oficiais (fundo transparente, em /public/integrations), apresentados num quadrado claro. */
+export const INTEGRATION_LOGO: Record<string, { src: string; alt: string }> = {
+  epay: { src: "/integrations/epay.png", alt: "EPay" },
+  e2payments: { src: "/integrations/e2payments.png", alt: "E2Payments" },
+  meta: { src: "/integrations/facebook.png", alt: "Facebook" },
 };
 
 export function IntegrationLogo({ id, className }: { id: string; className?: string }) {
-  const v = INTEGRATION_ICON[id] ?? INTEGRATION_ICON.epay;
-  const Icon = v.icon;
+  const logo = INTEGRATION_LOGO[id] ?? INTEGRATION_LOGO.epay;
   return (
-    <span className={cn("grid h-11 w-11 shrink-0 place-items-center rounded-[var(--radius-md)]", className)} style={{ background: v.bg, color: v.fg }} aria-hidden="true">
-      <Icon className="h-5 w-5" />
+    <span className={cn("grid h-12 w-16 shrink-0 place-items-center rounded-[var(--radius-md)] border border-black/5 bg-white p-1.5 shadow-sm", className)} data-testid={`logo-${id}`}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={logo.src} alt={logo.alt} className="max-h-full max-w-full object-contain" loading="lazy" decoding="async" />
     </span>
   );
 }

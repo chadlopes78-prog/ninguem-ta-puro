@@ -18,6 +18,12 @@ test.describe.serial("gateways de pagamento", () => {
     await expect(page.getByTestId("integration-epay").getByTestId("integration-status")).toHaveText("Credenciais por configurar");
     await expect(cardE2.getByTestId("integration-status")).toHaveText("Credenciais por configurar");
     await expect(cardE2.getByRole("button", { name: "Ativar" })).toBeDisabled();
+    // logótipos oficiais carregados (fundo transparente)
+    for (const id of ["epay", "e2payments", "meta"]) {
+      const img = page.getByTestId(`logo-${id}`).locator("img");
+      await expect(img).toBeVisible();
+      expect(await img.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth > 0)).toBe(true);
+    }
     // a página principal não mostra formulários nem credenciais
     await expect(page.getByLabel("Client Secret")).toHaveCount(0);
     await cardE2.getByTestId("configure-e2payments").click();
