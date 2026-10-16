@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Bell, BellRing, CircleAlert, Clock, CreditCard, FlaskConical, History, RotateCcw, Settings2, TrendingUp, type LucideIcon } from "lucide-react";
+import { Bell, BellRing, CircleAlert, Clock, CreditCard, FlaskConical, History, RotateCcw, Settings2, ShieldAlert, TrendingUp, type LucideIcon } from "lucide-react";
 import type { NotificationType } from "@prisma/client";
 import { requireUser } from "@/server/auth/session";
 import { getScope } from "@/server/services/settings";
@@ -28,6 +28,7 @@ const TYPE_ICON: Record<NotificationType, { icon: LucideIcon; tone: string }> = 
   REFUND_CONFIRMED: { icon: RotateCcw, tone: "text-info bg-info/10" },
   DAILY_SUMMARY: { icon: CreditCard, tone: "text-accent bg-accent/10" },
   TEST: { icon: FlaskConical, tone: "text-muted bg-surface-3" },
+  ACCOUNT_ALERT: { icon: ShieldAlert, tone: "text-warning bg-warning/10" },
 };
 
 const PUSH_LABEL: Record<string, { label: string; tone: Tone } | null> = {

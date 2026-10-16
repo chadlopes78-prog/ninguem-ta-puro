@@ -14,7 +14,7 @@ import { newOrderCode, newRunId } from "@/lib/ids";
 import { advanceToInteractive, nextKey } from "@/lib/funnels/simulate";
 import { OFFER_STEP_TYPES, type FunnelGraph, type GraphNode } from "@/lib/funnels/types";
 import { buttonLabel, parseThankYouAction, parseThankYouDesign, whatsappLink, defaultThankYouDesign, type ThankYouDesign } from "@/lib/thank-you";
-import { getActivePaymentProviders } from "@/server/payments/registry";
+import { credentialOwnerOf, getActivePaymentProviders } from "@/server/payments/registry";
 import { supportLink } from "@/lib/product-setup";
 import { accessTarget, purchasedProducts } from "./delivery";
 import { publishedThankYou } from "./thank-you-custom";
@@ -264,7 +264,7 @@ export async function acceptUpsell(runId: string, stepKey: string, input: { meth
       });
       const reference = `${order.code}-${token().slice(0, 8)}`;
       const payment = await tx.payment.create({
-        data: { orderId: order.id, provider: provider.id, method: method?.id ?? null, environment, phoneMasked: phone ? maskPhone(phone) : null, amountCents: offer.priceCents, currency: offer.currency, status: "CREATED", idempotencyKey: reference },
+        data: { orderId: order.id, provider: provider.id, credentialOwnerId: credentialOwnerOf(provider), method: method?.id ?? null, environment, phoneMasked: phone ? maskPhone(phone) : null, amountCents: offer.priceCents, currency: offer.currency, status: "CREATED", idempotencyKey: reference },
       });
       await audit(tx, order.id, null, "PENDING", "funnel-upsell", `Upsell aceite (compra inicial ${root.code}); pagamento iniciado`);
       return { orderId: order.id, orderCode: order.code, publicToken, paymentId: payment.id, reference, ownerId: root.ownerId };

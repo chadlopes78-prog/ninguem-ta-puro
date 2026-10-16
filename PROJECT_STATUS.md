@@ -1,6 +1,6 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-16 · Sessão 21 (página de obrigado personalizada; área Operações com abas; Dashboard com atividades de hoje e metas de faturamento; logótipos sem fundo) · Sessão 20 (modo simples: vender sem funil; logótipos nas Integrações) · Sessão 19 (entrega do produto PDF/link no produto, área «Os meus produtos», recuperação de acesso, Integrações em cartões) · Sessão 18 (funis: entrada única, várias ofertas, páginas externas com código de integração, obrigado externo) · Sessão 17 (Facebook Pixel / API de Conversões) · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
+Última atualização: 2026-10-16 · Sessão 21 (página de obrigado personalizada; área Operações com abas; Dashboard com atividades de hoje e metas de faturamento; partilha das credenciais de pagamento do administrador; logótipos sem fundo) · Sessão 20 (modo simples: vender sem funil; logótipos nas Integrações) · Sessão 19 (entrega do produto PDF/link no produto, área «Os meus produtos», recuperação de acesso, Integrações em cartões) · Sessão 18 (funis: entrada única, várias ofertas, páginas externas com código de integração, obrigado externo) · Sessão 17 (Facebook Pixel / API de Conversões) · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
 
 ## Estado geral
 
@@ -26,6 +26,67 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | 5 — Operação | ✅ Concluída | Pedidos (filtros, detalhe, transições), clientes, cupões (com testador), relatórios |
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
+
+## Partilha das credenciais de pagamento do administrador (sessão 21)
+
+**O que faz.** O administrador (conta proprietária) pode autorizar um utilizador concreto a cobrar os **seus próprios produtos** com a EPay e/ou a E2Payments do administrador. Cada utilizador continua a poder configurar, ativar e gerir as suas próprias credenciais, como antes. A partilha é apenas uma opção adicional e nunca é global.
+
+**Onde o administrador concede e revoga.**
+- Administração → **Integrações partilhadas** (`/admin/integracoes`). Também se chega por Integrações → «Partilhar acesso às minhas credenciais de pagamento», onde aparecem os pedidos de remoção pendentes.
+- A página tem:
+  - lista de utilizadores aprovados, com pesquisa por nome, email ou identificação;
+  - para o utilizador escolhido: nome, email e caixas EPay / E2Payments, com o estado do gateway na conta do administrador, e o botão «Conceder acesso»;
+  - lista das permissões concedidas: Ativa ou Revogada, «Remoção solicitada», datas e botão «Revogar» com confirmação.
+- Cada autorização é individual (utilizador + método). Revogar uma não afeta as outras. Voltar a conceder cria um novo registo e o histórico fica guardado.
+
+**Onde o utilizador autorizado vê a integração.**
+- Integrações → cartões acima das suas próprias integrações. Mostram o estado («Ativo», «Indisponível de momento» se o gateway do administrador estiver desligado, ou «Remoção solicitada») e as linhas «Método disponibilizado pelo administrador.» e «Credenciais: Geridas pelo administrador.».
+- Não há campos, link de configuração nem valores.
+- «Solicitar remoção do acesso» abre uma confirmação. Depois regista o pedido, notifica o administrador (nova notificação «Alerta da conta») e mostra «Remoção solicitada». Não revoga: o administrador decide.
+
+**Como funciona nos pagamentos** (alteração mínima autorizada pelo proprietário):
+1. `registry.getActivePaymentProviders(conta)`:
+   - usa as credenciais da própria conta, como até agora;
+   - só quando a conta não tem esse gateway ativo **e** tem uma autorização ATIVA dada pela conta OWNER aprovada **e** o gateway do administrador aceita pagamentos, cria o fornecedor com as credenciais do administrador.
+   As credenciais próprias ativas têm sempre prioridade.
+2. Ao criar o pagamento (checkout e upsell/downsell), grava em `Payment.credentialOwnerId` de que conta são as credenciais. `null` significa as da conta dona da encomenda, como em todos os pagamentos antigos.
+3. A consulta de estado, o cancelamento, a verificação manual e o aviso (webhook) da EPay carregam a chave pela conta gravada no pagamento (`getProviderForPayment`).
+   - A verificação HMAC, os payloads, os URLs, a idempotência e `confirm.ts` não mudaram.
+   - A encomenda continua da conta do vendedor, por isso `applyPaymentStatus` continua a exigir que pertença a essa conta.
+4. A venda, o produto, o faturamento, o Dashboard, os relatórios, as notificações de venda e a entrega ficam no vendedor (`Order.ownerId`). O administrador não recebe a venda.
+5. **Revogar** impede novos pagamentos de imediato. Os pagamentos já iniciados continuam a ser confirmados com as credenciais gravadas.
+6. **Sem levantamentos**: não foi criado nenhum botão, página, endpoint ou mecanismo de saque ou transferência.
+
+**Proteção das credenciais.**
+- As credenciais nunca saem do servidor. `listSharedForUser` devolve apenas id, gateway, nome, datas e um booleano de disponibilidade. Não devolve chaves, tokens, segredos nem o id do administrador.
+- As ações do administrador usam `requireOwner` e o serviço volta a verificar `canAdminister`. Para outras contas, `/admin/integracoes` responde 404.
+- O pedido de remoção só aceita autorizações do próprio utilizador. O id do utilizador vem sempre da sessão, nunca do browser.
+- Os registos (IntegrationLog) não contêm valores.
+
+**Dados.** Migração aditiva `20261101090000_payment_credential_grants`:
+- tabela `PaymentCredentialGrant` (quem concedeu, utilizador, método, estado, data de concessão, data de revogação, data do pedido de remoção), com índice único parcial: uma autorização ativa por utilizador e método;
+- coluna `Payment.credentialOwnerId`, nula nos dados existentes;
+- valor `ACCOUNT_ALERT` no tipo de notificação.
+
+**Ficheiros.**
+- Novos: `src/server/services/credential-grants.ts`, `src/app/(app)/admin/integracoes/page.tsx`, `src/components/admin/grant-form.tsx`.
+- Alterados:
+  - `src/server/payments/registry.ts`, `src/server/payments/webhooks.ts` (só a conta da chave);
+  - `src/server/services/payment-flow.ts`, `orders.ts`, `post-purchase.ts`, `purchase.ts` (comentário);
+  - `src/app/(app)/integracoes/page.tsx` e `actions.ts`, `src/app/(app)/admin/actions.ts`;
+  - `src/components/admin/admin-ui.tsx` (entrada no menu da Administração);
+  - `src/lib/notifications.ts` e a página Notificações (novo tipo).
+
+**Testes.**
+- `tests/integration/credential-grants.test.ts` (7 testes):
+  - credenciais próprias sem autorização;
+  - EPay partilhada: cobra com a chave do administrador; o aviso assinado com a chave do vendedor é rejeitado e com a do administrador é aceite; venda e notificação no vendedor; nada no administrador; sem segredos nas respostas nem nos registos;
+  - prioridade das credenciais próprias;
+  - E2Payments partilhada com outra utilizadora; quem não tem autorização não a usa;
+  - revogação com o pagamento em curso confirmado, sem afetar outros utilizadores;
+  - pedido de remoção (notificação única, não revoga, isolamento);
+  - permissões: só o administrador; não a si próprio nem a contas pendentes; métodos inválidos recusados.
+- `e2e/23-shared-credentials.spec.ts`: conceder, ver sem credenciais, pedir remoção, ver o pedido, revogar, 404 para quem não é administrador, telemóvel.
 
 ## Dashboard: atividades de hoje e metas de faturamento (sessão 21)
 
@@ -1048,10 +1109,11 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 - `next lint` está obsoleto no Next 15.5; o script `lint` usa o ESLint CLI diretamente.
 - Os testes não usam `prisma migrate reset` (bloqueado pelo Prisma para agentes de IA); a BD de teste é limpa com `TRUNCATE` (apenas quando `DATABASE_URL` contém `/ntp_test`).
 - O seletor de "pedidos manuais de teste" no modo real só permite Pendente/Recusado/Cancelado — intencional.
+- **Sessão 21: base de desenvolvimento local (`ntp`) deste contentor sem histórico de migrações.** Uma verificação `prisma migrate diff --shadow-database-url` foi feita, por engano, com o URL da base de desenvolvimento como base sombra: o URL tem `?schema=public` e a troca do nome da base não funcionou. Essa base foi recriada e ficou vazia, com o esquema atual mas sem a tabela `_prisma_migrations`, por isso `migrate deploy` dá P3005. A produção (Vercel) e a base de testes (`ntp_test`) não foram afetadas. Correção, a fazer por quem administra o ambiente (as duas tentativas automáticas foram bloqueadas pelas regras de segurança da sessão): `npx prisma migrate resolve --applied <migração>` para cada pasta de `prisma/migrations`, ou recriar a base vazia e correr `npx prisma migrate deploy`. Para a verificação com base sombra, usar sempre um URL que termine explicitamente em `/ntp_shadow`; sem base sombra, comparar só para leitura com `npx prisma migrate diff --from-url <URL de ntp_test> --to-schema-datamodel prisma/schema.prisma`.
 
 ## Registo de sessões
 
-- **Sessão 21 (2026-10-16)**: página de obrigado personalizada em Personalizar Checkout (rascunho, pré-visualização, publicação e restauro; botão ligado à entrega real; com e sem funil); área **Operações** com uma única entrada no menu e abas Pedidos/Clientes/Relatórios/Notificações (rotas antigas preservadas); logótipos das Integrações sem fundo; **Dashboard**: atividades recentes só do dia atual no fuso da conta (data real de cada evento) e barra de meta de faturamento (10 mil → 1 milhão MZN) com celebrações únicas guardadas por utilizador. Migrações aditivas `CheckoutThankYou` e `RevenueMilestone`. 327 testes unitários/integração e 143 E2E a passar.
+- **Sessão 21 (2026-10-16)**: página de obrigado personalizada em Personalizar Checkout (rascunho, pré-visualização, publicação e restauro; botão ligado à entrega real; com e sem funil); área **Operações** com uma única entrada no menu e abas Pedidos/Clientes/Relatórios/Notificações (rotas antigas preservadas); logótipos das Integrações sem fundo; **Dashboard**: atividades recentes só do dia atual no fuso da conta (data real de cada evento) e barra de meta de faturamento (10 mil → 1 milhão MZN) com celebrações únicas guardadas por utilizador. **Partilha das credenciais de pagamento do administrador** por utilizador e método (EPay/E2Payments), sem expor credenciais, com venda e faturamento no vendedor, revogação só para novos pagamentos e pedidos de remoção. Migrações aditivas `CheckoutThankYou`, `RevenueMilestone` e `PaymentCredentialGrant` (+ `Payment.credentialOwnerId`). 334 testes unitários/integração e 147 E2E a passar.
 - **Sessão 20 (2026-10-16)**: logótipos oficiais (fundo removido) na aba Integrações; **modo simples** — publicar só exige produto, checkout e entrega (funil, página de obrigado e WhatsApp opcionais, no servidor e na interface); sem funil, o comprador vai do pagamento confirmado diretamente para a página de acesso ao produto. Funis, upsell e downsell inalterados. Sem migração. 308 testes unitários/integração e E2E completos a passar.
 - **Sessão 19 (2026-10-16)**: «Entrega do produto» no formulário do produto (PDF carregado do dispositivo, privado, substituir/remover; ou link de acesso validado para SaaS/área de membros), entrega automática só depois do pagamento confirmado com o acesso de cada produto pago (principal, upsell, downsell) na página de obrigado e na área «Os meus produtos», recuperação do acesso em `/acesso` (email + código ou telemóvel), aba Integrações em cartões com páginas de configuração por integração. Migração aditiva (`FILE`, `deliveryFileId`); EPay/E2Payments/webhooks/checkout intactos. 303 testes unitários/integração e 129 E2E a passar.
 - **Sessão 18 (2026-10-16)**: área de Funis com entrada única «Funil avançado» (removido «Criar funil»), editor com mapa do fluxo, vários upsells/downsells com destinos por aceitar/recusar, link de página externa por etapa com código de integração (`/ntp-funil.js` + `POST /api/public/funil/v1/aceitar|recusar`, validação de percurso e etapa no servidor), página de obrigado do site ou externa, paleta do editor antigo sem Checkout principal/Página de vendas/Oferta adicional (etapas existentes preservadas). Vendas de upsell/downsell continuam encomendas próprias confirmadas só pelo gateway. Sem migração; EPay/E2Payments/webhooks/confirmação intactos. 294 testes unitários/integração e 124 E2E a passar.

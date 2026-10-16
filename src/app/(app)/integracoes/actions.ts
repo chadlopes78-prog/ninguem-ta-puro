@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { guarded } from "@/server/actions";
+import { assertId, guarded } from "@/server/actions";
 import { checkIntegration, isGatewayId, setGatewayEnabled, testGatewayConnection, updateE2Credentials, updateEPayCredentials } from "@/server/services/integrations";
 import { reconcilePendingPayments } from "@/server/services/payment-flow";
 import { deleteMetaPixel, saveMetaPixel, setMetaPixelsEnabled } from "@/server/services/meta-capi";
@@ -105,5 +105,15 @@ export async function setMetaEnabledAction(enabled: boolean) {
     revalidatePath("/integracoes", "layout");
     if (!n) return { ok: false, error: "Configure primeiro um Pixel." };
     return { ok: true, message: enabled ? "Pixel da Meta ativado." : "Pixel da Meta desativado. Nenhum evento é enviado." };
+  });
+}
+
+/** Integração disponibilizada pelo administrador: o utilizador só pode pedir a remoção (o administrador decide). */
+export async function requestGrantRemovalAction(grantId: string) {
+  return guarded(async ({ user }) => {
+    const { requestGrantRemoval } = await import("@/server/services/credential-grants");
+    await requestGrantRemoval(user.id, assertId(grantId));
+    revalidatePath("/integracoes");
+    return { ok: true, message: "Pedido enviado. O administrador foi informado." };
   });
 }

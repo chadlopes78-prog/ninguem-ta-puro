@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ChevronRight, Plug, Settings2 } from "lucide-react";
+import { ChevronRight, KeyRound, Plug, Settings2, ShieldCheck } from "lucide-react";
 import { requireUser } from "@/server/auth/session";
 import { getSettings } from "@/server/services/settings";
 import { listGateways, recentIntegrationLogs } from "@/server/services/integrations";
+import { listSharedForUser, pendingRemovalRequests } from "@/server/services/credential-grants";
+import { canAdminister } from "@/server/auth/policy";
 import { listMetaPixels } from "@/server/services/meta-capi";
 import { scopeOf } from "@/server/scope";
 import { formatDate } from "@/lib/utils";
@@ -12,7 +14,7 @@ import { Card } from "@/components/ui/card";
 import { Badge, type Tone } from "@/components/ui/badge";
 import { ActionButton } from "@/components/ui/action-button";
 import { IntegrationLogo, STATUS_TONE } from "./integration-parts";
-import { setGatewayEnabledAction, setMetaEnabledAction } from "./actions";
+import { requestGrantRemovalAction, setGatewayEnabledAction, setMetaEnabledAction } from "./actions";
 
 export const metadata: Metadata = { title: "Integrações" };
 export const dynamic = "force-dynamic";
@@ -77,7 +79,16 @@ function IntegrationCard({ c }: { c: CardData }) {
 export default async function IntegrationsPage() {
   const user = await requireUser();
   // integrações e registos apenas da conta autenticada
-  const [gateways, logs, settings, pixels] = await Promise.all([listGateways(user.id), recentIntegrationLogs(user.id), getSettings(user.id), listMetaPixels(scopeOf(user.id, false))]);
+  const isAdmin = canAdminister(user);
+  const [gateways, logs, settings, pixels, shared, removalRequests] = await Promise.all([
+    listGateways(user.id),
+    recentIntegrationLogs(user.id),
+    getSettings(user.id),
+    listMetaPixels(scopeOf(user.id, false)),
+    // integrações disponibilizadas pelo administrador (só estado; nunca credenciais)
+    isAdmin ? Promise.resolve([]) : listSharedForUser(user.id),
+    pendingRemovalRequests(user),
+  ]);
   const tz = settings.timezone;
   const metaActive = pixels.some((p) => p.enabled && p.productIds.length > 0);
   const payments: CardData[] = gateways.map((g) => ({
@@ -98,7 +109,8 @@ export default async function IntegrationsPage() {
       toggle: pixels.length ? { enabled: pixels.some((p) => p.enabled), action: setMetaEnabledAction.bind(null, !pixels.some((p) => p.enabled)), name: "o Pixel da Meta" } : undefined,
     },
   ];
-  const activePayments = gateways.filter((g) => g.status === "active").length;
+  const ownActive = new Set(gateways.filter((g) => g.status === "active").map((g) => g.id as string));
+  const activePayments = new Set([...ownActive, ...shared.filter((s) => s.available).map((s) => s.provider)]).size;
 
   return (
     <>
@@ -113,11 +125,66 @@ export default async function IntegrationsPage() {
             {activePayments ? `${activePayments} gateway(s) ativo(s) no checkout` : "Nenhum gateway ativo: o checkout não aceita pagamentos"}
           </p>
         </div>
+        {shared.length > 0 && (
+          <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2" data-testid="shared-integrations">
+            {shared.map((s) => (
+              <Card key={s.id} className="flex h-full flex-col gap-4 border-accent/25 p-5" data-testid={`shared-${s.provider}`}>
+                <div className="flex items-start gap-3">
+                  <IntegrationLogo id={s.provider} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h3 className="font-display text-[15px] font-semibold text-fg">{s.name}</h3>
+                      <Badge tone={s.removalRequestedAt ? "warning" : s.available ? "success" : "neutral"} dot>
+                        <span data-testid="shared-status">{s.removalRequestedAt ? "Remoção solicitada" : s.available ? "Ativo" : "Indisponível de momento"}</span>
+                      </Badge>
+                    </div>
+                    <p className="mt-1 text-[13px] leading-snug text-muted">Método disponibilizado pelo administrador.</p>
+                    <p className="mt-1 flex items-center gap-1.5 text-[12.5px] text-subtle">
+                      <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" /> Credenciais: Geridas pelo administrador.
+                    </p>
+                    {ownActive.has(s.provider) && <p className="mt-1 text-[12px] text-subtle">As suas próprias credenciais {s.name} estão ativas e têm prioridade no checkout.</p>}
+                  </div>
+                </div>
+                <div className="mt-auto flex flex-wrap items-center gap-2">
+                  {s.removalRequestedAt ? (
+                    <p className="text-[12.5px] text-muted" data-testid="shared-removal-requested">Pedido enviado ao administrador em {formatDate(s.removalRequestedAt, tz, true)}.</p>
+                  ) : (
+                    <ActionButton
+                      size="sm"
+                      variant="ghost"
+                      className="h-10"
+                      action={requestGrantRemovalAction.bind(null, s.id)}
+                      confirm={{ title: "Solicitar remoção do acesso", description: "Tem a certeza de que deseja solicitar a remoção desta integração? O administrador será informado.", confirmLabel: "Solicitar remoção" }}
+                      data-testid={`shared-request-removal-${s.provider}`}
+                    >
+                      Solicitar remoção do acesso
+                    </ActionButton>
+                  )}
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {payments.map((c) => (
             <IntegrationCard key={c.id} c={c} />
           ))}
         </div>
+        {isAdmin && (
+          <Link
+            href="/admin/integracoes"
+            className="mt-4 flex min-h-14 items-center gap-3 rounded-[var(--radius-lg)] border border-line bg-surface px-5 py-3 hover:bg-surface-2"
+            data-testid="share-credentials-link"
+          >
+            <KeyRound className="h-5 w-5 shrink-0 text-accent" aria-hidden="true" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[14px] font-medium text-fg">Partilhar acesso às minhas credenciais de pagamento</span>
+              <span className="block text-[12.5px] text-muted">Autorize utilizadores a cobrar os seus produtos com a sua EPay ou E2Payments, sem verem as credenciais.</span>
+            </span>
+            {removalRequests > 0 && <Badge tone="warning">{removalRequests} pedido(s) de remoção</Badge>}
+            <ChevronRight className="h-4 w-4 shrink-0 text-subtle" aria-hidden="true" />
+          </Link>
+        )}
       </section>
 
       <section aria-labelledby="tracking-title" className="mt-8">

@@ -23,6 +23,7 @@ export const TYPE_PREFERENCE: Record<NotificationType, PreferenceKey | null> = {
   REFUND_CONFIRMED: "refunds",
   DAILY_SUMMARY: "dailySummary",
   TEST: null,
+  ACCOUNT_ALERT: null,
 };
 
 export const PREFERENCE_LABELS: Record<PreferenceKey, { label: string; description: string }> = {
@@ -40,6 +41,7 @@ export const TYPE_LABELS: Record<NotificationType, string> = {
   REFUND_CONFIRMED: "Reembolso",
   DAILY_SUMMARY: "Resumo diário",
   TEST: "Teste",
+  ACCOUNT_ALERT: "Alerta da conta",
 };
 
 export function isAllowed(prefs: NotificationPrefs, type: NotificationType): boolean {

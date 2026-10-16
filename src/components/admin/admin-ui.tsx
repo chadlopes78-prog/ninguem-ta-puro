@@ -21,6 +21,7 @@ const LINKS = [
   { href: "/admin/utilizadores?estado=pending", label: "Aprovações pendentes" },
   { href: "/admin/utilizadores?estado=approved", label: "Contas aprovadas" },
   { href: "/admin/utilizadores?estado=banned", label: "Contas suspensas" },
+  { href: "/admin/integracoes", label: "Integrações partilhadas" },
 ];
 
 export function AdminNav({ current }: { current: string }) {

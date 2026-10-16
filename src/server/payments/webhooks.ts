@@ -87,14 +87,16 @@ export async function handleProviderWebhook(providerId: string, rawBody: string,
   const { epayUnverifiedPaymentId } = await import("./providers/epay");
   const externalId = epayUnverifiedPaymentId(rawBody);
   const payment = externalId
-    ? await prisma.payment.findUnique({ where: { provider_externalId: { provider: "epay", externalId } }, select: { order: { select: { ownerId: true } } } })
+    ? await prisma.payment.findUnique({ where: { provider_externalId: { provider: "epay", externalId } }, select: { credentialOwnerId: true, order: { select: { ownerId: true } } } })
     : null;
   if (!payment) {
     await prisma.integrationLog.create({ data: { provider: "epay", level: "warn", message: "Aviso de pagamento para uma transação desconhecida: ignorado (não verificável)." } });
     return { status: 404, body: { error: "unknown payment" }, result: "unknown_payment" };
   }
   const ownerId = payment.order.ownerId;
-  const provider = await getProvider("epay", ownerId);
+  // Chave da conta cujas credenciais iniciaram o pagamento (partilha do administrador) ou, como até agora, da
+  // conta dona da encomenda. A verificação HMAC e a aplicação do estado não mudam; a encomenda continua da sua conta.
+  const provider = await getProvider("epay", payment.credentialOwnerId ?? ownerId);
   if (!provider || !provider.isConfigured()) return { status: 404, body: { error: "provider not configured" }, result: "not_configured" };
   return handleWebhook(provider, rawBody, headers, { ownerId });
 }

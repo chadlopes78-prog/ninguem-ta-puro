@@ -100,7 +100,7 @@ export async function submitCheckout(publicId: string, raw: Record<string, unkno
 
   if (!c.isDemo) {
     // Modo real: sem processador configurado, não se cria cobrança nem se aprova nada.
-    // Gateways da conta dona do checkout: nunca as credenciais de outra conta
+    // Gateways da conta dona do checkout (ou do administrador, só com autorização ativa — ver registry)
     if (!(await paymentsEnabled(c.ownerId))) {
       await trackEvent({ type: EVENT_TYPES.CHECKOUT_PAYMENT_UNAVAILABLE, ownerId: c.ownerId, isDemo: false, checkoutId: c.id, sessionId: session?.id });
       return { kind: "payments_unavailable", message: PAYMENTS_UNAVAILABLE_MESSAGE };

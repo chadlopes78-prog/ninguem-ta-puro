@@ -54,3 +54,40 @@ export async function adminResetLinkAction(userId: string): Promise<ActionResult
   revalidatePath(`/admin/utilizadores/${id}`);
   return { ok: true, data: { link }, message: "Link gerado (válido 30 minutos, uso único). Envie-o ao utilizador por um canal de confiança." };
 }
+
+// ───── Partilha das credenciais de pagamento do administrador ─────
+// Só a conta proprietária (requireOwner + verificação no serviço). Nenhuma ação devolve credenciais.
+
+async function grantsAction(fn: () => Promise<string>): Promise<ActionResult> {
+  try {
+    const message = await fn();
+    revalidatePath("/admin/integracoes");
+    revalidatePath("/integracoes", "layout");
+    return { ok: true, message };
+  } catch (e) {
+    unstable_rethrow(e);
+    if (e instanceof DomainError || e instanceof NotFoundError) return { ok: false, error: e.message };
+    console.error("[admin] partilha de credenciais", e instanceof Error ? e.message : "erro");
+    return { ok: false, error: "Ocorreu um erro inesperado. Tente novamente." };
+  }
+}
+
+export async function grantCredentialsAction(userId: string, providers: string[]): Promise<ActionResult> {
+  const actor = await requireOwner();
+  const { grantCredentials, GATEWAY_NAMES } = await import("@/server/services/credential-grants");
+  return grantsAction(async () => {
+    const r = await grantCredentials(actor, assertId(userId), providers);
+    const names = (ids: string[]) => ids.map((i) => GATEWAY_NAMES[i as keyof typeof GATEWAY_NAMES]).join(" e ");
+    if (!r.created.length) return `O utilizador já tinha acesso a ${names(r.existing)}.`;
+    return `Acesso concedido: ${names(r.created)}.${r.existing.length ? ` (${names(r.existing)} já estava ativo.)` : ""}`;
+  });
+}
+
+export async function revokeGrantAction(grantId: string): Promise<ActionResult> {
+  const actor = await requireOwner();
+  const { revokeGrant } = await import("@/server/services/credential-grants");
+  return grantsAction(async () => {
+    await revokeGrant(actor, assertId(grantId));
+    return "Acesso revogado. Novos pagamentos deste utilizador deixam de usar as suas credenciais.";
+  });
+}

@@ -35,14 +35,14 @@ enum AccountStatus {
 }
 
 model User {
-  id                     String                  @id @default(cuid())
-  email                  String                  @unique
+  id                     String                   @id @default(cuid())
+  email                  String                   @unique
   name                   String
   passwordHash           String
   /// OWNER só é atribuído por migração/script no servidor (índice único parcial: no máximo um OWNER). Nunca pela API.
-  role                   UserRole                @default(USER)
+  role                   UserRole                 @default(USER)
   /// Estado de aprovação. Contas novas começam sempre pendentes (definido no servidor).
-  status                 AccountStatus           @default(PENDING_APPROVAL)
+  status                 AccountStatus            @default(PENDING_APPROVAL)
   /// Suspensão separada da aprovação: desbanir devolve o acesso conforme o estado de aprovação.
   bannedAt               DateTime?
   banReason              String?
@@ -50,9 +50,9 @@ model User {
   rejectedAt             DateTime?
   lastLoginAt            DateTime?
   /// Preferência visual do painel: "system" | "light" | "dark" (não afeta checkouts públicos)
-  themePreference        String                  @default("system")
-  createdAt              DateTime                @default(now())
-  updatedAt              DateTime                @updatedAt
+  themePreference        String                   @default("system")
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
   sessions               Session[]
   notifications          Notification[]
   pushSubscriptions      PushSubscription[]
@@ -70,11 +70,13 @@ model User {
   integrations           IntegrationConfig[]
   metaPixels             MetaPixel[]
   refunds                Refund[]
-  adminActions           AdminAuditLog[]         @relation("AdminActor")
-  adminTargets           AdminAuditLog[]         @relation("AdminTarget")
+  adminActions           AdminAuditLog[]          @relation("AdminActor")
+  adminTargets           AdminAuditLog[]          @relation("AdminTarget")
   mediaAssets            MediaAsset[]
   passwordResets         PasswordResetToken[]
   revenueMilestones      RevenueMilestone[]
+  credentialGrantsGiven  PaymentCredentialGrant[] @relation("GrantGrantor")
+  credentialGrantsHeld   PaymentCredentialGrant[] @relation("GrantGrantee")
 }
 
 /// Registo das ações administrativas (aprovar, rejeitar, banir, desbanir).
@@ -782,30 +784,33 @@ enum PaymentStatus {
 
 /// Tentativa de pagamento junto de um fornecedor. Uma encomenda pode ter várias tentativas.
 model Payment {
-  id             String        @id @default(cuid())
-  orderId        String
-  order          Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  provider       String
-  method         String?
+  id                String        @id @default(cuid())
+  orderId           String
+  order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  provider          String
+  method            String?
   /// Telefone mascarado (ex.: 84•••••67) — o número completo não é guardado aqui
-  phoneMasked    String?
-  amountCents    Int
-  currency       Currency
-  status         PaymentStatus @default(CREATED)
+  phoneMasked       String?
+  amountCents       Int
+  currency          Currency
+  status            PaymentStatus @default(CREATED)
   /// Identificador/referência devolvido pelo fornecedor
-  externalId     String?
+  externalId        String?
   /// Estado bruto devolvido pelo fornecedor (auditoria)
-  rawStatus      String?
+  rawStatus         String?
   /// Página de pagamento alojada pelo fornecedor (ex.: payment_url da EPay)
-  redirectUrl    String?
+  redirectUrl       String?
   /// "test" ou "live", conforme a chave usada
-  environment    String?
-  failureReason  String?
-  idempotencyKey String        @unique
-  lastCheckedAt  DateTime?
-  confirmedAt    DateTime?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  environment       String?
+  failureReason     String?
+  idempotencyKey    String        @unique
+  /// Conta cujas credenciais do gateway foram usadas neste pagamento, quando NÃO é a dona da encomenda
+  /// (credenciais partilhadas pelo administrador). null = credenciais da conta dona da encomenda.
+  credentialOwnerId String?
+  lastCheckedAt     DateTime?
+  confirmedAt       DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
   @@unique([provider, externalId])
   @@index([orderId])
@@ -871,6 +876,8 @@ enum NotificationType {
   REFUND_CONFIRMED
   DAILY_SUMMARY
   TEST
+  /// Alertas da conta (ex.: pedido de remoção de uma integração partilhada)
+  ACCOUNT_ALERT
 }
 
 /// Notificação interna (canal "painel"). O push é outro canal: PushDelivery aponta para aqui.
@@ -1104,4 +1111,31 @@ model RevenueMilestone {
   celebratedAt DateTime @default(now())
 
   @@unique([userId, amountCents])
+}
+
+enum CredentialGrantStatus {
+  ACTIVE
+  REVOKED
+}
+
+/// Autorização dada pelo administrador (conta proprietária) para um utilizador usar as credenciais de UM gateway
+/// do administrador nos seus próprios produtos. As credenciais nunca saem do servidor; a venda continua do utilizador.
+/// No máximo uma autorização ATIVA por utilizador e gateway (índice único parcial na migração).
+model PaymentCredentialGrant {
+  id                 String                @id @default(cuid())
+  grantorId          String
+  grantor            User                  @relation("GrantGrantor", fields: [grantorId], references: [id], onDelete: Cascade)
+  granteeId          String
+  grantee            User                  @relation("GrantGrantee", fields: [granteeId], references: [id], onDelete: Cascade)
+  /// "epay" ou "e2payments"
+  provider           String
+  status             CredentialGrantStatus @default(ACTIVE)
+  grantedAt          DateTime              @default(now())
+  revokedAt          DateTime?
+  /// Pedido de remoção feito pelo utilizador autorizado (não revoga sozinho)
+  removalRequestedAt DateTime?
+  updatedAt          DateTime              @updatedAt
+
+  @@index([granteeId, provider, status])
+  @@index([grantorId, status])
 }

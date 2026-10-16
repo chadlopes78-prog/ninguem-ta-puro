@@ -4,7 +4,7 @@ import { newOrderCode } from "@/lib/ids";
 import { canTransition, computeOrderTotals } from "./order-logic";
 import { DomainError, NotFoundError } from "./products";
 import { applyPaymentStatus, audit, newDeliveryToken } from "@/server/payments/confirm";
-import { getProvider } from "@/server/payments/registry";
+import { getProviderForPayment } from "@/server/payments/registry";
 import { own, type Scope } from "@/server/scope";
 
 export const ORDER_STATUSES: OrderStatus[] = ["PENDING", "APPROVED", "DECLINED", "REFUNDED", "CANCELED"];
@@ -147,8 +147,8 @@ export async function changeOrderStatus(id: string, to: OrderStatus, scope: Scop
   if (!isDemo && to === "CANCELED") {
     const pending = await prisma.payment.findMany({ where: { orderId: id, status: { in: ["CREATED", "PENDING"] }, externalId: { not: null } } });
     for (const p of pending) {
-      // credenciais da conta dona da encomenda (nunca de outra conta)
-      const provider = await getProvider(p.provider, order.ownerId);
+      // credenciais gravadas no pagamento (partilha do administrador) ou da conta dona da encomenda
+      const provider = await getProviderForPayment(p, order.ownerId);
       if (!provider?.cancel) continue;
       const r = await provider.cancel(p.externalId!, `Encomenda ${order.code} cancelada na loja`);
       if (!r.ok) {

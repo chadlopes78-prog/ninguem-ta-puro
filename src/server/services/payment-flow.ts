@@ -6,7 +6,7 @@ import { prisma } from "@/server/db";
 import { accessTarget } from "./delivery";
 import { supportLink } from "@/lib/product-setup";
 import { newOrderCode } from "@/lib/ids";
-import { getActivePaymentProviders, getProvider } from "@/server/payments/registry";
+import { credentialOwnerOf, getActivePaymentProviders, getProviderForPayment } from "@/server/payments/registry";
 import { resolveAppBaseUrl } from "@/server/app-url";
 import { applyPaymentStatus, audit } from "@/server/payments/confirm";
 import { recordOrderEventSafe } from "@/server/notifications/events";
@@ -167,6 +167,8 @@ export async function startRealPayment(
         data: {
           orderId: order.id,
           provider: provider.id,
+          // credenciais partilhadas pelo administrador (null = credenciais da própria conta, como até agora)
+          credentialOwnerId: credentialOwnerOf(provider),
           method: method?.id ?? null,
           environment,
           phoneMasked: phone ? maskPhone(phone) : null,
@@ -281,9 +283,9 @@ async function refreshOne(orderId: string): Promise<void> {
   const payment = await prisma.payment.findFirst({ where: { orderId, status: { in: ["CREATED", "PENDING"] } }, orderBy: { createdAt: "desc" }, include: { order: { select: { ownerId: true } } } });
   if (!payment) return;
   if (payment.lastCheckedAt && Date.now() - payment.lastCheckedAt.getTime() < STATUS_CHECK_INTERVAL_MS) return;
-  // Consulta com as credenciais da conta dona da encomenda
+  // Consulta com as credenciais gravadas no pagamento (partilha do administrador) ou da conta dona da encomenda
   const ownerId = payment.order.ownerId;
-  const provider = await getProvider(payment.provider, ownerId);
+  const provider = await getProviderForPayment(payment, ownerId);
   // Nota: um gateway desativado continua a confirmar pagamentos já iniciados (só deixa de aceitar novos).
   if (!provider || !provider.isConfigured() || !provider.getStatus) return;
   // marca a verificação antes da chamada para limitar pedidos concorrentes
@@ -344,7 +346,7 @@ export async function getPaymentView(publicToken: string, opts: { refresh?: bool
     isTestPayment: full.isTestPayment,
     uncertain: Boolean(p?.failureReason?.startsWith("Estado incerto")),
     // Fornecedor sem consulta de estado (E2Payments): a loja verifica manualmente, nunca automaticamente "pago"
-    manualReview: Boolean(p?.failureReason?.startsWith("Estado incerto")) && !(await getProvider(p!.provider, full.ownerId))?.getStatus,
+    manualReview: Boolean(p?.failureReason?.startsWith("Estado incerto")) && !(await getProviderForPayment(p!, full.ownerId))?.getStatus,
     // A ligação de acesso só existe depois de o pagamento estar confirmado
     accessToken: state === "paid" ? (full.delivery?.token ?? null) : null,
     checkout: full.checkout,
@@ -393,9 +395,9 @@ export async function reconcilePendingPayments(ownerId: string, limit = 30): Pro
 }
 
 /** Pagamento sem resposta do fornecedor e sem consulta de estado documentada (ex.: E2Payments): precisa de verificação manual. */
-export async function needsManualVerification(payment: { provider: string; status: string; failureReason: string | null }, ownerId: string): Promise<boolean> {
+export async function needsManualVerification(payment: { provider: string; status: string; failureReason: string | null; credentialOwnerId?: string | null }, ownerId: string): Promise<boolean> {
   if (!["CREATED", "PENDING"].includes(payment.status) || !payment.failureReason?.startsWith("Estado incerto")) return false;
-  const provider = await getProvider(payment.provider, ownerId);
+  const provider = await getProviderForPayment(payment, ownerId);
   return Boolean(provider && !provider.getStatus);
 }
 
