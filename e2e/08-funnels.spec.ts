@@ -30,7 +30,7 @@ test.describe.serial("funis: upsell e página de obrigado", () => {
     await card.getByRole("link", { name: /Funil — Ebook Moçambique/ }).click();
     await expect(page).toHaveURL(/\/funis\/[a-z0-9]+$/);
     funnelUrl = page.url();
-    await expect(page.getByTestId("requirements-panel")).toContainText("7 de 7 concluídos");
+    await expect(page.getByTestId("requirements-panel")).toContainText("4 de 4 concluídos");
 
     // Etapa 1: produto com o checkout já existente
     const productCard = page.getByTestId("wizard-product-card");

@@ -8,7 +8,7 @@ import { createProduct, duplicateProduct, publishProduct, setProductStatus, upda
 import { PublishBlockedError } from "@/server/services/product-readiness";
 import { removeProductDeliveryFile } from "@/server/services/product-files";
 
-const blockedMessage = (e: PublishBlockedError) => `Produto incompleto — não pode ser publicado. Falta: ${e.missing.map((m) => m.label.toLowerCase()).join(", ")}. Complete a configuração (entrega no produto; funil, obrigado e suporte na aba Funis).`;
+const blockedMessage = (e: PublishBlockedError) => `Ainda não é possível publicar. Falta: ${e.missing.map((m) => m.label.toLowerCase()).join(", ")}.`;
 
 export async function saveProductAction(id: string | null, fd: FormData) {
   return guarded<{ id: string }>(async ({ scope }) => {
@@ -31,7 +31,7 @@ export async function saveProductAction(id: string | null, fd: FormData) {
     return {
       ok: true,
       data: { id: product.id },
-      message: "Produto criado como rascunho. O link do checkout foi gerado — configure o funil, a página de obrigado, o suporte WhatsApp e a entrega para o publicar.",
+      message: "Produto criado como rascunho. O link do checkout foi gerado — publique o produto para começar a vender.",
     };
   });
 }

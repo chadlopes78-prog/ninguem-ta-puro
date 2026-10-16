@@ -157,7 +157,6 @@ export async function saveWizardFunnel(id: string, raw: unknown, scope: Scope): 
   }
   // Produto publicado: a configuração obrigatória não pode ficar incompleta
   if (product.status === "PUBLISHED" && (product.mainFunnelId === f.id || product.mainFunnelId === null)) {
-    if (!input.support.phone) return { ok: false, error: "O produto está publicado: o número de suporte WhatsApp é obrigatório.", fieldErrors: { "support.phone": "Obrigatório" } };
     if (!input.delivery.method) return { ok: false, error: "O produto está publicado: escolha o método de entrega.", fieldErrors: { "delivery.method": "Obrigatório" } };
     if (input.delivery.method === "FILE" && !deliveryFileId) return { ok: false, error: "O produto está publicado: carregue o ficheiro do produto.", fieldErrors: { "delivery.fileId": "Obrigatório" } };
     if (input.delivery.method === "EXTERNAL_LINK" && !input.delivery.url) return { ok: false, error: "O produto está publicado: indique o link de acesso ao produto.", fieldErrors: { "delivery.url": "Obrigatório" } };

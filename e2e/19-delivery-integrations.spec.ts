@@ -2,11 +2,13 @@
 // recuperação do acesso e aba Integrações organizada (configurações existentes preservadas).
 // Corre no fim (depois de 07 e 17: credenciais E2Payments e Pixel já guardados). Pagamentos pelo fornecedor de TESTE.
 import { expect, test, type Page } from "@playwright/test";
-import { completeAndPublish, login, noHorizontalScroll, toast } from "./helpers";
+import { login, noHorizontalScroll, toast } from "./helpers";
 
 const PDF = Buffer.from("%PDF-1.4\n% guia e2e\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF");
 let pdfProductUrl = "";
 let pdfCheckout = "";
+let saasProductUrl = "";
+let saasCheckout = "";
 
 let buyer = 0;
 async function buy(page: Page, path: string, phone: string, email = "entrega@exemplo.co.mz") {
@@ -94,30 +96,36 @@ test.describe.serial("entrega do produto e integrações", () => {
     await expect(page.getByTestId("delivery-access-test")).toHaveAttribute("href", "https://app.exemplo.co.mz/entrar");
     await page.getByRole("button", { name: "Guardar produto" }).click();
     await expect(page).toHaveURL(/\/produtos\/[a-z0-9]+\?criado=1$/, { timeout: 20_000 });
+    saasProductUrl = new URL(page.url()).pathname;
+    saasCheckout = new URL((await page.getByTestId("product-checkout-url").textContent())!.trim()).pathname;
     await page.reload();
     await expect(page.getByTestId("delivery-choice-link")).toHaveAttribute("aria-checked", "true");
     await expect(page.getByTestId("delivery-access-url")).toHaveValue("https://app.exemplo.co.mz/entrar");
   });
 
-  test("compra: só depois do pagamento confirmado aparece “Descarregar produto”; área de acesso e recuperação", async ({ page, request }) => {
+  test("modo simples: publicar sem funil; pendente sem acesso; pago → página de acesso com “Descarregar produto”; recuperação", async ({ page, request }) => {
     await login(page);
     await page.goto(pdfProductUrl);
-    await page.getByTestId("complete-setup").click();
-    await page.getByTestId("create-wizard-funnel").click();
-    await completeAndPublish(page, "Guia PDF E2E", { fromWizard: true, keepDelivery: true });
+    // sem funil, sem página de obrigado e sem WhatsApp: pronto a publicar
+    await expect(page.getByTestId("product-requirements")).toContainText("Pronto para publicar");
+    await expect(page.getByText("Completar configuração")).toHaveCount(0);
+    await expect(page.getByTestId("product-funnel-optional")).toContainText("sem funil");
+    await page.getByTestId("publish-product").click();
+    await toast(page, "Produto publicado");
+    await expect(page.getByTestId("product-requirements")).toContainText("Pronto para vender");
 
-    // pendente (termina em 3): sem botão de download
+    // pendente (termina em 3): sem acesso
     await buy(page, pdfCheckout, "84 777 1113");
     await expect(page.getByTestId("payment-state")).toHaveAttribute("data-state", "pending", { timeout: 30_000 });
-    const pendingToken = page.url().split("/").pop()!;
-    await page.goto(`/obrigado/${pendingToken}`);
-    await expect(page.getByTestId("thank-you-button")).toHaveCount(0);
+    await expect(page.getByRole("link", { name: /Descarregar produto|Aceder ao meu produto/ })).toHaveCount(0);
 
-    // pago (termina em 1)
+    // pago (termina em 1): encaminhado diretamente para a página de acesso ao produto
     await buy(page, pdfCheckout, "84 777 2221", "recupera@exemplo.co.mz");
-    await expect(page).toHaveURL(/\/obrigado\//, { timeout: 45_000 });
-    await expect(page.getByTestId("thank-you-product-name")).toContainText("Guia PDF E2E");
-    const btn = page.getByTestId("thank-you-button");
+    await expect(page).toHaveURL(/\/acesso\/[A-Za-z0-9_-]{30,40}$/, { timeout: 45_000 });
+    await expect(page.getByRole("heading", { name: "Os seus produtos" })).toBeVisible();
+    await expect(page.getByTestId("access-product")).toHaveCount(1);
+    await expect(page.getByTestId("access-product")).toContainText("Guia PDF E2E");
+    const btn = page.getByTestId("delivery-link");
     await expect(btn).toHaveText(/Descarregar produto/);
     const href = (await btn.getAttribute("href"))!;
     expect(href).toMatch(/^\/acesso\/[A-Za-z0-9_-]+\/ficheiro\/[a-z0-9]+$/);
@@ -127,14 +135,7 @@ test.describe.serial("entrega do produto e integrações", () => {
     expect(dl.headers()["cache-control"]).toBe("private, no-store");
     // sem o token pessoal o ficheiro não existe
     expect((await request.get(href.replace(/\/acesso\/[^/]+\//, "/acesso/naoexistenaoexistenaoexiste1234/"))).status()).toBe(404);
-    const code = /NTP-[A-Z0-9]{8}/.exec((await page.getByTestId("thank-you-summary").textContent())!)![0];
-
-    // área "Os meus produtos"
-    await page.getByTestId("thank-you-access-area").getByRole("link", { name: "Os meus produtos" }).click();
-    await expect(page.getByRole("heading", { name: "Os seus produtos" })).toBeVisible();
-    await expect(page.getByTestId("access-product")).toHaveCount(1);
-    await expect(page.getByTestId("access-product")).toContainText("Guia PDF E2E");
-    await expect(page.getByTestId("delivery-link")).toHaveText(/Descarregar produto/);
+    const code = /NTP-[A-Z0-9]{8}/.exec((await page.locator("main").textContent())!)![0];
     const areaUrl = page.url();
     await noHorizontalScroll(page);
 
@@ -151,6 +152,18 @@ test.describe.serial("entrega do produto e integrações", () => {
     await page.getByTestId("recover-open").click();
     expect(page.url()).toBe(areaUrl);
     await expect(page.getByTestId("access-product")).toContainText("Guia PDF E2E");
+  });
+
+  test("modo simples SaaS: publicar sem funil; depois do pagamento, “Aceder ao meu produto” com o link", async ({ page }) => {
+    await login(page);
+    await page.goto(saasProductUrl);
+    await page.getByTestId("publish-product").click();
+    await toast(page, "Produto publicado");
+    await buy(page, saasCheckout, "84 777 3331", "saas@exemplo.co.mz");
+    await expect(page).toHaveURL(/\/acesso\//, { timeout: 45_000 });
+    const btn = page.getByTestId("delivery-link");
+    await expect(btn).toHaveText(/Aceder ao meu produto/);
+    await expect(btn).toHaveAttribute("href", "https://app.exemplo.co.mz/entrar");
   });
 
   test("telemóvel: entrega no formulário, área de acesso e recuperação sem deslocamento horizontal", async ({ browser }) => {

@@ -59,9 +59,9 @@ for (const device of [
       await page.getByLabel("Nome do produto").fill(`Produto Toque ${device.width} Editado`);
       await page.getByRole("button", { name: "Guardar produto" }).tap();
       await toast(page, "Produto atualizado");
-      // a publicação continua bloqueada enquanto o produto estiver incompleto (regra inalterada)
+      // sem entrega a publicação continua bloqueada (só a entrega é obrigatória)
       await page.getByTestId("publish-product").tap();
-      await expect(page.getByRole("alert").filter({ hasText: /Produto incompleto/ }).first()).toBeVisible();
+      await expect(page.getByRole("alert").filter({ hasText: /Ainda não é possível publicar/ }).first()).toBeVisible();
 
       await page.goto("/produtos");
       const cards = page.locator("ul.lg\\:hidden > li");

@@ -125,19 +125,16 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
               key: "status",
               header: "Estado",
               mobile: "meta",
-              // computador: estado + o que falta (curto) e o atalho para completar; telemóvel: só o estado (o aviso completo vem por baixo)
+              // estado + (só se faltar algo essencial, como a entrega) atalho para o configurar
               cell: (p) => {
                 const r = readiness.get(p.id);
                 return (
                   <span className="flex min-w-0 flex-col items-start gap-1">
                     {stageBadge(p)}
                     {r && !r.ready && p.status !== "ARCHIVED" && (
-                      <span className="flex min-w-[150px] max-w-[220px] flex-col gap-0.5" data-testid="product-incomplete">
-                        <span className="text-[12px] leading-snug text-muted">Falta: {r.missing.map((x) => x.label.toLowerCase()).join(", ")}</span>
-                        <Link href={r.missing[0].href} className="w-fit text-[12.5px] font-semibold text-accent hover:underline" data-testid="complete-setup">
-                          Completar configuração →
-                        </Link>
-                      </span>
+                      <Link href={r.missing[0].href} className="w-fit text-[12px] font-medium text-warning hover:underline" data-testid="product-incomplete">
+                        {r.missing.some((x) => x.key === "delivery" || x.key === "deliveryContent") ? "Configurar entrega →" : `${r.missing[0].label} em falta →`}
+                      </Link>
                     )}
                   </span>
                 );
@@ -151,15 +148,11 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
               mobileOnly: true,
               cell: (p) => {
                 const r = readiness.get(p.id);
-                if (!r || r.ready || p.status === "ARCHIVED") return r?.ready ? <span className="text-[12.5px] text-success">Tudo configurado</span> : null;
+                if (!r || r.ready || p.status === "ARCHIVED") return r?.ready ? <span className="text-[12.5px] text-success">Pronto para vender</span> : null;
                 return (
-                  <span className="flex min-w-0 flex-col gap-1" data-testid="product-incomplete">
-                    <span className="text-[12.5px] text-warning">Produto incompleto — configure o funil, a página de obrigado e a entrega do produto antes de publicar.</span>
-                    <span className="text-[12px] text-muted">Falta: {r.missing.map((m) => m.label.toLowerCase()).join(", ")}</span>
-                    <Link href={r.missing[0].href} className="w-fit text-[12.5px] font-semibold text-accent hover:underline" data-testid="complete-setup">
-                      Completar configuração →
-                    </Link>
-                  </span>
+                  <Link href={r.missing[0].href} className="text-[12.5px] font-medium text-warning hover:underline" data-testid="product-incomplete">
+                    {r.missing.some((x) => x.key === "delivery" || x.key === "deliveryContent") ? "Configure a entrega do produto para o poder publicar →" : `${r.missing[0].label} em falta →`}
+                  </Link>
                 );
               },
             },

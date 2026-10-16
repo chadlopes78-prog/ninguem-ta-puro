@@ -107,17 +107,10 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
       {!archived && (
         <Card className="mb-5" data-testid="product-requirements">
           <CardHeader
-            title={readiness.ready ? "Configuração completa" : "Produto incompleto — configure o funil, a página de obrigado e a entrega do produto antes de publicar"}
-            description={`Estado: ${STAGE_LABELS[readiness.stage]}. ${readiness.ready ? (product.status === "PUBLISHED" ? "O produto pode receber compras." : "Já pode publicar o produto.") : "Clique num requisito para o configurar."}`}
-            action={
-              !readiness.ready ? (
-                <Link href={readiness.missing[0].href} className="inline-flex h-9 items-center rounded-[var(--radius-md)] bg-accent px-4 text-[13px] font-semibold text-accent-ink hover:bg-accent-strong" data-testid="complete-setup">
-                  Completar configuração
-                </Link>
-              ) : undefined
-            }
+            title={readiness.ready ? (product.status === "PUBLISHED" ? "Pronto para vender" : "Pronto para publicar") : "Para publicar falta a entrega do produto"}
+            description={`Estado: ${STAGE_LABELS[readiness.stage]}. ${readiness.ready ? (product.status === "PUBLISHED" ? "O checkout aceita compras e o comprador recebe o produto logo após o pagamento confirmado." : "Publique o produto para começar a vender pelo checkout.") : "Escolha o que o comprador recebe depois de pagar (ficheiro ou link)."}`}
           />
-          <CardBody>
+          <CardBody className="flex flex-col gap-3">
             <ul className="grid grid-cols-1 gap-1 sm:grid-cols-2">
               {readiness.requirements.map((r) => (
                 <li key={r.key}>
@@ -131,6 +124,21 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
                 </li>
               ))}
             </ul>
+            <p className="border-t border-line pt-3 text-[12.5px] text-muted" data-testid="product-funnel-optional">
+              Funil (opcional):{" "}
+              {readiness.mainFunnelId ? (
+                <Link href={`/funis/${readiness.mainFunnelId}`} className="font-medium text-accent hover:underline">
+                  editar upsells, downsells e página de obrigado
+                </Link>
+              ) : (
+                <>
+                  sem funil, o comprador vai direto para a página de acesso ao produto.{" "}
+                  <Link href={`/funis?criar=${product.id}`} className="font-medium text-accent hover:underline">
+                    Adicionar upsells/downsells
+                  </Link>
+                </>
+              )}
+            </p>
           </CardBody>
         </Card>
       )}

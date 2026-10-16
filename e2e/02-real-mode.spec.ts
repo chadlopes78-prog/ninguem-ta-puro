@@ -41,17 +41,20 @@ test.describe.serial("modo real: produto → checkout → link público (sem pag
     await expect(page.getByLabel("Nome do produto")).toHaveValue("Guia Digital Editado");
     await expect(page.getByLabel("Preço principal")).toHaveValue("247,90");
 
-    // incompleto: a publicação é recusada (servidor) e é mostrado o que falta
-    await expect(page.getByTestId("product-requirements")).toContainText("Produto incompleto");
-    await expect(page.getByTestId("req-funnel")).toHaveAttribute("data-ok", "false");
+    // sem entrega configurada: a publicação é recusada (servidor); funil, obrigado e WhatsApp NÃO são exigidos
+    await expect(page.getByTestId("product-requirements")).toContainText("Para publicar falta a entrega do produto");
+    await expect(page.getByTestId("req-funnel")).toHaveCount(0);
+    await expect(page.getByTestId("req-whatsapp")).toHaveCount(0);
+    await expect(page.getByText("Completar configuração")).toHaveCount(0);
     await page.getByTestId("publish-product").click();
-    await errorToast(page, /Produto incompleto — não pode ser publicado/);
+    await errorToast(page, /Ainda não é possível publicar\. Falta: método de entrega/);
     await page.goto("/produtos");
     await expect(page.getByTestId("product-stage").first()).toHaveAttribute("data-stage", "draft"); // configuração ainda não iniciada
-    // computador: estado + o que falta, de forma compacta (o aviso completo está no produto e no cartão do telemóvel)
-    await expect(page.getByTestId("product-incomplete").first()).toContainText("Falta:");
-    // "Completar configuração" → aba Funis com o produto já escolhido
-    await page.getByTestId("complete-setup").first().click();
+    await expect(page.getByTestId("product-incomplete").first()).toContainText("Configurar entrega");
+    await expect(page.getByText(/Completar configuração|Falta: funil/)).toHaveCount(0);
+    // funil é opcional: aqui adiciona-se um para os testes de funis seguintes
+    await page.getByRole("link", { name: /Guia Digital Editado/ }).first().click();
+    await page.getByTestId("product-funnel-optional").getByRole("link", { name: "Adicionar upsells/downsells" }).click();
     await expect(page).toHaveURL(/\/funis\?criar=/);
     await expect(page.getByRole("dialog").getByRole("combobox")).toHaveValue(/[a-z0-9]+/);
     await page.getByTestId("create-wizard-funnel").click();

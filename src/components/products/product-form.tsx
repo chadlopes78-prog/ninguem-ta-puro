@@ -152,11 +152,11 @@ export function ProductForm({
               <>
                 <input type="hidden" name="status" value="DRAFT" />
                 <p className="text-[12.5px] leading-relaxed text-muted" data-testid="new-product-draft-note">
-                  O produto é guardado como <strong>rascunho</strong>. Para o publicar, crie o funil e configure a página de obrigado e o suporte WhatsApp.
+                  O produto é guardado como <strong>rascunho</strong>. Depois é só publicar: o checkout é criado automaticamente e o comprador recebe o produto logo após o pagamento confirmado.
                 </p>
               </>
             ) : (
-              <Field label="Estado" name="status" error={fe.status} hint="Só é possível publicar quando o funil, a página de obrigado, o suporte WhatsApp e a entrega estão configurados.">
+              <Field label="Estado" name="status" error={fe.status} hint="Para publicar basta ter a entrega do produto configurada (ficheiro ou link).">
                 {(p) => (
                   <Select {...p} defaultValue={initial.status === "ARCHIVED" ? "DRAFT" : initial.status}>
                     {(["DRAFT", "PUBLISHED", "UNPUBLISHED"] as const).map((s) => (
@@ -169,7 +169,7 @@ export function ProductForm({
               </Field>
             )}
             <p className="text-[12.5px] leading-relaxed text-subtle" data-testid="funnel-offers-note">
-              Upsells, downsells, página de obrigado e suporte WhatsApp configuram-se na aba <Link href="/funis" className="font-medium text-accent hover:underline">Funis</Link>.
+              Opcional: upsells, downsells, página de obrigado personalizada e suporte WhatsApp configuram-se na aba <Link href="/funis" className="font-medium text-accent hover:underline">Funis</Link>.
             </p>
             {!readOnly && (
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

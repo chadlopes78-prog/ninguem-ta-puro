@@ -69,7 +69,7 @@ test.describe.serial("revisão mobile", () => {
       if (await warn.count()) {
         const wb = (await warn.first().boundingBox())!;
         expect(wb.x + wb.width).toBeLessThanOrEqual(width);
-        await expect(warn.first().getByTestId("complete-setup")).toBeVisible();
+        await expect(warn.first()).toHaveAttribute("href", /\/produtos\/[a-z0-9]+#entrega/);
       }
       await menu.click();
       await expect(page.getByRole("menuitem", { name: "Editar" })).toBeVisible();

@@ -1,5 +1,5 @@
-// Regras partilhadas (browser + servidor) da configuração obrigatória de um produto antes de publicar:
-// suporte via WhatsApp e entrega do produto (ficheiro, link de acesso ou página de entrega interna).
+// Regras partilhadas (browser + servidor) da configuração de um produto: entrega do produto (obrigatória para
+// publicar: ficheiro, link de acesso ou página de entrega interna) e suporte via WhatsApp (opcional).
 // O servidor volta sempre a validar: o browser só ajuda a mostrar os erros mais cedo.
 import { z } from "zod";
 import { normalizeWhatsApp } from "./thank-you";

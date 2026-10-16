@@ -4,8 +4,7 @@
 import "server-only";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db";
-import { REQUIREMENT_LABELS, internalPageHasContent, isValidDeliveryUrl, normalizeWhatsApp, type ProductStage, type RequirementKey } from "@/lib/product-setup";
-import { parseThankYouDesign } from "@/lib/thank-you";
+import { REQUIREMENT_LABELS, internalPageHasContent, isValidDeliveryUrl, type ProductStage, type RequirementKey } from "@/lib/product-setup";
 import { own, type Scope } from "@/server/scope";
 import { DomainError, NotFoundError } from "./products";
 
@@ -37,36 +36,37 @@ const PRODUCT_INCLUDE = {
 
 type ProductForReadiness = Prisma.ProductGetPayload<{ include: typeof PRODUCT_INCLUDE }>;
 
-/** Avalia os requisitos de um produto já carregado (função pura sobre os dados da BD). */
+/**
+ * Avalia os requisitos ESSENCIAIS para vender (função pura sobre os dados da BD): produto com nome, descrição e
+ * preço ativo, checkout principal e entrega (método + ficheiro/link/página). Funil, página de obrigado,
+ * WhatsApp, upsell e downsell são opcionais e nunca impedem a publicação (modo simples: checkout padrão →
+ * pagamento confirmado → acesso ao produto).
+ */
 export function evaluate(p: ProductForReadiness): Readiness {
   const funnel = p.mainFunnel && p.mainFunnel.ownerId === p.ownerId && p.mainFunnel.isDemo === p.isDemo && p.mainFunnel.productId === p.id ? p.mainFunnel : null;
-  const funnelHref = funnel ? `/funis/${funnel.id}` : `/funis?criar=${p.id}`;
   const offer = p.offers[0];
   const primary = p.checkouts[0];
-  const design = funnel?.thankYouPage ? parseThankYouDesign(funnel.thankYouPage.design) : null;
   const page = p.deliveryPage;
+  const deliveryHref = `/produtos/${p.id}#entrega`;
 
   const req = (key: RequirementKey, ok: boolean, detail: string, href: string): Requirement => ({ key, label: REQUIREMENT_LABELS[key], ok, detail: ok ? "" : detail, href });
   const requirements: Requirement[] = [
     req("product", p.name.trim().length >= 2 && p.description.trim().length >= 10 && Boolean(offer?.isActive && offer.priceCents > 0), "Preencha o nome, a descrição e o preço principal (ativo).", `/produtos/${p.id}`),
     req("checkout", Boolean(primary?.slug), "O checkout principal do produto não existe.", `/produtos/${p.id}`),
-    req("funnel", Boolean(funnel), p.mainFunnelId ? "O funil associado não pertence a este produto." : "Crie um funil para este produto na aba Funis.", funnelHref),
-    req("thankYou", Boolean(funnel?.thankYouPage && design?.title.trim()), "Configure a página de obrigado no funil.", `${funnelHref}#obrigado`),
-    req("whatsapp", Boolean(p.supportWhatsApp && normalizeWhatsApp(p.supportWhatsApp)), p.supportWhatsApp ? "O número de suporte WhatsApp é inválido." : "Indique o número de suporte via WhatsApp.", `${funnelHref}#suporte`),
-    req("delivery", p.deliveryMethod !== null, "Escolha como o cliente recebe o produto: ficheiro (PDF) ou link de acesso.", `/produtos/${p.id}#entrega`),
+    req("delivery", p.deliveryMethod !== null, "Escolha como o cliente recebe o produto: ficheiro (PDF) ou link de acesso.", deliveryHref),
   ];
   if (p.deliveryMethod === "FILE") {
-    requirements.push(req("deliveryContent", Boolean(p.deliveryFile && p.deliveryFile.productId === p.id), "Carregue o ficheiro do produto.", `/produtos/${p.id}#entrega`));
+    requirements.push(req("deliveryContent", Boolean(p.deliveryFile && p.deliveryFile.productId === p.id), "Carregue o ficheiro do produto.", deliveryHref));
   } else if (p.deliveryMethod === "EXTERNAL_LINK") {
-    requirements.push(req("deliveryContent", Boolean(p.deliveryUrl && isValidDeliveryUrl(p.deliveryUrl)), "Indique um link de acesso ao produto válido.", `/produtos/${p.id}#entrega`));
+    requirements.push(req("deliveryContent", Boolean(p.deliveryUrl && isValidDeliveryUrl(p.deliveryUrl)), "Indique um link de acesso ao produto válido.", deliveryHref));
   } else if (p.deliveryMethod === "INTERNAL_PAGE") {
-    requirements.push(req("deliveryContent", Boolean(page && page.title.trim() && internalPageHasContent(page)), "Configure a página de entrega com um ficheiro, um link ou conteúdo.", `${funnelHref}#entrega`));
+    requirements.push(req("deliveryContent", Boolean(page && page.title.trim() && internalPageHasContent(page)), "Configure a página de entrega com um ficheiro, um link ou conteúdo.", funnel ? `/funis/${funnel.id}#entrega` : deliveryHref));
   } else {
-    requirements.push(req("deliveryContent", false, "Depende do método de entrega escolhido.", `/produtos/${p.id}#entrega`));
+    requirements.push(req("deliveryContent", false, "Depende do método de entrega escolhido.", deliveryHref));
   }
   const missing = requirements.filter((r) => !r.ok);
   const ready = missing.length === 0;
-  const started = Boolean(funnel || p.supportWhatsApp || p.deliveryMethod);
+  const started = Boolean(funnel || p.deliveryMethod);
   const stage: ProductStage =
     p.status === "ARCHIVED" ? "archived" : p.status === "PUBLISHED" ? (ready ? "published" : "published_incomplete") : ready ? "ready" : p.status === "DRAFT" && !started ? "draft" : "incomplete";
   return { ready, requirements, missing, mainFunnelId: funnel?.id ?? null, stage };

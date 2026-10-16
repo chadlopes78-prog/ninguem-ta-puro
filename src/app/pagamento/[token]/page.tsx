@@ -32,6 +32,8 @@ export default async function PaymentStatusPage({ params, searchParams }: { para
   if (view.state === "paid" || view.state === "failed" || view.state === "canceled") {
     const dest = await nextDestination(token);
     if (dest) redirect(dest.url);
+    // Modo simples (sem funil): pagamento confirmado → página de acesso ao produto comprado
+    if (view.state === "paid" && view.accessToken) redirect(`/acesso/${view.accessToken}`);
   }
   const settings = await getSettings(view.ownerId);
   const bg = view.checkout?.backgroundColor ?? "#0B0C0E";

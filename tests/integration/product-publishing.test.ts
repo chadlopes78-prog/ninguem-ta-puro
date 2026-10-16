@@ -78,25 +78,21 @@ describe("1–7, 14. publicação só com a configuração obrigatória (valida�
     expect(r.stage).toBe("draft");
   });
 
-  it("2–6. sem funil, sem página de obrigado, sem WhatsApp ou sem entrega: publicação bloqueada com o que falta", async () => {
+  it("2–6. funil, página de obrigado e WhatsApp são opcionais; só a entrega bloqueia a publicação", async () => {
     const p = await createProduct(input(), SA);
-    // 2. sem funil
-    expect(await missingKeys(p.id, SA)).toEqual(expect.arrayContaining(["funnel", "thankYou", "whatsapp", "delivery", "deliveryContent"]));
+    // sem entrega: bloqueado, e só a entrega falta (nunca funil, obrigado ou WhatsApp)
+    expect(await missingKeys(p.id, SA)).toEqual(["delivery", "deliveryContent"]);
     await expect(publishProduct(p.id, SA)).rejects.toBeInstanceOf(PublishBlockedError);
-
-    // funil guardado sem WhatsApp nem entrega
-    const f = await createWizardFunnel(p.id, SA);
-    expect((await prisma.product.findUniqueOrThrow({ where: { id: p.id } })).mainFunnelId).toBe(f.id);
-    expect(await saveWizardFunnel(f.id, wizard(p.id, { support: { phone: "" }, delivery: { method: null } }), SA)).toMatchObject({ ok: true });
-    expect(await missingKeys(p.id, SA)).toEqual(["whatsapp", "delivery", "deliveryContent"]); // 4 e 6
-    await expect(publishProduct(p.id, SA)).rejects.toThrow("número de suporte whatsapp");
-
-    // 3. sem página de obrigado
-    expect(await saveWizardFunnel(f.id, wizard(p.id), SA)).toMatchObject({ ok: true });
-    await prisma.thankYouPage.delete({ where: { funnelId: f.id } });
-    expect(await missingKeys(p.id, SA)).toEqual(["thankYou"]);
-    await expect(publishProduct(p.id, SA)).rejects.toThrow("página de obrigado");
     expect((await getProduct(p.id, SA)).status).toBe("DRAFT");
+    // funil guardado sem WhatsApp nem entrega: continua a faltar só a entrega
+    const f = await createWizardFunnel(p.id, SA);
+    expect(await saveWizardFunnel(f.id, wizard(p.id, { support: { phone: "" }, delivery: { method: null } }), SA)).toMatchObject({ ok: true });
+    expect(await missingKeys(p.id, SA)).toEqual(["delivery", "deliveryContent"]);
+    // com entrega e sem WhatsApp: publica
+    expect(await saveWizardFunnel(f.id, wizard(p.id, { support: { phone: "" } }), SA)).toMatchObject({ ok: true });
+    expect(await missingKeys(p.id, SA)).toEqual([]);
+    await publishProduct(p.id, SA);
+    expect((await getProduct(p.id, SA)).status).toBe("PUBLISHED");
   });
 
   it("5. número WhatsApp inválido é rejeitado; 7. link externo inválido é rejeitado", async () => {
@@ -143,9 +139,9 @@ describe("1–7, 14. publicação só com a configuração obrigatória (valida�
     expect((await getProduct(p.id, SA)).status).toBe("PUBLISHED");
     expect((await getReadiness(p.id, SA)).stage).toBe("published");
     expect((await prisma.checkout.findUniqueOrThrow({ where: { id: p.primaryCheckout.id } })).funnelId).toBe(f.id);
-    // produto publicado: a configuração obrigatória não pode ser apagada
-    const clear = await saveWizardFunnel(f.id, wizard(p.id, { support: { phone: "" } }), SA);
-    expect(clear.ok).toBe(false);
+    // produto publicado: o WhatsApp é opcional, mas a entrega não pode ser apagada
+    expect((await saveWizardFunnel(f.id, wizard(p.id, { support: { phone: "" } }), SA)).ok).toBe(true);
+    expect((await saveWizardFunnel(f.id, wizard(p.id, { delivery: { method: null } }), SA)).ok).toBe(false);
   });
 });
 
@@ -237,10 +233,12 @@ describe("13. isolamento entre contas", () => {
     const fa = await createWizardFunnel(pa.id, SA);
     const r = await saveWizardFunnel(fa.id, wizard(pb.id), SA);
     expect(r.ok).toBe(false);
-    // mesmo forçando na base de dados, um funil de outra conta não conta como funil associado
+    // mesmo forçando na base de dados, um funil de outra conta não conta como funil associado nem é ativado
     await prisma.product.update({ where: { id: pa.id }, data: { mainFunnelId: fb.id, supportWhatsApp: "258841234567", deliveryMethod: "EXTERNAL_LINK", deliveryUrl: "https://a.exemplo.co.mz/x" } });
-    expect(await missingKeys(pa.id, SA)).toEqual(expect.arrayContaining(["funnel", "thankYou"]));
-    await expect(publishProduct(pa.id, SA)).rejects.toBeInstanceOf(PublishBlockedError);
+    expect((await getReadiness(pa.id, SA)).mainFunnelId).toBeNull();
+    await publishProduct(pa.id, SA); // modo simples: publica sem funil
+    expect((await prisma.checkout.findUniqueOrThrow({ where: { id: pa.primaryCheckout.id } })).funnelId).toBeNull();
+    expect((await prisma.funnel.findUniqueOrThrow({ where: { id: fb.id } })).status).not.toBe("ACTIVE");
     // B não vê os requisitos de A
     await expect(getReadiness(pa.id, SB)).rejects.toThrow("não encontrado");
   });

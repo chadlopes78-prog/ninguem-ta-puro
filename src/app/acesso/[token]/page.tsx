@@ -30,8 +30,16 @@ export default async function AccessPage({ params }: { params: Promise<{ token: 
         <ul className="mt-8 flex flex-col gap-3" data-testid="access-products">
           {area.products.map((p, idx) => (
             <li key={idx} className="rounded-[var(--radius-lg)] border border-line bg-surface p-4" data-testid="access-product">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-subtle">{KIND[p.kind]}</p>
-              <p className="font-medium">{p.name}</p>
+              <div className="flex items-center gap-3">
+                {p.imageUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={p.imageUrl} alt="" className="h-14 w-14 shrink-0 rounded-[var(--radius-md)] border border-line object-cover" data-testid="access-product-image" />
+                )}
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-subtle">{KIND[p.kind]}</p>
+                  <p className="font-medium">{p.name}</p>
+                </div>
+              </div>
               {p.action ? (
                 <a
                   href={p.action.href}
