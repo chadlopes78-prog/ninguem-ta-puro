@@ -54,6 +54,12 @@
     from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: translateY(0); }
   }
+  /* celebração discreta das metas de faturamento (Dashboard) */
+  @keyframes goal-confetti {
+    0% { opacity: 0; transform: translate(0, 0) rotate(0deg); }
+    15% { opacity: 1; }
+    100% { opacity: 0; transform: translate(var(--dx), var(--dy)) rotate(var(--rot)); }
+  }
 }
 
 @layer base {

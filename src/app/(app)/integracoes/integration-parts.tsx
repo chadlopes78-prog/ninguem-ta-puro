@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 
 export const STATUS_TONE: Record<GatewayStatus, Tone> = { active: "success", inactive: "neutral", credentials_missing: "warning", config_error: "danger", unverified: "warning" };
 
-/** Logótipos oficiais (fundo transparente, em /public/integrations), apresentados num quadrado claro. */
+/** Logótipos oficiais com fundo transparente (em /public/integrations), apresentados sem fundo. */
 export const INTEGRATION_LOGO: Record<string, { src: string; alt: string }> = {
   epay: { src: "/integrations/epay.png", alt: "EPay" },
   e2payments: { src: "/integrations/e2payments.png", alt: "E2Payments" },
@@ -20,7 +20,7 @@ export const INTEGRATION_LOGO: Record<string, { src: string; alt: string }> = {
 export function IntegrationLogo({ id, className }: { id: string; className?: string }) {
   const logo = INTEGRATION_LOGO[id] ?? INTEGRATION_LOGO.epay;
   return (
-    <span className={cn("grid h-12 w-16 shrink-0 place-items-center rounded-[var(--radius-md)] border border-black/5 bg-white p-1.5 shadow-sm", className)} data-testid={`logo-${id}`}>
+    <span className={cn("grid h-12 w-16 shrink-0 place-items-center", className)} data-testid={`logo-${id}`}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={logo.src} alt={logo.alt} className="max-h-full max-w-full object-contain" loading="lazy" decoding="async" />
     </span>

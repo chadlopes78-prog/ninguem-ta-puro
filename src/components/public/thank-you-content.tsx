@@ -27,6 +27,8 @@ export interface ThankYouContentProps {
   mainProductName?: string | null;
   /** Upsells/downsells PAGOS: cada produto com o seu próprio acesso */
   extraProducts?: { name: string; kind: "UPSELL" | "DOWNSELL" | "MAIN" | "ORDER_BUMP"; label: string; href: string; external: boolean; file: boolean }[];
+  /** Tamanho do título (página personalizada) */
+  titleSize?: "sm" | "md" | "lg";
   /** Área de acesso pessoal (todos os produtos desta compra) */
   accessAreaHref?: string | null;
   /** "Redirecionar para" configurado na etapa de obrigado (só com a compra confirmada) */
@@ -81,7 +83,7 @@ export function ThankYouContent(p: ThankYouContentProps) {
         )}
 
         <div>
-          <h1 className="text-3xl font-semibold leading-tight tracking-tight sm:text-4xl" data-testid="thank-you-title">
+          <h1 className={cn("font-semibold leading-tight tracking-tight", p.titleSize === "sm" ? "text-2xl sm:text-3xl" : p.titleSize === "lg" ? "text-4xl sm:text-5xl" : "text-3xl sm:text-4xl")} data-testid="thank-you-title">
             {title}
           </h1>
           {confirmed && d.subtitle && <p className={cn("mt-2 text-lg", muted)}>{d.subtitle}</p>}

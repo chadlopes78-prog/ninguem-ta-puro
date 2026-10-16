@@ -74,6 +74,7 @@ model User {
   adminTargets           AdminAuditLog[]         @relation("AdminTarget")
   mediaAssets            MediaAsset[]
   passwordResets         PasswordResetToken[]
+  revenueMilestones      RevenueMilestone[]
 }
 
 /// Registo das ações administrativas (aprovar, rejeitar, banir, desbanir).
@@ -171,7 +172,7 @@ model Product {
   checkouts       Checkout[]
   orderItems      OrderItem[]
   coupons         CouponProduct[]
-  files           ProductFile[] @relation("ProductFiles")
+  files           ProductFile[]      @relation("ProductFiles")
   funnels         Funnel[]
 
   @@index([isDemo, status])
@@ -278,6 +279,8 @@ model Checkout {
   orders             Order[]
   sessions           CheckoutSession[]
   design             CheckoutDesign?
+  /// Página de obrigado personalizada (área Personalizar Checkout)
+  thankYou           CheckoutThankYou?
 
   @@index([isDemo])
   @@index([ownerId, isDemo])
@@ -285,6 +288,21 @@ model Checkout {
 }
 
 /// Personalização visual do checkout (separada dos dados comerciais: preço, moeda, oferta e pagamento).
+/// Página de obrigado personalizada de um checkout (rascunho/publicada). Só aparência e textos: os botões de
+/// acesso seguem sempre a entrega real dos produtos pagos. Usada com e sem funil.
+model CheckoutThankYou {
+  id          String    @id @default(cuid())
+  checkoutId  String    @unique
+  checkout    Checkout  @relation(fields: [checkoutId], references: [id], onDelete: Cascade)
+  draft       Json
+  /// Versão apresentada aos compradores (null = página padrão)
+  published   Json?
+  publishedAt DateTime?
+  version     Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
 model CheckoutDesign {
   id             String    @id @default(cuid())
   checkoutId     String    @unique
@@ -1073,4 +1091,17 @@ model OrderTrackingContext {
   fbc       String?
   sourceUrl String?
   createdAt DateTime @default(now())
+}
+
+/// Metas de faturamento já celebradas no Dashboard (uma linha por conta e meta; nunca repetida).
+/// Só regista a celebração: o faturamento é sempre calculado a partir dos pedidos aprovados.
+model RevenueMilestone {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Valor da meta em cêntimos de MZN (ex.: 1000000 = 10.000 MZN)
+  amountCents  Int
+  celebratedAt DateTime @default(now())
+
+  @@unique([userId, amountCents])
 }

@@ -1,12 +1,16 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Info, Package, Receipt, Sparkles } from "lucide-react";
+import { CalendarClock, Info, Package, Sparkles } from "lucide-react";
 import { requireUser } from "@/server/auth/session";
 import { getScope } from "@/server/services/settings";
 import { prisma } from "@/server/db";
 import { own } from "@/server/scope";
 import { ProductCover } from "@/components/products/cover";
 import { getDashboardData } from "@/server/services/metrics";
+import { getRevenueGoalState, getTodayActivity } from "@/server/services/dashboard-extras";
+import { ACTIVITY_LABELS } from "@/lib/activity";
+import { RevenueGoal } from "@/components/dashboard/revenue-goal";
+import { acknowledgeRevenueGoalsAction } from "./actions";
 import { percentChange } from "@/server/services/metrics-logic";
 import { ORDER_STATUS_LABELS } from "@/server/services/order-logic";
 import { resolveRange } from "@/lib/dates";
@@ -26,6 +30,10 @@ import { OrderStatusBadge, STATUS_COLOR } from "@/components/orders/status";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
+/** 12:00 UTC do dia (só para escrever a data do dia sem depender do fuso do servidor). */
+const startOfToday = (dayKey: string) => new Date(`${dayKey}T12:00:00Z`);
+const formatTime = (d: Date, tz: string) => new Intl.DateTimeFormat("pt-MZ", { timeZone: tz, hour: "2-digit", minute: "2-digit" }).format(d);
+
 type SP = Promise<Record<string, string | undefined>>;
 
 export default async function DashboardPage({ searchParams }: { searchParams: SP }) {
@@ -35,7 +43,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: SP
   const tz = settings.timezone;
   const range = resolveRange({ preset: sp.range, from: sp.from, to: sp.to }, tz);
   const reqCurrency = CURRENCIES.includes(sp.currency as CurrencyCode) ? (sp.currency as CurrencyCode) : undefined;
-  const d = await getDashboardData({ scope, range, currency: reqCurrency, defaultCurrency: settings.defaultCurrency, tz });
+  const [d, goal, today] = await Promise.all([
+    getDashboardData({ scope, range, currency: reqCurrency, defaultCurrency: settings.defaultCurrency, tz }),
+    getRevenueGoalState(scope),
+    getTodayActivity(scope, tz),
+  ]);
   // fotos dos produtos do ranking (só produtos da própria conta)
   const covers = new Map(
     (await prisma.product.findMany({ where: { id: { in: d.products.map((p) => p.productId) }, ...own(scope) }, select: { id: true, imageUrl: true } })).map((p) => [p.id, p.imageUrl]),
@@ -56,10 +68,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: SP
     />
   );
 
+  const goalBar = <RevenueGoal progress={goal.progress} toCelebrate={goal.toCelebrate} acknowledge={acknowledgeRevenueGoalsAction} />;
+
   if (!d.hasAnyOrder) {
     return (
       <>
         {header}
+        {goalBar}
         <Card>
           <EmptyState
             icon={Sparkles}
@@ -86,6 +101,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: SP
   return (
     <>
       {header}
+      {goalBar}
       <div className="mb-6">
         <RangeFilter preset={range.preset} from={sp.from} to={sp.to} currencies={d.currencies.length > 1 ? d.currencies : undefined} currency={d.currency} />
       </div>
@@ -167,20 +183,25 @@ export default async function DashboardPage({ searchParams }: { searchParams: SP
         </Card>
       </div>
 
-      <Card className="mt-6">
-        <CardHeader title="Atividade recente" description="Últimos pedidos registados" action={<LinkButton href="/pedidos" variant="ghost" size="sm">Ver todos</LinkButton>} />
+      <Card className="mt-6" data-testid="today-activity">
+        <CardHeader
+          title="Atividades recentes"
+          description={`Hoje, ${formatDate(startOfToday(today.dayKey), "UTC")} · hora de ${tz}`}
+          action={<LinkButton href="/pedidos" variant="ghost" size="sm">Ver todos</LinkButton>}
+        />
         <DataTable
-          rows={d.recent}
-          rowKey={(r) => r.id}
+          rows={today.activities}
+          rowKey={(r) => r.key}
           columns={[
+            { key: "time", header: "Hora", cell: (r) => <time dateTime={r.at.toISOString()} className="text-muted tabular" data-testid="activity-time">{formatTime(r.at, tz)}</time> },
             { key: "code", header: "Pedido", mobile: "title", cell: (r) => <Link href={`/pedidos/${r.id}`} className="font-mono text-[13px] text-fg hover:text-accent">{r.code}</Link> },
-            { key: "product", header: "Produto", cell: (r) => <span className="text-muted">{r.items[0]?.product.name ?? "—"}</span> },
-            { key: "customer", header: "Cliente", cell: (r) => <span className="text-muted">{r.customer.name}</span> },
-            { key: "date", header: "Data", cell: (r) => <span className="text-muted tabular">{formatDate(r.createdAt, tz, true)}</span> },
-            { key: "value", header: "Valor", align: "right", mobile: "end", cell: (r) => <span className="font-medium tabular">{formatMoney(r.totalCents, r.currency)}</span> },
+            { key: "kind", header: "Atividade", cell: (r) => <span className="text-fg" data-testid="activity-kind">{ACTIVITY_LABELS[r.kind]}</span> },
+            { key: "product", header: "Produto", cell: (r) => <span className="text-muted">{r.productName ?? "—"}</span> },
+            { key: "customer", header: "Cliente", cell: (r) => <span className="text-muted">{r.customerName}</span> },
+            { key: "value", header: "Valor", align: "right", mobile: "end", cell: (r) => <span className="font-medium tabular">{formatMoney(r.totalCents, r.currency as CurrencyCode)}</span> },
             { key: "status", header: "Estado", mobile: "end", cell: (r) => <OrderStatusBadge status={r.status} /> },
           ]}
-          empty={<EmptyState icon={Receipt} title="Sem pedidos" />}
+          empty={<EmptyState icon={CalendarClock} title="Ainda não existem atividades hoje" description="Os novos pedidos e pagamentos confirmados de hoje aparecem aqui." />}
         />
       </Card>
 

@@ -8,7 +8,7 @@ import { readableOn } from "@/lib/color";
 import { Unavailable } from "@/components/public/unavailable";
 import { StatusPoller } from "./status-poller";
 import { redirect } from "next/navigation";
-import { nextDestination } from "@/server/services/post-purchase";
+import { hasCustomThankYou, nextDestination } from "@/server/services/post-purchase";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Estado do pagamento", robots: { index: false } };
@@ -32,8 +32,9 @@ export default async function PaymentStatusPage({ params, searchParams }: { para
   if (view.state === "paid" || view.state === "failed" || view.state === "canceled") {
     const dest = await nextDestination(token);
     if (dest) redirect(dest.url);
-    // Modo simples (sem funil): pagamento confirmado → página de acesso ao produto comprado
-    if (view.state === "paid" && view.accessToken) redirect(`/acesso/${view.accessToken}`);
+    // Modo simples (sem funil): pagamento confirmado → página de obrigado personalizada (se publicada em
+    // "Personalizar Checkout") ou página de acesso ao produto comprado
+    if (view.state === "paid" && view.accessToken) redirect((await hasCustomThankYou(token)) ? `/obrigado/${token}` : `/acesso/${view.accessToken}`);
   }
   const settings = await getSettings(view.ownerId);
   const bg = view.checkout?.backgroundColor ?? "#0B0C0E";

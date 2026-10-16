@@ -12,7 +12,7 @@ import { changePasswordAction, clearDemoAction, saveSettingsAction, seedDemoActi
 import { PushSettings } from "@/components/notifications/push-settings";
 import { getVapidKeys } from "@/server/notifications/push";
 import { getPrefs, listDevices } from "@/server/notifications/service";
-import { revokeDeviceAction, savePrefsAction, sendTestAction } from "../notificacoes/actions";
+import { revokeDeviceAction, savePrefsAction, sendTestAction } from "../(operacoes)/notificacoes/actions";
 
 export const metadata: Metadata = { title: "Configurações" };
 

@@ -52,7 +52,7 @@ export function AppShell({ user, businessName, demoMode, logoutAction, theme, sa
     });
   };
 
-  const current = NAV.find((n) => pathname === n.href || pathname.startsWith(n.href + "/"));
+  const current = NAV.find((n) => [n.href, ...(n.match ?? [])].some((h) => pathname === h || pathname.startsWith(h + "/")));
 
   const nav = (isCollapsed: boolean) => (
     <nav className="flex flex-1 flex-col gap-5 overflow-y-auto px-3 py-4 scrollbar-thin" aria-label="Navegação principal">
@@ -86,7 +86,7 @@ export function AppShell({ user, businessName, demoMode, logoutAction, theme, sa
                         {pendingApprovals > 99 ? "99+" : pendingApprovals}
                       </span>
                     )}
-                    {item.href === "/notificacoes" && unread > 0 && (
+                    {item.href === "/operacoes" && unread > 0 && (
                       <span
                         className={cn("grid h-5 min-w-5 place-items-center rounded-full bg-accent px-1.5 text-[10.5px] font-bold text-accent-ink tabular", isCollapsed ? "absolute right-1.5 top-1 h-4 min-w-4 px-1 text-[9.5px]" : "ml-auto")}
                         aria-label={`${unread} por ler`}

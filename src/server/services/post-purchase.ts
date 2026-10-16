@@ -17,6 +17,8 @@ import { buttonLabel, parseThankYouAction, parseThankYouDesign, whatsappLink, de
 import { getActivePaymentProviders } from "@/server/payments/registry";
 import { supportLink } from "@/lib/product-setup";
 import { accessTarget, purchasedProducts } from "./delivery";
+import { publishedThankYou } from "./thank-you-custom";
+import { toThankYouDesign } from "@/lib/custom-thank-you";
 import { audit } from "@/server/payments/confirm";
 import { toGraph } from "./funnels";
 import { chargeWithProvider, maskPhone, normalizeMzPhone, refreshPaymentStatus, resolvePaymentOption, listPaymentOptions, type PaymentOptionView } from "./payment-flow";
@@ -339,7 +341,10 @@ export async function getThankYouView(publicToken: string, opts: { refresh?: boo
   order = null;
   if (!root || root.isDemo) return null;
   const page = root.funnel?.thankYouPage ?? null;
-  const design: ThankYouDesign = page ? parseThankYouDesign(page.design) : defaultThankYouDesign();
+  // Página personalizada em "Personalizar Checkout" (publicada): aparência e textos, com ou sem funil.
+  // O funil continua a decidir QUANDO a página aparece; os botões seguem sempre a entrega real.
+  const custom = await publishedThankYou(root.checkoutId);
+  const design: ThankYouDesign = custom ? toThankYouDesign(custom) : page ? parseThankYouDesign(page.design) : defaultThankYouDesign();
   const action = page ? parseThankYouAction(page.action) : null;
   const state: ThankYouState = root.status === "APPROVED" ? "confirmed" : root.status === "PENDING" ? "pending" : "failed";
 
@@ -355,7 +360,7 @@ export async function getThankYouView(publicToken: string, opts: { refresh?: boo
     if (wa) support = { href: wa, label: "Precisa de ajuda? Fale connosco no WhatsApp" };
     else if (action?.type === "whatsapp") support = { href: whatsappLink(action.phone, action.message), label: "Precisa de ajuda? Fale connosco no WhatsApp" };
     const target = product ? accessTarget(product, root.delivery?.token ?? null) : null;
-    if (target) [button, buttonKind] = [{ label: target.label, href: target.href, external: target.external }, target.kind === "file" ? "pdf" : target.kind === "internal" ? "access" : "link"];
+    if (target) [button, buttonKind] = [{ label: custom?.buttonText || target.label, href: target.href, external: target.external }, target.kind === "file" ? "pdf" : target.kind === "internal" ? "access" : "link"];
     // configuração anterior (produtos sem método de entrega escolhido): mantém o comportamento antigo
     else if (action?.type === "whatsapp") [button, buttonKind] = [root.delivery ? { label: "Aceder ao meu produto", href: `/acesso/${root.delivery.token}`, external: false } : null, root.delivery ? "access" : null];
     else if (action?.type === "product" && action.delivery === "link") [button, buttonKind] = [{ label: buttonLabel(action), href: action.url, external: true }, "link"];
@@ -396,6 +401,8 @@ export async function getThankYouView(publicToken: string, opts: { refresh?: boo
     totalCents: root.totalCents,
     currency: root.currency,
     design,
+    titleSize: custom?.titleSize ?? "md",
+    customized: Boolean(custom),
     button,
     buttonKind,
     support,
@@ -407,3 +414,10 @@ export async function getThankYouView(publicToken: string, opts: { refresh?: boo
   };
 }
 export type ThankYouView = NonNullable<Awaited<ReturnType<typeof getThankYouView>>>;
+
+/** A compra (encomenda principal) tem uma página de obrigado personalizada publicada no seu checkout? */
+export async function hasCustomThankYou(publicToken: string): Promise<boolean> {
+  if (!TOKEN_RE.test(publicToken)) return false;
+  const o = await prisma.order.findUnique({ where: { publicToken }, select: { checkoutId: true, parentOrder: { select: { checkoutId: true } } } });
+  return Boolean(o && (await publishedThankYou(o.parentOrder?.checkoutId ?? o.checkoutId)));
+}

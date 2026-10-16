@@ -1,6 +1,6 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-16 · Sessão 20 (modo simples: vender sem funil; logótipos nas Integrações) · Sessão 19 (entrega do produto PDF/link no produto, área «Os meus produtos», recuperação de acesso, Integrações em cartões) · Sessão 18 (funis: entrada única, várias ofertas, páginas externas com código de integração, obrigado externo) · Sessão 17 (Facebook Pixel / API de Conversões) · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
+Última atualização: 2026-10-16 · Sessão 21 (página de obrigado personalizada; área Operações com abas; Dashboard com atividades de hoje e metas de faturamento; logótipos sem fundo) · Sessão 20 (modo simples: vender sem funil; logótipos nas Integrações) · Sessão 19 (entrega do produto PDF/link no produto, área «Os meus produtos», recuperação de acesso, Integrações em cartões) · Sessão 18 (funis: entrada única, várias ofertas, páginas externas com código de integração, obrigado externo) · Sessão 17 (Facebook Pixel / API de Conversões) · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
 
 ## Estado geral
 
@@ -26,6 +26,84 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | 5 — Operação | ✅ Concluída | Pedidos (filtros, detalhe, transições), clientes, cupões (com testador), relatórios |
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
+
+## Dashboard: atividades de hoje e metas de faturamento (sessão 21)
+
+**Atividades recentes (corrigido)**
+
+- Problema: a secção mostrava sempre os últimos 8 pedidos, de qualquer dia, por isso os pedidos de ontem continuavam a aparecer no dia seguinte.
+- Agora mostra apenas o que aconteceu **hoje**, no fuso da conta (`Settings.timezone`, por omissão `Africa/Maputo`). O dia começa às 00:00 locais (22:00 UTC em Maputo), calculado com `zonedTodayBounds` em `src/lib/activity.ts`, que reutiliza `startOfZonedDay` e `zonedDayKey`. Não é uma comparação em UTC.
+- Cada atividade usa a data real do evento do pedido:
+  - criação (`createdAt`): «Novo pedido»;
+  - confirmação do pagamento (`approvedAt`): «Pagamento confirmado»;
+  - cancelamento (`canceledAt`): «Pedido cancelado»;
+  - reembolso (`refundedAt`): «Pedido reembolsado».
+  Um pedido criado ontem e pago hoje aparece hoje como pagamento confirmado.
+- A lista vai da atividade mais recente para a mais antiga (até 10) e mostra a hora no fuso da conta. Sem atividades, mostra «Ainda não existem atividades hoje».
+- A página é dinâmica (`force-dynamic`): recarregar ou mudar o filtro de período volta a ler os dados.
+- Nada é apagado: só mudou a forma como os dados são filtrados e apresentados.
+
+**Meta de faturamento**
+
+- Barra no topo do Dashboard, acima dos indicadores e das atividades (`src/components/dashboard/revenue-goal.tsx`). Mostra:
+  - o valor faturado;
+  - a meta;
+  - a barra de progresso e a percentagem;
+  - quanto falta: «Faturaste X MZN. Faltam Y MZN para atingir a tua primeira meta».
+- Metas: 10.000 → 50.000 → 100.000 → 500.000 → 1.000.000 MZN (`src/lib/revenue-goals.ts`). A percentagem é o faturamento a dividir pela próxima meta, arredondada para baixo, para nunca mostrar 100% antes de a meta ser atingida.
+- Ao atingir 1 milhão, a barra fica concluída (100%) com «meta máxima atual atingida». Não recomeça nos 10.000.
+- **Cálculo do faturamento** (`lifetimeRevenueCents` em `src/server/services/dashboard-extras.ts`): usa a mesma definição da «Faturação bruta» do Dashboard (`computeKpis`), ou seja, a soma de `totalCents` dos pedidos com estado **APROVADO** da conta (`ownerId` e modo real/demo), sem pagamentos de teste, em MZN e sem limite de datas.
+  - Pendentes, recusados, cancelados e reembolsados não contam.
+  - Cada pedido conta uma única vez (os upsells e downsells são pedidos próprios).
+  - Os valores das vendas não são alterados.
+- **Celebrações**:
+  - Ao atingir uma meta pela primeira vez aparece a mensagem de parabéns, com um confetti discreto que é desativado com `prefers-reduced-motion`.
+  - Se várias metas forem atingidas de uma vez, aparece uma única mensagem que as lista todas.
+  - A celebração fica registada logo que é mostrada, na tabela `RevenueMilestone` (por utilizador e meta, única). Recarregar a página não a repete.
+  - O servidor só aceita registar metas que o faturamento real já atingiu.
+  - No modo de demonstração não há celebrações.
+- Migração aditiva: `20261031090000_revenue_milestones`.
+- Não foram alterados pagamentos, webhooks, confirmação, checkout, produtos, funis nem relatórios. Fora do Dashboard só foi acrescentada uma animação CSS (`goal-confetti`) em `globals.css`.
+- Testes:
+  - `tests/unit/dashboard-goals.test.ts` (8): percentagens, sequência das metas, 1 milhão, celebrações múltiplas, meia-noite em Maputo, ordenação, lista vazia;
+  - `tests/integration/dashboard-goals.test.ts` (5): só pedidos aprovados (igual à Faturação bruta), celebrar uma vez, várias metas de uma vez, isolamento entre contas, modo demo, atividades de hoje e de ontem;
+  - `e2e/22-dashboard-goals.spec.ts`: barra acima das atividades, sem repetir a celebração depois de recarregar, responsivo a 375, 768 e 1280 px.
+
+## Área Operações com abas (sessão 21)
+
+- O menu principal tem agora **uma única entrada «Operações»** no lugar de Pedidos, Clientes, Relatórios e Notificações. As restantes entradas (Dashboard, Produtos, Personalizar Checkout, Funis de vendas, Integrações, Configurações, Administração) mantêm nome, ordem e comportamento.
+- «Operações» abre `/operacoes`, que leva à primeira aba (Pedidos). Por cima do conteúdo aparece o título **Operações** e as abas **Pedidos · Clientes · Relatórios · Notificações** (`src/components/layout/operations-tabs.tsx`, lista em `OPERATIONS_TABS` de `nav.ts`), com a aba atual destacada (`aria-current`).
+- **Rotas inalteradas**: cada aba é a rota que já existia (`/pedidos`, `/pedidos/<id>`, `/clientes`, `/clientes/<id>`, `/relatorios`, `/relatorios/exportar`, `/notificacoes`). Recarregar mantém a aba e os links antigos continuam a funcionar. As páginas foram movidas para o grupo de rotas `src/app/(app)/(operacoes)/`, que não muda os URLs, e o `layout.tsx` desse grupo acrescenta o título e as abas só a estas páginas. O conteúdo, os formulários e as ações de cada página não mudaram. A única alteração fora de Operações é o caminho de importação das ações de notificações em Configurações.
+- O contador de notificações por ler aparece na entrada Operações e na aba Notificações. O sino do topo continua a abrir `/notificacoes`.
+- No telemóvel as abas ficam numa grelha de 2×2: nenhuma aba fica cortada e não há deslocamento horizontal.
+- Permissões: as mesmas de antes (`requireUser` em cada página; `/operacoes` é privada como as restantes rotas).
+- Testes: `e2e/21-operations.spec.ts` (4 testes: menu e ordem das entradas, cada aba com refresh, links antigos e outras áreas sem abas, telemóvel); `e2e/04-responsive.spec.ts` foi adaptado ao novo menu.
+
+## Página de obrigado personalizada (sessão 21)
+
+- **Personalizar Checkout** tem duas opções em abas: «Personalizar checkout» (o editor existente, que não mudou) e «Personalizar página de obrigado» (`/checkouts?tab=obrigado`), com o estado de cada produto: Página padrão / Personalizada / Alterações por publicar.
+- O editor (`/checkouts/personalizar/<produto>/obrigado`) tem:
+  - nome da página, título, mensagem, texto do botão de acesso e imagem/banner (carregada para a biblioteca da conta);
+  - aparência: modo escuro ou claro, cor principal, cor de fundo, tamanho do título, alinhamento e resumo da compra;
+  - pré-visualização em computador e telemóvel;
+  - guardar rascunho, publicar e restaurar a página padrão.
+- **O botão de acesso usa sempre a entrega real**, decidida no servidor:
+  - PDF: descarga protegida pelo token da encomenda;
+  - SaaS: o link de acesso do produto;
+  - também mostra o acesso a todos os upsells e downsells pagos;
+  - com o pagamento ainda por confirmar, a página não mostra botões nem produtos.
+- A personalização só muda textos e aparência. Não altera produtos, preços, credenciais, pagamentos ou o que é entregue.
+- **Sem funil**: depois do pagamento confirmado, o comprador vai para `/obrigado/<token>` com a página publicada. Se não houver página publicada, continua a ir para a área de acesso, como antes.
+- **Com funil**: o funil continua a decidir o percurso (upsell e downsell). A página final usa a personalização publicada em vez da página do funil. A página do funil não é apagada e o editor do funil indica onde editar a página personalizada.
+- Dados: migração aditiva `20261030090000_checkout_thank_you` (tabela `CheckoutThankYou` com `draft`, `published` e `version`, 1:1 com o checkout). Não apaga nenhuma configuração existente. «Restaurar padrão» remove apenas a personalização desse checkout.
+- Ficheiros:
+  - `src/lib/custom-thank-you.ts` (validação Zod);
+  - `src/server/services/thank-you-custom.ts`;
+  - `getThankYouView` e `hasCustomThankYou` em `post-purchase.ts`;
+  - `src/components/checkout-editor/thank-you-editor.tsx`.
+  `confirm.ts`, os webhooks, a EPay e a E2Payments não foram alterados.
+- Testes: `tests/integration/custom-thank-you.test.ts` (6) e `e2e/20-thank-you-customization.spec.ts` (4).
+- Logótipos das Integrações: o quadrado branco por trás das imagens foi removido; os logótipos aparecem sem fundo.
 
 ## Modo simples: vender sem funil (sessão 20)
 
@@ -973,6 +1051,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 21 (2026-10-16)**: página de obrigado personalizada em Personalizar Checkout (rascunho, pré-visualização, publicação e restauro; botão ligado à entrega real; com e sem funil); área **Operações** com uma única entrada no menu e abas Pedidos/Clientes/Relatórios/Notificações (rotas antigas preservadas); logótipos das Integrações sem fundo; **Dashboard**: atividades recentes só do dia atual no fuso da conta (data real de cada evento) e barra de meta de faturamento (10 mil → 1 milhão MZN) com celebrações únicas guardadas por utilizador. Migrações aditivas `CheckoutThankYou` e `RevenueMilestone`. 327 testes unitários/integração a passar.
 - **Sessão 20 (2026-10-16)**: logótipos oficiais (fundo removido) na aba Integrações; **modo simples** — publicar só exige produto, checkout e entrega (funil, página de obrigado e WhatsApp opcionais, no servidor e na interface); sem funil, o comprador vai do pagamento confirmado diretamente para a página de acesso ao produto. Funis, upsell e downsell inalterados. Sem migração. 308 testes unitários/integração e E2E completos a passar.
 - **Sessão 19 (2026-10-16)**: «Entrega do produto» no formulário do produto (PDF carregado do dispositivo, privado, substituir/remover; ou link de acesso validado para SaaS/área de membros), entrega automática só depois do pagamento confirmado com o acesso de cada produto pago (principal, upsell, downsell) na página de obrigado e na área «Os meus produtos», recuperação do acesso em `/acesso` (email + código ou telemóvel), aba Integrações em cartões com páginas de configuração por integração. Migração aditiva (`FILE`, `deliveryFileId`); EPay/E2Payments/webhooks/checkout intactos. 303 testes unitários/integração e 129 E2E a passar.
 - **Sessão 18 (2026-10-16)**: área de Funis com entrada única «Funil avançado» (removido «Criar funil»), editor com mapa do fluxo, vários upsells/downsells com destinos por aceitar/recusar, link de página externa por etapa com código de integração (`/ntp-funil.js` + `POST /api/public/funil/v1/aceitar|recusar`, validação de percurso e etapa no servidor), página de obrigado do site ou externa, paleta do editor antigo sem Checkout principal/Página de vendas/Oferta adicional (etapas existentes preservadas). Vendas de upsell/downsell continuam encomendas próprias confirmadas só pelo gateway. Sem migração; EPay/E2Payments/webhooks/confirmação intactos. 294 testes unitários/integração e 124 E2E a passar.

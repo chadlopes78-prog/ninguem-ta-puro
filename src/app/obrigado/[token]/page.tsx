@@ -36,6 +36,7 @@ export default async function ThankYouPage({ params, searchParams }: { params: P
         upsellNote={failedUpsell ? "A oferta adicional não foi paga e não foi entregue. A sua compra principal está confirmada." : null}
         continueUrl={view.continueUrl}
         mainProductName={view.mainProductName}
+        titleSize={view.titleSize}
         extraProducts={view.extraProducts}
         accessAreaHref={view.accessAreaHref}
         supportEmail={view.supportEmail}

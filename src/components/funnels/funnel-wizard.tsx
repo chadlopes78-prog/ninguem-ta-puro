@@ -46,6 +46,8 @@ interface Props {
     thankYou: { design: ThankYouDesign; action: ThankYouAction | null; fileId: string | null; stepName: string; useSitePage: boolean; redirectUrl: string };
     setup: WizardSetup;
   };
+  /** Página de obrigado personalizada publicada em "Personalizar Checkout" (é essa a aparência usada) */
+  customThankYouHref?: string | null;
   /** Requisitos de publicação do produto (estado guardado, calculado no servidor) */
   readiness: { stageLabel: string; published: boolean; requirements: RequirementView[] };
   publishAction: () => Promise<ActionResult<unknown>>;
@@ -800,6 +802,14 @@ export function FunnelWizard(props: Props) {
                 <Card>
                   <CardHeader title="Página de obrigado" description="Mostrada só depois de a compra estar confirmada pelo gateway. O endereço da página, sozinho, não confirma nada." />
                   <CardBody className="grid grid-cols-1 gap-4">
+                    {props.customThankYouHref && (
+                      <p className="rounded-[var(--radius-md)] border border-accent/30 bg-accent-soft p-3 text-[12.5px] text-fg" data-testid="ty-custom-note">
+                        Este produto tem uma página de obrigado personalizada (título, mensagem, botão e aparência), que é a mostrada aos compradores no fim deste funil.{" "}
+                        <Link href={props.customThankYouHref} className="font-medium text-accent hover:underline">
+                          Editar em Personalizar Checkout
+                        </Link>
+                      </p>
+                    )}
                     <Field label="Nome da etapa" error={err("thankYou.stepName")} hint="Só para si, para identificar a etapa no funil.">
                       {(p) => <Input {...p} value={tyStep.stepName} onChange={(e) => setTyStep((t) => ({ ...t, stepName: e.target.value }))} maxLength={80} data-testid="ty-step-name" />}
                     </Field>

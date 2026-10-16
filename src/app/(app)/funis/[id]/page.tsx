@@ -8,6 +8,7 @@ import { prisma } from "@/server/db";
 import { FunnelBuilder } from "@/components/funnels/funnel-builder";
 import { activateFunnelAction, createFunnelOfferAction, deactivateFunnelAction, deleteProductFileAction, saveFunnelAction, saveWizardFunnelAction } from "../actions";
 import { getWizardFunnel } from "@/server/services/funnel-wizard";
+import { publishedThankYou } from "@/server/services/thank-you-custom";
 import { checkoutPath } from "@/server/services/primary-checkout";
 import { getSettings } from "@/server/services/settings";
 import { resolveAppBaseUrl } from "@/server/app-url";
@@ -45,10 +46,13 @@ export default async function FunnelEditorPage({ params }: { params: Promise<{ i
     ]);
     if (!w) notFound();
     const readiness = await getReadiness(w.state.productId, scope);
+    // página de obrigado personalizada em "Personalizar Checkout" (tem prioridade sobre a aparência do funil)
+    const customThankYou = Boolean(await publishedThankYou(w.checkout.id));
     return (
       <FunnelWizard
         funnel={{ id: f.id, name: f.name, status: f.status }}
         initial={{ productId: w.state.productId, offers: w.state.offers, thankYou: w.state.thankYou, setup: w.state.setup }}
+        customThankYouHref={customThankYou ? `/checkouts/personalizar/${w.state.productId}/obrigado` : null}
         readiness={{ stageLabel: STAGE_LABELS[readiness.stage], published: w.product.status === "PUBLISHED", requirements: readiness.requirements }}
         publishAction={publishProductAction.bind(null, w.state.productId)}
         products={all.map((p) => ({

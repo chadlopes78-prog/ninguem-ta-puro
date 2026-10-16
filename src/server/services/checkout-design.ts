@@ -119,7 +119,7 @@ export async function listCheckoutPersonalization(scope: Scope, q?: string) {
     orderBy: { createdAt: "desc" },
     include: {
       offers: { where: { isDefault: true }, take: 1 },
-      checkouts: { where: { primaryProductId: { not: null } }, include: { design: { select: { draft: true, published: true, publishedAt: true } } } },
+      checkouts: { where: { primaryProductId: { not: null } }, include: { design: { select: { draft: true, published: true, publishedAt: true } }, thankYou: { select: { draft: true, published: true } } } },
     },
   });
 }
