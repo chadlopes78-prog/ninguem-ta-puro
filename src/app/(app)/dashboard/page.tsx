@@ -193,9 +193,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: SP
           rows={today.activities}
           rowKey={(r) => r.key}
           columns={[
-            { key: "time", header: "Hora", cell: (r) => <time dateTime={r.at.toISOString()} className="text-muted tabular" data-testid="activity-time">{formatTime(r.at, tz)}</time> },
             { key: "code", header: "Pedido", mobile: "title", cell: (r) => <Link href={`/pedidos/${r.id}`} className="font-mono text-[13px] text-fg hover:text-accent">{r.code}</Link> },
-            { key: "kind", header: "Atividade", cell: (r) => <span className="text-fg" data-testid="activity-kind">{ACTIVITY_LABELS[r.kind]}</span> },
+            {
+              key: "kind",
+              header: "Atividade",
+              cell: (r) => (
+                <span className="flex flex-col">
+                  <span className="text-fg" data-testid="activity-kind">{ACTIVITY_LABELS[r.kind]}</span>
+                  <time dateTime={r.at.toISOString()} className="text-[12px] text-muted tabular" data-testid="activity-time">{formatTime(r.at, tz)}</time>
+                </span>
+              ),
+            },
             { key: "product", header: "Produto", cell: (r) => <span className="text-muted">{r.productName ?? "—"}</span> },
             { key: "customer", header: "Cliente", cell: (r) => <span className="text-muted">{r.customerName}</span> },
             { key: "value", header: "Valor", align: "right", mobile: "end", cell: (r) => <span className="font-medium tabular">{formatMoney(r.totalCents, r.currency as CurrencyCode)}</span> },
