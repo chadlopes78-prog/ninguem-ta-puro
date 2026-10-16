@@ -1,34 +1,16 @@
 "use client";
 
-// Assistente de funis: Produto inicial → (Upsell) → Página de obrigado.
-// Toda a validação definitiva acontece no servidor; aqui apenas se organiza a configuração por etapas.
-import { useEffect, useRef, useState, useTransition } from "react";
+// Editor de funil (entrada "Funil avançado"): Compra principal → Upsells/Downsells → Página de obrigado.
+// O mapa mostra para onde o comprador vai em cada situação; cada etapa configura-se ao lado.
+// Toda a validação definitiva acontece no servidor; aqui apenas se organiza a configuração.
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  ArrowLeft,
-  ArrowRight,
-  Check,
-  Gift,
-  MessageCircle,
-  Monitor,
-  Package,
-  PackageOpen,
-  PartyPopper,
-  Plus,
-  Smartphone,
-  TrendingDown,
-} from "lucide-react";
+import { ArrowDown, ArrowLeft, Check, CreditCard, ExternalLink, MessageCircle, Monitor, Package, PackageOpen, PartyPopper, Plus, Smartphone, Trash2, TrendingDown, TrendingUp, X } from "lucide-react";
 import type { ActionResult } from "@/server/validation/common";
 import type { ProductStatus } from "@prisma/client";
-import type { UpsellConfig } from "@/lib/funnels/wizard";
-import {
-  DARK_PRESET,
-  LIGHT_PRESET,
-  THANK_YOU_FONTS,
-  type ThankYouAction,
-  type ThankYouDesign,
-} from "@/lib/thank-you";
+import { THANK_YOU_TARGET, URL_TARGET, type FunnelOffer } from "@/lib/funnels/wizard";
+import { DARK_PRESET, LIGHT_PRESET, THANK_YOU_FONTS, type ThankYouAction, type ThankYouDesign } from "@/lib/thank-you";
 import { supportLink, type DeliveryPageInput } from "@/lib/product-setup";
 import type { WizardSetup } from "@/server/services/funnel-wizard";
 import { DeliveryStep, RequirementsPanel, SupportStep, type RequirementView } from "./product-setup-steps";
@@ -37,20 +19,11 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  Checkbox,
-  Field,
-  Input,
-  Select,
-  Textarea,
-} from "@/components/ui/field";
+import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/field";
 import { CopyButton } from "@/components/ui/copy-button";
 import { useToast } from "@/components/ui/toast";
 import { ProductCover } from "@/components/products/cover";
-import {
-  PRODUCT_STATUS_LABELS,
-  PRODUCT_STATUS_TONE,
-} from "@/components/products/labels";
+import { PRODUCT_STATUS_LABELS, PRODUCT_STATUS_TONE } from "@/components/products/labels";
 import { ThankYouContent } from "@/components/public/thank-you-content";
 import { UpsellContent } from "@/components/public/upsell-content";
 
@@ -61,15 +34,7 @@ export interface WizardProduct {
   status: ProductStatus;
   checkoutPath: string | null;
   checkoutActive: boolean;
-  offers: {
-    id: string;
-    name: string;
-    priceCents: number;
-    compareAtCents: number | null;
-    currency: CurrencyCode;
-    isActive: boolean;
-    isDefault: boolean;
-  }[];
+  offers: { id: string; name: string; priceCents: number; compareAtCents: number | null; currency: CurrencyCode; isActive: boolean; isDefault: boolean }[];
   files: { id: string; filename: string; sizeBytes: number }[];
 }
 
@@ -77,14 +42,8 @@ interface Props {
   funnel: { id: string; name: string; status: "DRAFT" | "ACTIVE" | "INACTIVE" };
   initial: {
     productId: string;
-    afterPayment: "upsell" | "thank_you";
-    upsell: UpsellConfig | null;
-    downsell?: UpsellConfig | null;
-    thankYou: {
-      design: ThankYouDesign;
-      action: ThankYouAction | null;
-      fileId: string | null;
-    };
+    offers: FunnelOffer[];
+    thankYou: { design: ThankYouDesign; action: ThankYouAction | null; fileId: string | null; stepName: string; useSitePage: boolean; redirectUrl: string };
     setup: WizardSetup;
   };
   /** Requisitos de publicação do produto (estado guardado, calculado no servidor) */
@@ -100,88 +59,40 @@ interface Props {
   createOfferAction: (productId: string, input: { name: string; price: string; currency: string }) => Promise<ActionResult<{ id: string; name: string; priceCents: number; currency: string }>>;
 }
 
-type Step = "product" | "after" | "upsell" | "downsell" | "thank_you" | "support" | "delivery";
+/** Etapa selecionada no editor */
+type Sel = "main" | "thank_you" | "support" | "delivery" | `offer:${string}`;
 
-const EMPTY_UPSELL: UpsellConfig = {
-  productId: "",
-  offerId: "",
-  headline: "",
-  body: "",
-  imageUrl: "",
-  videoUrl: "",
-  acceptText: "",
-  declineText: "",
-  afterAccept: "thank_you",
-  afterAcceptUrl: "",
-  afterDecline: "thank_you",
-  afterDeclineUrl: "",
-  afterFail: "thank_you",
-};
+const TYPE_LABEL = { UPSELL: "Upsell", DOWNSELL: "Downsell" } as const;
 
-function ChoiceCard({
-  selected,
-  onClick,
-  icon: Icon,
-  title,
-  text,
-  testId,
-}: {
-  selected: boolean;
-  onClick: () => void;
-  icon: React.ElementType;
-  title: string;
-  text: string;
-  testId?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={selected}
-      data-testid={testId}
-      className={cn(
-        "flex h-full flex-col gap-2 rounded-[var(--radius-lg)] border p-4 text-left transition-colors",
-        selected
-          ? "border-accent bg-accent-soft"
-          : "border-line bg-surface-2 hover:border-line-strong",
-      )}
-    >
-      <span className="flex items-center justify-between">
-        <span
-          className={cn(
-            "grid h-9 w-9 place-items-center rounded-[var(--radius-md)]",
-            selected ? "bg-accent text-accent-ink" : "bg-surface-3 text-muted",
-          )}
-        >
-          <Icon className="h-4.5 w-4.5" aria-hidden="true" />
-        </span>
-        {selected && (
-          <Check className="h-4 w-4 text-accent" aria-hidden="true" />
-        )}
-      </span>
-      <span className="font-medium text-fg">{title}</span>
-      <span className="text-[12.5px] leading-relaxed text-muted">{text}</span>
-    </button>
-  );
+function newOffer(type: FunnelOffer["type"], offers: FunnelOffer[]): FunnelOffer {
+  const base = type === "UPSELL" ? "upsell" : "downsell";
+  let key = base;
+  for (let n = 2; offers.some((o) => o.key === key); n++) key = `${base}_${n}`;
+  const count = offers.filter((o) => o.type === type).length + 1;
+  return {
+    key,
+    type,
+    name: `${TYPE_LABEL[type]} ${count}`,
+    productId: "",
+    offerId: "",
+    pageUrl: "",
+    acceptText: "",
+    declineText: "",
+    onAccept: THANK_YOU_TARGET,
+    onDecline: THANK_YOU_TARGET,
+    afterFail: "thank_you",
+    headline: "",
+    body: "",
+    imageUrl: "",
+    videoUrl: "",
+    afterAcceptUrl: "",
+    afterDeclineUrl: "",
+  };
 }
 
-function Segmented<T extends string>({
-  value,
-  options,
-  onChange,
-  label,
-}: {
-  value: T;
-  options: { value: T; label: string }[];
-  onChange: (v: T) => void;
-  label: string;
-}) {
+function Segmented<T extends string>({ value, options, onChange, label }: { value: T; options: { value: T; label: string }[]; onChange: (v: T) => void; label: string }) {
   return (
-    <div
-      role="radiogroup"
-      aria-label={label}
-      className="inline-flex flex-wrap gap-1 rounded-[var(--radius-md)] border border-line bg-surface-2 p-1"
-    >
+    <div role="radiogroup" aria-label={label} className="inline-flex flex-wrap gap-1 rounded-[var(--radius-md)] border border-line bg-surface-2 p-1">
       {options.map((o) => (
         <button
           key={o.value}
@@ -189,12 +100,7 @@ function Segmented<T extends string>({
           role="radio"
           aria-checked={value === o.value}
           onClick={() => onChange(o.value)}
-          className={cn(
-            "h-8 rounded-[7px] px-3 text-[13px] font-medium",
-            value === o.value
-              ? "bg-surface-3 text-fg shadow-sm"
-              : "text-muted hover:text-fg",
-          )}
+          className={cn("min-h-9 rounded-[7px] px-3 text-[13px] font-medium", value === o.value ? "bg-surface-3 text-fg shadow-sm" : "text-muted hover:text-fg")}
         >
           {o.label}
         </button>
@@ -203,65 +109,23 @@ function Segmented<T extends string>({
   );
 }
 
-function DevicePreview({
-  children,
-  label,
-}: {
-  children: React.ReactNode;
-  label: string;
-}) {
+function DevicePreview({ children, label }: { children: React.ReactNode; label: string }) {
   const [device, setDevice] = useState<"desktop" | "mobile">("desktop");
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[12px] font-medium uppercase tracking-wider text-subtle">
-          {label}
-        </p>
-        <div
-          className="flex gap-1"
-          role="group"
-          aria-label="Dispositivo da pré-visualização"
-        >
-          <button
-            type="button"
-            onClick={() => setDevice("desktop")}
-            aria-pressed={device === "desktop"}
-            className={cn(
-              "grid h-8 w-8 place-items-center rounded-md",
-              device === "desktop"
-                ? "bg-surface-3 text-fg"
-                : "text-subtle hover:text-fg",
-            )}
-            aria-label="Computador"
-          >
+        <p className="text-[12px] font-medium uppercase tracking-wider text-subtle">{label}</p>
+        <div className="flex gap-1" role="group" aria-label="Dispositivo da pré-visualização">
+          <button type="button" onClick={() => setDevice("desktop")} aria-pressed={device === "desktop"} className={cn("grid h-9 w-9 place-items-center rounded-md", device === "desktop" ? "bg-surface-3 text-fg" : "text-subtle hover:text-fg")} aria-label="Computador">
             <Monitor className="h-4 w-4" />
           </button>
-          <button
-            type="button"
-            onClick={() => setDevice("mobile")}
-            aria-pressed={device === "mobile"}
-            className={cn(
-              "grid h-8 w-8 place-items-center rounded-md",
-              device === "mobile"
-                ? "bg-surface-3 text-fg"
-                : "text-subtle hover:text-fg",
-            )}
-            aria-label="Telemóvel"
-            data-testid="preview-mobile"
-          >
+          <button type="button" onClick={() => setDevice("mobile")} aria-pressed={device === "mobile"} className={cn("grid h-9 w-9 place-items-center rounded-md", device === "mobile" ? "bg-surface-3 text-fg" : "text-subtle hover:text-fg")} aria-label="Telemóvel" data-testid="preview-mobile">
             <Smartphone className="h-4 w-4" />
           </button>
         </div>
       </div>
       <div className="overflow-hidden rounded-[var(--radius-lg)] border border-line bg-canvas p-2">
-        <div
-          className={cn(
-            "@container mx-auto max-h-[640px] overflow-y-auto rounded-[10px] scrollbar-thin transition-[width]",
-            device === "mobile" ? "w-[375px] max-w-full" : "w-full",
-          )}
-          data-testid="device-frame"
-          data-device={device}
-        >
+        <div className={cn("@container mx-auto max-h-[560px] overflow-y-auto rounded-[10px] scrollbar-thin transition-[width]", device === "mobile" ? "w-[375px] max-w-full" : "w-full")} data-testid="device-frame" data-device={device}>
           {children}
         </div>
       </div>
@@ -269,76 +133,183 @@ function DevicePreview({
   );
 }
 
-type OfferErr = (k: string) => string | undefined;
+// ───────────── Mapa do funil ─────────────
 
-/**
- * Configuração de uma oferta do funil (upsell ou downsell): produto, preço (escolher um existente ou criar
- * um novo aqui), textos, imagem/vídeo e caminhos depois de aceitar, recusar ou falhar o pagamento.
- * O preço cobrado vem sempre do preço guardado no servidor, nunca do browser.
- */
-function OfferStepEditor({
-  kind,
-  value,
-  onChange,
+function MapNode({ selected, onClick, icon: Icon, tint, kicker, title, detail, badge, testId }: { selected: boolean; onClick: () => void; icon: React.ElementType; tint: string; kicker: string; title: string; detail?: string; badge?: string; testId?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={selected ? "step" : undefined}
+      aria-label={`${kicker}: ${title}${badge ? ` (${badge})` : ""}`}
+      data-testid={testId}
+      className={cn("flex w-full min-w-0 items-start gap-3 rounded-[var(--radius-lg)] border p-3 text-left transition-colors", selected ? "border-accent bg-accent-soft" : "border-line bg-surface hover:border-line-strong")}
+    >
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[var(--radius-md)] bg-surface-3" style={{ color: tint }}>
+        <Icon className="h-4.5 w-4.5" aria-hidden="true" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-subtle">{kicker}</span>
+          {badge && <span className="rounded-full border border-line px-1.5 py-px text-[10.5px] text-muted">{badge}</span>}
+        </span>
+        <span className="block truncate text-[13.5px] font-medium text-fg">{title}</span>
+        {detail && <span className="block truncate text-[12px] text-muted">{detail}</span>}
+      </span>
+    </button>
+  );
+}
+
+function Connector({ label }: { label?: string }) {
+  return (
+    <div className="flex items-center gap-2 py-1 pl-[1.6rem] text-[11.5px] text-subtle" aria-hidden="true">
+      <ArrowDown className="h-3.5 w-3.5 shrink-0" />
+      {label}
+    </div>
+  );
+}
+
+function Branch({ kind, text }: { kind: "accept" | "decline"; text: string }) {
+  return (
+    <li className="flex min-w-0 items-start gap-1.5 text-[12px]">
+      {kind === "accept" ? <Check className="mt-0.5 h-3.5 w-3.5 shrink-0 text-success" aria-hidden="true" /> : <X className="mt-0.5 h-3.5 w-3.5 shrink-0 text-danger" aria-hidden="true" />}
+      <span className="min-w-0 text-muted [overflow-wrap:anywhere]">
+        <span className="font-medium text-fg">{kind === "accept" ? "Se aceitar" : "Se recusar"}</span> → {text}
+      </span>
+    </li>
+  );
+}
+
+// ───────────── Código de integração para páginas externas ─────────────
+
+function IntegrationCode({ baseUrl, offer }: { baseUrl: string; offer: FunnelOffer }) {
+  const accept = offer.acceptText || "ACEITAR OFERTA";
+  const decline = offer.declineText || "NÃO, OBRIGADO";
+  const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const code = `<!-- Ninguém Tá Puro · ${esc(offer.name)} -->
+<script src="${baseUrl}/ntp-funil.js" defer></script>
+<a href="#ntp-aceitar" style="display:inline-block;padding:14px 28px;border-radius:12px;background:#16a34a;color:#fff;font-weight:700;text-decoration:none">${esc(accept)}</a>
+<a href="#ntp-recusar" style="display:inline-block;margin-top:12px;color:#666">${esc(decline)}</a>`;
+  return (
+    <div className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-line bg-surface-2 p-4" data-testid="integration-code">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[13px] font-semibold text-fg">Código de integração da página externa</p>
+        <CopyButton value={code} label="Copiar código" />
+      </div>
+      <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-[var(--radius-md)] bg-canvas p-3 font-mono text-[11.5px] leading-relaxed text-fg">{code}</pre>
+      <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-[12.5px] leading-relaxed text-muted">
+        <li>Cole o código na sua página (bloco HTML do construtor). Se preferir os seus próprios botões, aponte as ligações para <code className="text-fg">#ntp-aceitar</code> e <code className="text-fg">#ntp-recusar</code>.</li>
+        <li>A plataforma abre a sua página com <code className="text-fg">ntp_run</code> e <code className="text-fg">ntp_step</code> no endereço: identificam o funil, a etapa e a oferta. Não os remova.</li>
+        <li>Aceitar leva o comprador ao pagamento seguro da oferta na plataforma; recusar segue para o destino configurado. O servidor valida sempre o percurso e a etapa.</li>
+        <li>Clicar não cria vendas: a venda de {TYPE_LABEL[offer.type].toLowerCase()} só é registada quando o pagamento é confirmado pela EPay ou E2Payments.</li>
+      </ol>
+      <p className="text-[12px] text-subtle">O código não contém segredos nem dados de pagamento. Para testar, faça uma compra de teste e siga o fluxo até à sua página.</p>
+    </div>
+  );
+}
+
+// ───────────── Etapa de oferta ─────────────
+
+function OfferPanel({
+  offer,
+  index,
+  offers,
   products,
   mainProductId,
+  thankYouName,
   err,
+  onChange,
+  onRemove,
+  onCreateOffer,
+  baseUrl,
   businessName,
   design,
-  onCreateOffer,
-  footer,
 }: {
-  kind: "upsell" | "downsell";
-  value: UpsellConfig;
-  onChange: (patch: Partial<UpsellConfig>) => void;
+  offer: FunnelOffer;
+  index: number;
+  offers: FunnelOffer[];
   products: WizardProduct[];
   mainProductId: string;
-  err: OfferErr;
+  thankYouName: string;
+  err: (k: string) => string | undefined;
+  onChange: (patch: Partial<FunnelOffer>) => void;
+  onRemove: () => void;
+  onCreateOffer: (productId: string, input: { name: string; price: string; currency: string }) => Promise<{ ok: true; id: string } | { ok: false; error: string; fieldErrors: Record<string, string> }>;
+  baseUrl: string;
   businessName: string;
   design: ThankYouDesign;
-  onCreateOffer: (productId: string, input: { name: string; price: string; currency: string }) => Promise<{ ok: true; id: string } | { ok: false; error: string; fieldErrors: Record<string, string> }>;
-  footer: React.ReactNode;
 }) {
-  const t = kind; // prefixo dos testids e das chaves de erro
-  const label = kind === "upsell" ? "upsell" : "downsell";
-  const selProduct = products.find((p) => p.id === value.productId) ?? null;
-  const selOffer = selProduct?.offers.find((o) => o.id === value.offerId) ?? null;
+  const e = (f: string) => err(`offers.${index}.${f}`);
+  const product = products.find((p) => p.id === offer.productId) ?? null;
+  const activePrices = product?.offers.filter((o) => o.isActive) ?? [];
+  const price = activePrices.find((o) => o.id === offer.offerId) ?? activePrices.find((o) => o.isDefault) ?? activePrices[0] ?? null;
+  const later = offers.slice(index + 1);
+  const label = TYPE_LABEL[offer.type].toLowerCase();
+  const targets = [
+    ...later.map((o) => ({ value: o.key, label: `${o.name} (${TYPE_LABEL[o.type]})` })),
+    { value: THANK_YOU_TARGET, label: `${thankYouName} (página de obrigado)` },
+  ];
   const [creating, setCreating] = useState(false);
-  const [newName, setNewName] = useState(kind === "upsell" ? "Oferta especial" : "Oferta alternativa");
   const [newPrice, setNewPrice] = useState("");
-  const [newErr, setNewErr] = useState<Record<string, string>>({});
+  const [newErr, setNewErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const create = async () => {
-    if (!selProduct) return;
+    if (!product) return;
     setBusy(true);
-    const r = await onCreateOffer(selProduct.id, { name: newName, price: newPrice, currency: selProduct.offers[0]?.currency ?? "MZN" });
+    const r = await onCreateOffer(product.id, { name: offer.type === "UPSELL" ? "Oferta especial" : "Oferta alternativa", price: newPrice, currency: product.offers[0]?.currency ?? "MZN" });
     setBusy(false);
-    if (!r.ok) return setNewErr({ ...r.fieldErrors, _: r.error });
-    setNewErr({});
+    if (!r.ok) return setNewErr(r.fieldErrors.priceCents ?? r.error);
+    setNewErr(null);
     setCreating(false);
     setNewPrice("");
     onChange({ offerId: r.id });
   };
+  const destSelect = (field: "onAccept" | "onDecline", testId: string, aria: string) => (
+    <Select aria-label={aria} value={offer[field]} onChange={(ev) => onChange({ [field]: ev.target.value })} data-testid={testId} aria-invalid={e(field) ? true : undefined}>
+      {targets.map((t) => (
+        <option key={t.value} value={t.value}>
+          {t.label}
+        </option>
+      ))}
+      {offer[field] === URL_TARGET && <option value={URL_TARGET}>Endereço externo (configuração anterior)</option>}
+    </Select>
+  );
+
   return (
-    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]" data-testid={`${t}-step`}>
+    <div className="grid grid-cols-1 gap-5 2xl:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)]" data-testid={`${offer.type === "DOWNSELL" ? "downsell" : "upsell"}-step`} data-step-key={offer.key}>
       <Card>
         <CardHeader
-          title={kind === "upsell" ? "Configuração do upsell" : "Configuração do downsell"}
-          description={kind === "upsell" ? "Oferta mostrada logo depois do pagamento confirmado. O preço vem do servidor (nunca do browser)." : "Oferta alternativa mostrada quando o cliente recusa o upsell. Normalmente um preço mais acessível."}
+          title={
+            <span className="flex flex-wrap items-center gap-2">
+              <Badge tone={offer.type === "UPSELL" ? "accent" : "warning"}>{TYPE_LABEL[offer.type]}</Badge>
+              {offer.name || "Etapa sem nome"}
+            </span>
+          }
+          description={index === 0 ? "Mostrado logo depois de o pagamento da compra principal ser confirmado." : "Mostrado quando uma etapa anterior encaminha para aqui."}
+          action={
+            <Button size="sm" variant="ghost" onClick={onRemove} data-testid="offer-remove" aria-label={`Remover ${offer.name}`}>
+              <Trash2 className="h-4 w-4" /> Remover
+            </Button>
+          }
         />
         <CardBody className="grid grid-cols-1 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+            <Field label="Nome da etapa" error={e("name") ?? e("key")} hint="Só para si. Ex.: Upsell 1 — Produto complementar">
+              {(p) => <Input {...p} value={offer.name} onChange={(ev) => onChange({ name: ev.target.value })} maxLength={80} data-testid="offer-name" />}
+            </Field>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[13px] font-medium text-fg/90">Tipo de venda</span>
+              <Segmented label="Tipo de venda" value={offer.type} onChange={(v) => onChange({ type: v })} options={[{ value: "UPSELL", label: "Upsell" }, { value: "DOWNSELL", label: "Downsell" }]} />
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Produto da oferta" error={err(`${t}.productId`)}>
+            <Field label="Produto" error={e("productId")} hint="Produto vendido nesta etapa (registado como venda própria).">
               {(p) => (
-                <Select
-                  {...p}
-                  value={value.productId}
-                  onChange={(e) => onChange({ productId: e.target.value, offerId: products.find((x) => x.id === e.target.value)?.offers.find((o) => o.isActive)?.id ?? "" })}
-                  data-testid={`${t}-product`}
-                >
+                <Select {...p} value={offer.productId} onChange={(ev) => onChange({ productId: ev.target.value, offerId: "" })} data-testid="offer-product">
                   <option value="">Selecione…</option>
                   {products
-                    .filter((x) => x.id !== mainProductId && x.status !== "ARCHIVED")
+                    .filter((x) => x.id !== mainProductId && (x.status !== "ARCHIVED" || x.id === offer.productId))
                     .map((x) => (
                       <option key={x.id} value={x.id}>
                         {x.name}
@@ -347,12 +318,12 @@ function OfferStepEditor({
                 </Select>
               )}
             </Field>
-            <Field label="Preço da oferta" error={err(`${t}.offerId`)}>
+            <Field label="Preço cobrado" error={e("offerId")}>
               {(p) => (
-                <Select {...p} value={value.offerId} onChange={(e) => onChange({ offerId: e.target.value })} disabled={!selProduct} data-testid={`${t}-offer`}>
-                  <option value="">Selecione…</option>
-                  {selProduct?.offers
-                    .filter((o) => o.isActive)
+                <Select {...p} value={price?.id === (activePrices.find((o) => o.isDefault) ?? activePrices[0])?.id && !offer.offerId ? "" : offer.offerId} onChange={(ev) => onChange({ offerId: ev.target.value })} disabled={!product} data-testid="offer-price">
+                  <option value="">{product && activePrices[0] ? `Preço principal — ${formatMoney((activePrices.find((o) => o.isDefault) ?? activePrices[0]).priceCents, activePrices[0].currency)}` : "Preço principal do produto"}</option>
+                  {activePrices
+                    .filter((o) => !o.isDefault)
                     .map((o) => (
                       <option key={o.id} value={o.id}>
                         {o.name} — {formatMoney(o.priceCents, o.currency)}
@@ -362,145 +333,112 @@ function OfferStepEditor({
               )}
             </Field>
           </div>
-          {selProduct &&
+          {product &&
             (creating ? (
-              <div className="grid grid-cols-1 gap-3 rounded-[var(--radius-md)] border border-line bg-surface-2 p-3 sm:grid-cols-[1fr_140px_auto] sm:items-end" data-testid={`${t}-new-offer`}>
-                <Field label="Nome do preço" error={newErr.name}>
-                  {(p) => <Input {...p} value={newName} onChange={(e) => setNewName(e.target.value)} maxLength={120} />}
+              <div className="flex flex-wrap items-end gap-2 rounded-[var(--radius-md)] border border-line bg-surface-2 p-3" data-testid="offer-new-price">
+                <Field label="Valor do preço especial" error={newErr ?? undefined} className="min-w-[140px] flex-1">
+                  {(p) => <Input {...p} value={newPrice} onChange={(ev) => setNewPrice(ev.target.value)} inputMode="decimal" placeholder="97,00" data-testid="offer-new-price-value" />}
                 </Field>
-                <Field label="Valor" error={newErr.priceCents}>
-                  {(p) => <Input {...p} value={newPrice} onChange={(e) => setNewPrice(e.target.value)} inputMode="decimal" placeholder="97,00" data-testid={`${t}-new-offer-price`} />}
-                </Field>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={() => void create()} loading={busy} data-testid={`${t}-new-offer-save`}>
-                    Criar preço
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setCreating(false)}>
-                    Cancelar
-                  </Button>
-                </div>
-                {newErr._ && <p className="text-[12.5px] text-danger sm:col-span-3" role="alert">{newErr._}</p>}
+                <Button size="sm" onClick={() => void create()} loading={busy} data-testid="offer-new-price-save">
+                  Criar preço
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setCreating(false)}>
+                  Cancelar
+                </Button>
               </div>
             ) : (
-              <button type="button" onClick={() => setCreating(true)} className="inline-flex min-h-9 items-center gap-1.5 self-start text-[13px] font-medium text-accent hover:underline" data-testid={`${t}-new-offer-open`}>
-                <Plus className="h-4 w-4" aria-hidden="true" /> Criar um preço especial para esta oferta
+              <button type="button" onClick={() => setCreating(true)} className="inline-flex min-h-9 items-center gap-1.5 self-start text-[13px] font-medium text-accent hover:underline" data-testid="offer-new-price-open">
+                <Plus className="h-4 w-4" aria-hidden="true" /> Criar um preço especial para esta etapa
               </button>
             ))}
-          <Field label="Título da oferta" error={err(`${t}.headline`)} required>
-            {(p) => (
-              <Input
-                {...p}
-                value={value.headline}
-                onChange={(e) => onChange({ headline: e.target.value })}
-                maxLength={160}
-                placeholder={kind === "upsell" ? "Ex.: Leve também o curso em vídeo com 50% de desconto" : "Ex.: Que tal só o módulo essencial, por menos?"}
-                data-testid={`${t}-headline`}
-              />
-            )}
+
+          <Field label="Link da página (opcional)" error={e("pageUrl")} hint={offer.pageUrl ? "O comprador é enviado para esta página; use o código de integração abaixo nos botões." : "Vazio: a plataforma mostra a sua própria página de oferta com o produto e o preço."}>
+            {(p) => <Input {...p} type="url" inputMode="url" value={offer.pageUrl} onChange={(ev) => onChange({ pageUrl: ev.target.value })} placeholder="https://meusite.com/upsell" data-testid="offer-page-url" />}
           </Field>
-          <Field label="Descrição" error={err(`${t}.body`)}>
-            {(p) => <Textarea {...p} value={value.body} onChange={(e) => onChange({ body: e.target.value })} maxLength={3000} rows={4} />}
-          </Field>
+
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Imagem (https://, opcional)" error={err(`${t}.imageUrl`)}>
-              {(p) => <Input {...p} value={value.imageUrl} onChange={(e) => onChange({ imageUrl: e.target.value })} placeholder="https://" />}
+            <Field label="Botão de aceitar" error={e("acceptText")}>
+              {(p) => <Input {...p} value={offer.acceptText} onChange={(ev) => onChange({ acceptText: ev.target.value })} maxLength={60} placeholder="ACEITAR OFERTA" data-testid="offer-accept-text" />}
             </Field>
-            <Field label="Vídeo YouTube/Vimeo (opcional)" error={err(`${t}.videoUrl`)}>
-              {(p) => <Input {...p} value={value.videoUrl} onChange={(e) => onChange({ videoUrl: e.target.value })} placeholder="https://youtu.be/…" />}
-            </Field>
-            <Field label="Botão de aceitação">
-              {(p) => <Input {...p} value={value.acceptText} onChange={(e) => onChange({ acceptText: e.target.value })} maxLength={60} placeholder="Sim, quero adicionar" />}
-            </Field>
-            <Field label="Texto para recusar">
-              {(p) => <Input {...p} value={value.declineText} onChange={(e) => onChange({ declineText: e.target.value })} maxLength={80} placeholder="Não, obrigado" />}
+            <Field label="Botão de recusar" error={e("declineText")}>
+              {(p) => <Input {...p} value={offer.declineText} onChange={(ev) => onChange({ declineText: ev.target.value })} maxLength={80} placeholder="NÃO, OBRIGADO" data-testid="offer-decline-text" />}
             </Field>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 rounded-[var(--radius-lg)] border border-line bg-surface-2 p-4">
-            <p className="text-[13px] font-semibold text-fg">Destino após o {label}</p>
+          <div className="grid grid-cols-1 gap-3 rounded-[var(--radius-lg)] border border-line bg-surface-2 p-4" data-testid="offer-routes">
+            <p className="text-[13px] font-semibold text-fg">Para onde vai o comprador</p>
             <div className="grid grid-cols-1 gap-1.5">
-              <p className="text-[12.5px] text-muted">Depois de aceitar e o pagamento ser confirmado</p>
-              <Segmented
-                label="Destino após aceitar"
-                value={value.afterAccept}
-                onChange={(v) => onChange({ afterAccept: v })}
-                options={[
-                  { value: "thank_you", label: "Página de obrigado" },
-                  { value: "url", label: "Outro endereço" },
-                ]}
-              />
-              {value.afterAccept === "url" && (
-                <Field label="Endereço após aceitar" error={err(`${t}.afterAcceptUrl`)}>
-                  {(p) => <Input {...p} value={value.afterAcceptUrl} onChange={(e) => onChange({ afterAcceptUrl: e.target.value })} placeholder="https://" />}
-                </Field>
-              )}
+              <span className="flex items-center gap-1.5 text-[12.5px] text-muted">
+                <Check className="h-3.5 w-3.5 text-success" aria-hidden="true" /> Se aceitar: paga o {label} e, com o pagamento confirmado, segue para
+              </span>
+              {destSelect("onAccept", "offer-on-accept", "Destino depois de aceitar")}
+              {e("onAccept") && <p className="text-[12px] font-medium text-danger" role="alert">{e("onAccept")}</p>}
+              {e("afterAcceptUrl") && <p className="text-[12px] font-medium text-danger" role="alert">{e("afterAcceptUrl")}</p>}
             </div>
             <div className="grid grid-cols-1 gap-1.5">
-              <p className="text-[12.5px] text-muted">Depois de recusar (a compra inicial mantém-se)</p>
-              <Segmented
-                label="Destino após recusar"
-                value={value.afterDecline}
-                onChange={(v) => onChange({ afterDecline: v })}
-                options={[
-                  { value: "thank_you", label: "Página de obrigado" },
-                  ...(kind === "upsell" ? [{ value: "downsell" as const, label: "Mostrar downsell" }] : []),
-                  { value: "url", label: "Outro endereço" },
-                ]}
-              />
-              {value.afterDecline === "url" && (
-                <Field label="Endereço após recusar" error={err(`${t}.afterDeclineUrl`)}>
-                  {(p) => <Input {...p} value={value.afterDeclineUrl} onChange={(e) => onChange({ afterDeclineUrl: e.target.value })} placeholder="https://" />}
-                </Field>
-              )}
-              {value.afterDecline === "downsell" && <p className="text-[12px] text-subtle">Ao recusar, o cliente vê o downsell (configure-o no passo seguinte).</p>}
+              <span className="flex items-center gap-1.5 text-[12.5px] text-muted">
+                <X className="h-3.5 w-3.5 text-danger" aria-hidden="true" /> Se recusar (a compra principal mantém-se), segue para
+              </span>
+              {destSelect("onDecline", "offer-on-decline", "Destino depois de recusar")}
+              {e("onDecline") && <p className="text-[12px] font-medium text-danger" role="alert">{e("onDecline")}</p>}
+              {e("afterDeclineUrl") && <p className="text-[12px] font-medium text-danger" role="alert">{e("afterDeclineUrl")}</p>}
             </div>
             <div className="grid grid-cols-1 gap-1.5">
-              <p className="text-[12.5px] text-muted">Se o pagamento do {label} falhar (o produto adicional não é entregue)</p>
+              <span className="text-[12.5px] text-muted">Se o pagamento do {label} falhar (o produto não é entregue)</span>
               <Segmented
-                label="Destino se falhar"
-                value={value.afterFail}
+                label="Destino se o pagamento falhar"
+                value={offer.afterFail}
                 onChange={(v) => onChange({ afterFail: v })}
                 options={[
                   { value: "thank_you", label: "Página de obrigado" },
                   { value: "retry", label: "Voltar à oferta" },
                 ]}
               />
-              <p className="text-[12px] text-subtle">Enquanto o pagamento estiver pendente, o comprador fica na página de estado e a oferta não é dada como paga.</p>
             </div>
+            <p className="text-[12px] text-subtle">As etapas só podem encaminhar para etapas seguintes ou para a página de obrigado. O servidor decide sempre o destino: alterar o endereço não salta etapas.</p>
           </div>
-          <div className="flex justify-end">{footer}</div>
         </CardBody>
       </Card>
-      <Card>
-        <CardBody>
-          <DevicePreview label={`Pré-visualização do ${label}`}>
-            <UpsellContent
-              businessName={businessName}
-              primaryColor={design.primaryColor}
-              backgroundColor={design.backgroundColor}
-              headline={value.headline || "Título da oferta"}
-              body={value.body}
-              imageUrl={value.imageUrl}
-              videoUrl={value.videoUrl}
-              productName={selProduct?.name ?? "Produto adicional"}
-              offerName={selOffer?.name ?? "Preço"}
-              priceCents={selOffer?.priceCents ?? 0}
-              compareAtCents={selOffer?.compareAtCents ?? null}
-              currency={selOffer?.currency ?? "MZN"}
-            >
-              <div className="mt-8 flex flex-col gap-3">
-                <span className="rounded-xl px-6 py-3.5 font-semibold" style={{ background: design.primaryColor, color: design.mode === "light" ? "#fff" : "#0a0b0d" }}>
-                  {value.acceptText || "Sim, quero adicionar"}
-                </span>
-                <span className="text-sm underline opacity-70">{value.declineText || "Não, obrigado"}</span>
-              </div>
-            </UpsellContent>
-          </DevicePreview>
-        </CardBody>
-      </Card>
+
+      <div className="flex min-w-0 flex-col gap-5">
+        {offer.pageUrl ? (
+          <IntegrationCode baseUrl={baseUrl} offer={offer} />
+        ) : (
+          <Card>
+            <CardBody>
+              <DevicePreview label={`Página de oferta da plataforma`}>
+                <UpsellContent
+                  businessName={businessName}
+                  primaryColor={design.primaryColor}
+                  backgroundColor={design.backgroundColor}
+                  headline={offer.headline || product?.name || "Produto da oferta"}
+                  body={offer.body}
+                  imageUrl={offer.imageUrl || product?.imageUrl || ""}
+                  videoUrl={offer.videoUrl}
+                  productName={product?.name ?? "Produto da oferta"}
+                  offerName={price?.name ?? "Preço"}
+                  priceCents={price?.priceCents ?? 0}
+                  compareAtCents={price?.compareAtCents ?? null}
+                  currency={price?.currency ?? "MZN"}
+                >
+                  <div className="mt-8 flex flex-col gap-3">
+                    <span className="rounded-xl px-6 py-3.5 font-semibold" style={{ background: design.primaryColor, color: design.mode === "light" ? "#fff" : "#0a0b0d" }}>
+                      {offer.acceptText || "Sim, quero aproveitar"}
+                    </span>
+                    <span className="text-sm underline opacity-70">{offer.declineText || "Não, obrigado"}</span>
+                  </div>
+                </UpsellContent>
+              </DevicePreview>
+              <p className="mt-3 text-[12px] text-subtle">Prefere uma página criada noutro site? Indique o link da página: a plataforma mostra o código de integração dos botões.</p>
+            </CardBody>
+          </Card>
+        )}
+      </div>
     </div>
   );
 }
+
+// ───────────── Editor ─────────────
 
 export function FunnelWizard(props: Props) {
   const router = useRouter();
@@ -508,71 +446,74 @@ export function FunnelWizard(props: Props) {
   const [pending, start] = useTransition();
   const [name, setName] = useState(props.funnel.name);
   const [productId, setProductId] = useState(props.initial.productId);
-  const [afterPayment, setAfterPayment] = useState(props.initial.afterPayment);
-  const [upsell, setUpsell] = useState<UpsellConfig>(
-    props.initial.upsell ?? EMPTY_UPSELL,
-  );
-  const [downsell, setDownsell] = useState<UpsellConfig>(props.initial.downsell ?? EMPTY_UPSELL);
+  const [offers, setOffers] = useState<FunnelOffer[]>(props.initial.offers);
   // produtos com os preços criados neste funil (aparecem logo nas listas de preços)
   const [products, setProducts] = useState(props.products);
-  const [design, setDesign] = useState<ThankYouDesign>(
-    props.initial.thankYou.design,
-  );
+  const [design, setDesign] = useState<ThankYouDesign>(props.initial.thankYou.design);
+  const [tyStep, setTyStep] = useState({ stepName: props.initial.thankYou.stepName, useSitePage: props.initial.thankYou.useSitePage, redirectUrl: props.initial.thankYou.redirectUrl });
   const [support, setSupport] = useState(props.initial.setup.support);
   const [deliveryMethod, setDeliveryMethod] = useState(props.initial.setup.delivery.method);
   const [deliveryUrl, setDeliveryUrl] = useState(props.initial.setup.delivery.url);
   const [deliveryPage, setDeliveryPage] = useState<DeliveryPageInput>(props.initial.setup.delivery.page);
   const [isMain, setIsMain] = useState(props.initial.setup.isMain);
-  const [files, setFiles] = useState<Record<string, WizardProduct["files"]>>(
-    () => Object.fromEntries(products.map((p) => [p.id, p.files])),
-  );
+  const [files, setFiles] = useState<Record<string, WizardProduct["files"]>>(() => Object.fromEntries(products.map((p) => [p.id, p.files])));
   const [uploading, setUploading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [step, setStep] = useState<Step>("product");
-  // ligações diretas dos requisitos (ex.: /funis/<id>#suporte) abrem o passo correspondente
+  const [sel, setSel] = useState<Sel>("main");
+  const panelRef = useRef<HTMLDivElement>(null);
+  // ligações diretas dos requisitos (ex.: /funis/<id>#suporte) abrem a etapa correspondente
   useEffect(() => {
     const h = window.location.hash.slice(1);
-    const map: Record<string, Step> = { suporte: "support", entrega: "delivery", obrigado: "thank_you" };
-    if (map[h]) setStep(map[h]);
+    const map: Record<string, Sel> = { suporte: "support", entrega: "delivery", obrigado: "thank_you" };
+    if (map[h]) setSel(map[h]);
   }, []);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const product = products.find((p) => p.id === productId) ?? null;
-  const mainOffer =
-    product?.offers.find((o) => o.isDefault) ?? product?.offers[0] ?? null;
+  const mainOffer = product?.offers.find((o) => o.isDefault) ?? product?.offers[0] ?? null;
   const productFiles = files[productId] ?? [];
-
   const supportPreview = supportLink(support.phone, support.message);
+  const thankYouName = tyStep.stepName || "Página de obrigado";
+
   const payload = {
     name,
     productId,
-    afterPayment,
-    upsell: afterPayment === "upsell" ? upsell : undefined,
-    downsell: afterPayment === "upsell" && upsell.afterDecline === "downsell" ? downsell : undefined,
-    thankYou: { design, fileId: null },
+    offers,
+    thankYou: { design, fileId: null, ...tyStep },
     support,
     delivery: { method: deliveryMethod, url: deliveryUrl, page: deliveryPage },
     isMain,
   };
 
-  const steps: { key: Step; label: string; icon: React.ElementType }[] = [
-    { key: "product", label: "Produto inicial", icon: Package },
-    { key: "after", label: "Depois do pagamento", icon: ArrowRight },
-    ...(afterPayment === "upsell"
-      ? [{ key: "upsell" as const, label: "Upsell", icon: Gift }]
-      : []),
-    ...(afterPayment === "upsell" && upsell.afterDecline === "downsell"
-      ? [{ key: "downsell" as const, label: "Downsell", icon: TrendingDown }]
-      : []),
-    { key: "thank_you", label: "Página de obrigado", icon: PartyPopper },
-    { key: "support", label: "Suporte WhatsApp", icon: MessageCircle },
-    { key: "delivery", label: "Entrega do produto", icon: PackageOpen },
-  ];
-
   const err = (k: string) => errors[k];
-  const updUpsell = (patch: Partial<UpsellConfig>) =>
-    setUpsell((u) => ({ ...u, ...patch }));
-  const updDownsell = (patch: Partial<UpsellConfig>) => setDownsell((u) => ({ ...u, ...patch }));
+  const select = (s: Sel) => {
+    setSel(s);
+    // no telemóvel o painel fica por baixo do mapa: leva o utilizador até ele
+    requestAnimationFrame(() => {
+      if (window.innerWidth < 1024) panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
+  const offerName = (key: string) => offers.find((o) => o.key === key)?.name;
+  const targetText = (t: string, kind: "accept" | "decline", type: FunnelOffer["type"]) => {
+    const dest = t === URL_TARGET ? "endereço externo" : t === THANK_YOU_TARGET ? thankYouName : (offerName(t) ?? thankYouName);
+    return kind === "accept" ? `checkout do ${TYPE_LABEL[type].toLowerCase()} → pagamento confirmado → ${dest}` : dest;
+  };
+
+  const updOffer = (key: string, patch: Partial<FunnelOffer>) => setOffers((all) => all.map((o) => (o.key === key ? { ...o, ...patch } : o)));
+  const addOffer = (type: FunnelOffer["type"]) =>
+    setOffers((all) => {
+      const o = newOffer(type, all);
+      const last = all[all.length - 1];
+      // ligação habitual: upsell seguinte depois de aceitar; downsell depois de recusar
+      const linked = last ? all.map((x) => (x.key !== last.key ? x : type === "UPSELL" ? (x.onAccept === THANK_YOU_TARGET ? { ...x, onAccept: o.key } : x) : x.onDecline === THANK_YOU_TARGET ? { ...x, onDecline: o.key } : x)) : all;
+      setTimeout(() => select(`offer:${o.key}`), 0);
+      return [...linked, o];
+    });
+  const removeOffer = (key: string) => {
+    setOffers((all) => all.filter((o) => o.key !== key).map((o) => ({ ...o, onAccept: o.onAccept === key ? THANK_YOU_TARGET : o.onAccept, onDecline: o.onDecline === key ? THANK_YOU_TARGET : o.onDecline })));
+    setSel("main");
+  };
+
   /** Cria um preço para o produto da oferta (servidor valida a conta e o valor) e seleciona-o. */
   const createOffer = async (forProductId: string, input: { name: string; price: string; currency: string }) => {
     const r = await props.createOfferAction(forProductId, input);
@@ -582,8 +523,7 @@ export function FunnelWizard(props: Props) {
     toast(r.message ?? "Preço criado.");
     return { ok: true as const, id: o.id };
   };
-  const updDesign = (patch: Partial<ThankYouDesign>) =>
-    setDesign((d) => ({ ...d, ...patch }));
+  const updDesign = (patch: Partial<ThankYouDesign>) => setDesign((d) => ({ ...d, ...patch }));
 
   const save = (then?: () => Promise<ActionResult<unknown>>) =>
     start(async () => {
@@ -592,31 +532,23 @@ export function FunnelWizard(props: Props) {
         if (!r.ok) {
           setErrors(r.fieldErrors ?? {});
           const keys = Object.keys(r.fieldErrors ?? {});
-          if (keys.some((k) => k.startsWith("support"))) setStep("support");
-          else if (keys.some((k) => k.startsWith("delivery"))) setStep("delivery");
-          else if (keys.some((k) => k.startsWith("upsell"))) setStep("upsell");
-          else if (keys.some((k) => k.startsWith("downsell"))) setStep("downsell");
-          else if (keys.some((k) => k.startsWith("thankYou")))
-            setStep("thank_you");
-          else if (keys.includes("productId") || keys.includes("name"))
-            setStep("product");
+          const offerIdx = keys.map((k) => /^offers\.(\d+)\./.exec(k)).find(Boolean);
+          if (keys.some((k) => k.startsWith("support"))) select("support");
+          else if (keys.some((k) => k.startsWith("delivery"))) select("delivery");
+          else if (offerIdx && offers[Number(offerIdx[1])]) select(`offer:${offers[Number(offerIdx[1])].key}`);
+          else if (keys.some((k) => k.startsWith("thankYou"))) select("thank_you");
+          else if (keys.includes("productId") || keys.includes("name")) select("main");
           toast(r.error, "error");
           return;
         }
         setErrors({});
         if (then) {
           const a = await then();
-          toast(
-            a.ok ? (a.message ?? "Feito.") : a.error,
-            a.ok ? "success" : "error",
-          );
+          toast(a.ok ? (a.message ?? "Feito.") : a.error, a.ok ? "success" : "error");
         } else toast(r.message ?? "Guardado.");
         router.refresh();
       } catch {
-        toast(
-          "Erro de rede. As alterações continuam no ecrã — tente novamente.",
-          "error",
-        );
+        toast("Erro de rede. As alterações continuam no ecrã — tente novamente.", "error");
       }
     });
 
@@ -624,46 +556,26 @@ export function FunnelWizard(props: Props) {
     props.funnel.status === "ACTIVE"
       ? start(async () => {
           const a = await props.deactivateAction();
-          toast(
-            a.ok ? (a.message ?? "Desativado.") : a.error,
-            a.ok ? "success" : "error",
-          );
+          toast(a.ok ? (a.message ?? "Desativado.") : a.error, a.ok ? "success" : "error");
           router.refresh();
         })
       : save(props.activateAction);
 
   const upload = async (f: File) => {
-    if (f.type && f.type !== "application/pdf")
-      return toast("Escolha um ficheiro PDF.", "error");
-    if (f.size > 4 * 1024 * 1024)
-      return toast("O PDF tem mais de 4 MB.", "error");
+    if (f.type && f.type !== "application/pdf") return toast("Escolha um ficheiro PDF.", "error");
+    if (f.size > 4 * 1024 * 1024) return toast("O PDF tem mais de 4 MB.", "error");
     setUploading(true);
     try {
       const fd = new FormData();
       fd.append("file", f);
-      const res = await fetch(`/api/produtos/${productId}/ficheiros`, {
-        method: "POST",
-        body: fd,
-      });
-      const j = (await res.json()) as {
-        file?: { id: string; filename: string; sizeBytes: number };
-        error?: string;
-      };
-      if (!res.ok || !j.file)
-        throw new Error(j.error ?? "Não foi possível carregar o PDF.");
-      setFiles((all) => ({
-        ...all,
-        [productId]: [j.file!, ...(all[productId] ?? [])],
-      }));
+      const res = await fetch(`/api/produtos/${productId}/ficheiros`, { method: "POST", body: fd });
+      const j = (await res.json()) as { file?: { id: string; filename: string; sizeBytes: number }; error?: string };
+      if (!res.ok || !j.file) throw new Error(j.error ?? "Não foi possível carregar o PDF.");
+      setFiles((all) => ({ ...all, [productId]: [j.file!, ...(all[productId] ?? [])] }));
       setDeliveryPage((pg) => ({ ...pg, fileId: j.file!.id }));
-      toast(
-        "PDF carregado. Fica privado: só compradores com a compra confirmada o podem descarregar.",
-      );
+      toast("PDF carregado. Fica privado: só compradores com a compra confirmada o podem descarregar.");
     } catch (e) {
-      toast(
-        e instanceof Error ? e.message : "Não foi possível carregar o PDF.",
-        "error",
-      );
+      toast(e instanceof Error ? e.message : "Não foi possível carregar o PDF.", "error");
     } finally {
       setUploading(false);
       if (fileInput.current) fileInput.current.value = "";
@@ -674,50 +586,36 @@ export function FunnelWizard(props: Props) {
     start(async () => {
       const r = await props.deleteFileAction(id);
       if (!r.ok) return toast(r.error, "error");
-      setFiles((all) => ({
-        ...all,
-        [productId]: (all[productId] ?? []).filter((x) => x.id !== id),
-      }));
+      setFiles((all) => ({ ...all, [productId]: (all[productId] ?? []).filter((x) => x.id !== id) }));
       if (deliveryPage.fileId === id) setDeliveryPage((pg) => ({ ...pg, fileId: null }));
       toast("PDF eliminado.");
     });
 
   const previewButton = deliveryMethod ? { label: "Aceder ao meu produto", href: "#", external: false } : null;
-  const sampleItems =
-    product && mainOffer
-      ? [
-          {
-            description: `${product.name} — ${mainOffer.name}`,
-            totalCents: mainOffer.priceCents,
-          },
-        ]
-      : [];
+  const sampleItems = product && mainOffer ? [{ description: `${product.name} — ${mainOffer.name}`, totalCents: mainOffer.priceCents }] : [];
+  const selOffer = sel.startsWith("offer:") ? offers.find((o) => `offer:${o.key}` === sel) ?? null : null;
+  const offerIndex = selOffer ? offers.indexOf(selOffer) : -1;
+  const offerHasError = (i: number) => Object.keys(errors).some((k) => k.startsWith(`offers.${i}.`));
+  const productLabel = (id: string) => products.find((p) => p.id === id)?.name;
+  const firstTarget = offers[0] ? offers[0].name : thankYouName;
+  const stats = useMemo(() => ({ up: offers.filter((o) => o.type === "UPSELL").length, down: offers.filter((o) => o.type === "DOWNSELL").length }), [offers]);
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
       {/* Cabeçalho */}
       <div className="flex flex-wrap items-center gap-3">
-        <Link
-          href="/funis"
-          className="grid h-9 w-9 place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-fg"
-          aria-label="Voltar aos funis"
-        >
+        <Link href="/funis" className="grid h-9 w-9 place-items-center rounded-md text-muted hover:bg-surface-2 hover:text-fg" aria-label="Voltar aos funis">
           <ArrowLeft className="h-4 w-4" />
         </Link>
         <div className="min-w-0 flex-1 basis-[calc(100%-3rem)] sm:basis-0">
           <label htmlFor="funnel-name" className="sr-only">
             Nome do funil
           </label>
-          <input
-            id="funnel-name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            maxLength={100}
-            className="w-full min-w-0 truncate bg-transparent font-display text-xl font-semibold text-fg outline-none focus:underline"
-          />
-          {err("name") && (
-            <p className="text-[12px] text-danger">{err("name")}</p>
-          )}
+          <input id="funnel-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} className="w-full min-w-0 truncate bg-transparent font-display text-xl font-semibold text-fg outline-none focus:underline" />
+          <p className="text-[12.5px] text-muted">
+            {stats.up} upsell(s) · {stats.down} downsell(s) · {tyStep.useSitePage ? "página de obrigado do site" : "página de obrigado externa"}
+          </p>
+          {err("name") && <p className="text-[12px] text-danger">{err("name")}</p>}
         </div>
         <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
           {props.funnel.status === "ACTIVE" ? (
@@ -729,57 +627,20 @@ export function FunnelWizard(props: Props) {
           ) : (
             <Badge>Rascunho</Badge>
           )}
-          <Button
-            variant="secondary"
-            onClick={() => save()}
-            loading={pending}
-            data-testid="wizard-save"
-          >
+          <Button variant="secondary" onClick={() => save()} loading={pending} data-testid="wizard-save">
             Guardar
           </Button>
-          <Button
-            variant={props.funnel.status === "ACTIVE" ? "ghost" : "primary"}
-            onClick={toggleActive}
-            disabled={pending}
-            data-testid="wizard-activate"
-          >
-            {props.funnel.status === "ACTIVE"
-              ? "Desativar"
-              : "Guardar e ativar"}
+          <Button variant={props.funnel.status === "ACTIVE" ? "ghost" : "primary"} onClick={toggleActive} disabled={pending} data-testid="wizard-activate">
+            {props.funnel.status === "ACTIVE" ? "Desativar" : "Guardar e ativar"}
           </Button>
         </div>
       </div>
-
-      {/* Fluxo visual: grelha que se adapta à largura (sem deslocamento lateral nem etapas escondidas) */}
-      <nav aria-label="Etapas do funil">
-        <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5" data-testid="funnel-flow">
-          {steps.map((s, i) => (
-            <li key={s.key} className="min-w-0">
-              <button
-                type="button"
-                onClick={() => setStep(s.key)}
-                aria-current={step === s.key ? "step" : undefined}
-                className={cn(
-                  "flex min-h-11 w-full items-center gap-2 rounded-[var(--radius-md)] border px-3 py-2 text-left text-[13px] font-medium leading-tight transition-colors",
-                  step === s.key ? "border-accent bg-accent-soft text-fg" : "border-line bg-surface text-muted hover:text-fg",
-                )}
-              >
-                <span className={cn("grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px]", step === s.key ? "bg-accent text-accent-ink" : "bg-surface-3")}>{i + 1}</span>
-                <s.icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                <span className="min-w-0 [overflow-wrap:anywhere]">{s.label}</span>
-              </button>
-            </li>
-          ))}
-        </ol>
-      </nav>
 
       {/* Requisitos de publicação (estado guardado no servidor) */}
       <RequirementsPanel
         requirements={props.readiness.requirements}
         stageLabel={props.readiness.stageLabel}
-        onJump={(key) =>
-          setStep(key === "whatsapp" ? "support" : key === "delivery" || key === "deliveryContent" ? "delivery" : key === "thankYou" ? "thank_you" : "product")
-        }
+        onJump={(key) => select(key === "whatsapp" ? "support" : key === "delivery" || key === "deliveryContent" ? "delivery" : key === "thankYou" ? "thank_you" : "main")}
         publish={
           !props.readiness.published ? (
             <Button size="sm" onClick={() => save(props.publishAction)} disabled={pending} data-testid="wizard-publish">
@@ -789,469 +650,322 @@ export function FunnelWizard(props: Props) {
         }
       />
 
-      {/* ETAPA 1 — Produto inicial */}
-      {step === "product" && (
-        <Card>
-          <CardHeader
-            title="Etapa 1 — Produto inicial"
-            description="O comprador entra no funil pelo checkout que já foi gerado para este produto."
-          />
-          <CardBody className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-            <Field label="Selecionar produto inicial" error={err("productId")}>
-              {(p) => (
-                <Select
-                  {...p}
-                  value={productId}
-                  onChange={(e) => {
-                    setProductId(e.target.value);
-                    setDeliveryPage((pg) => ({ ...pg, fileId: null }));
-                  }}
-                  data-testid="wizard-product"
-                >
-                  {products
-                    .filter(
-                      (x) => x.status !== "ARCHIVED" || x.id === productId,
-                    )
-                    .map((x) => (
-                      <option key={x.id} value={x.id}>
-                        {x.name}
-                      </option>
-                    ))}
-                </Select>
-              )}
-            </Field>
-            {product && (
-              <div
-                className="flex gap-4 rounded-[var(--radius-lg)] border border-line bg-surface-2 p-4"
-                data-testid="wizard-product-card"
-              >
-                <ProductCover
-                  src={product.imageUrl}
-                  name={product.name}
-                  className="h-16 w-16 text-base"
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium">{product.name}</p>
-                  <p className="tabular text-fg">
-                    {mainOffer
-                      ? formatMoney(mainOffer.priceCents, mainOffer.currency)
-                      : "—"}
-                  </p>
-                  <div className="mt-1.5 flex flex-wrap gap-1.5">
-                    <Badge tone={PRODUCT_STATUS_TONE[product.status]} dot>
-                      {PRODUCT_STATUS_LABELS[product.status]}
-                    </Badge>
-                    {!product.checkoutActive && (
-                      <Badge tone="warning">Checkout desativado</Badge>
-                    )}
-                  </div>
-                  {product.checkoutPath && (
-                    <div className="mt-2 flex min-w-0 items-center gap-2">
-                      <code className="min-w-0 truncate text-[12px] text-muted">
-                        {props.baseUrl}
-                        {product.checkoutPath}
-                      </code>
-                      <span className="shrink-0">
-                        <CopyButton value={product.checkoutPath} size="icon" label="Copiar link do checkout" />
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-            <div className="lg:col-span-2 flex justify-end">
-              <Button onClick={() => setStep("after")}>
-                Continuar <ArrowRight className="h-4 w-4" />
-              </Button>
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[360px_minmax(0,1fr)]">
+        {/* Mapa do funil: o fluxo real configurado */}
+        <nav aria-label="Etapas do funil" className="flex min-w-0 flex-col lg:sticky lg:top-4 lg:self-start" data-testid="funnel-flow">
+          <p className="mb-2 text-[12px] font-medium uppercase tracking-wider text-subtle">Mapa do funil</p>
+          <MapNode selected={sel === "main"} onClick={() => select("main")} icon={CreditCard} tint="#c8f135" kicker="Compra principal" title={product?.name ?? "Selecione o produto"} detail={mainOffer ? `${formatMoney(mainOffer.priceCents, mainOffer.currency)} · checkout do produto` : undefined} testId="map-main" />
+          <Connector label={`pagamento confirmado → ${firstTarget}`} />
+          {offers.map((o, i) => (
+            <div key={o.key} className="flex min-w-0 flex-col">
+              <MapNode
+                selected={sel === `offer:${o.key}`}
+                onClick={() => select(`offer:${o.key}`)}
+                icon={o.type === "UPSELL" ? TrendingUp : TrendingDown}
+                tint={o.type === "UPSELL" ? "#c084fc" : "#f5a524"}
+                kicker={TYPE_LABEL[o.type]}
+                title={o.name || "Etapa sem nome"}
+                detail={productLabel(o.productId) ?? "Produto por escolher"}
+                badge={offerHasError(i) ? "Por corrigir" : o.pageUrl ? "Página externa" : undefined}
+                testId={`map-offer-${o.key}`}
+              />
+              <ul className="my-1.5 ml-[1.6rem] flex flex-col gap-1 border-l border-line pl-3" data-testid={`map-branches-${o.key}`}>
+                <Branch kind="accept" text={targetText(o.onAccept, "accept", o.type)} />
+                <Branch kind="decline" text={targetText(o.onDecline, "decline", o.type)} />
+              </ul>
             </div>
-          </CardBody>
-        </Card>
-      )}
-
-      {/* ETAPA 2 — Depois do pagamento */}
-      {step === "after" && (
-        <Card>
-          <CardHeader
-            title="O que acontece depois do pagamento?"
-            description="Só acontece depois de o pagamento ser confirmado pelo processador (EPay ou E2Payments)."
-          />
-          <CardBody className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <ChoiceCard
-              selected={afterPayment === "upsell"}
-              onClick={() => setAfterPayment("upsell")}
-              icon={Gift}
-              title="Direcionar para um Upsell"
-              text="Mostra uma oferta adicional. Se o comprador aceitar, paga-a numa nova transação; recusar não afeta a compra."
-              testId="after-upsell"
-            />
-            <ChoiceCard
-              selected={afterPayment === "thank_you"}
-              onClick={() => setAfterPayment("thank_you")}
-              icon={PartyPopper}
-              title="Direcionar para a Página de Obrigado"
-              text="Confirma a compra e entrega o produto (PDF, link) ou leva ao WhatsApp."
-              testId="after-thank-you"
-            />
-            <div className="flex justify-end sm:col-span-2">
-              <Button
-                onClick={() =>
-                  setStep(afterPayment === "upsell" ? "upsell" : "thank_you")
-                }
-              >
-                Configurar{" "}
-                {afterPayment === "upsell" ? "upsell" : "página de obrigado"}{" "}
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-            </div>
-          </CardBody>
-        </Card>
-      )}
-
-      {/* ETAPA 3 — Upsell */}
-      {step === "upsell" && afterPayment === "upsell" && (
-        <OfferStepEditor
-          kind="upsell"
-          value={upsell}
-          onChange={updUpsell}
-          products={products}
-          mainProductId={productId}
-          err={err}
-          businessName={props.businessName}
-          design={design}
-          onCreateOffer={createOffer}
-          footer={
-            upsell.afterDecline === "downsell" ? (
-              <Button onClick={() => setStep("downsell")} data-testid="go-downsell">
-                Configurar downsell <ArrowRight className="h-4 w-4" />
-              </Button>
-            ) : (
-              <Button onClick={() => setStep("thank_you")}>
-                Página de obrigado <ArrowRight className="h-4 w-4" />
-              </Button>
-            )
-          }
-        />
-      )}
-
-      {/* ETAPA 3b — Downsell (oferta alternativa depois de recusar o upsell) */}
-      {step === "downsell" && afterPayment === "upsell" && upsell.afterDecline === "downsell" && (
-        <OfferStepEditor
-          kind="downsell"
-          value={downsell}
-          onChange={updDownsell}
-          products={products}
-          mainProductId={productId}
-          err={err}
-          businessName={props.businessName}
-          design={design}
-          onCreateOffer={createOffer}
-          footer={
-            <Button onClick={() => setStep("thank_you")}>
-              Página de obrigado <ArrowRight className="h-4 w-4" />
+          ))}
+          <div className="my-1.5 grid grid-cols-2 gap-2">
+            <Button size="sm" variant="outline" onClick={() => addOffer("UPSELL")} disabled={offers.length >= 10} data-testid="add-upsell">
+              <Plus className="h-4 w-4" /> Upsell
             </Button>
-          }
-        />
-      )}
+            <Button size="sm" variant="outline" onClick={() => addOffer("DOWNSELL")} disabled={offers.length >= 10 || offers.length === 0} data-testid="add-downsell">
+              <Plus className="h-4 w-4" /> Downsell
+            </Button>
+          </div>
+          <MapNode
+            selected={sel === "thank_you"}
+            onClick={() => select("thank_you")}
+            icon={PartyPopper}
+            tint="#f472b6"
+            kicker="Página de obrigado"
+            title={thankYouName}
+            detail={tyStep.useSitePage ? "Página do site" : tyStep.redirectUrl ? `Externa: ${tyStep.redirectUrl}` : "Externa: endereço por definir"}
+            testId="map-thank-you"
+          />
+          <p className="mb-2 mt-5 text-[12px] font-medium uppercase tracking-wider text-subtle">Produto principal</p>
+          <div className="grid grid-cols-2 gap-2">
+            <MapNode selected={sel === "support"} onClick={() => select("support")} icon={MessageCircle} tint="#25D366" kicker="Suporte WhatsApp" title={support.phone ? support.phone : "Por configurar"} testId="map-support" />
+            <MapNode selected={sel === "delivery"} onClick={() => select("delivery")} icon={PackageOpen} tint="#60a5fa" kicker="Entrega do produto" title={deliveryMethod === "EXTERNAL_LINK" ? "Link externo" : deliveryMethod === "INTERNAL_PAGE" ? "Página interna" : "Por escolher"} testId="map-delivery" />
+          </div>
+        </nav>
 
-      {/* ETAPA 4 — Página de obrigado */}
-      {step === "thank_you" && (
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <div className="flex flex-col gap-5">
+        {/* Configuração da etapa selecionada */}
+        <div ref={panelRef} className="min-w-0 scroll-mt-4">
+          {sel === "main" && (
             <Card>
-              <CardHeader
-                title="Botões da página de obrigado"
-                description="Aparecem ao cliente só depois do pagamento confirmado, por esta ordem."
-              />
-              <CardBody className="grid grid-cols-1 gap-2 text-[13px]" data-testid="thank-you-buttons-info">
-                <p className="flex items-center gap-2">
-                  <MessageCircle className="h-4 w-4 shrink-0 text-[#25D366]" aria-hidden="true" />
-                  <span>
-                    <strong>1.º Suporte WhatsApp</strong> — «Precisa de ajuda? Fale connosco no WhatsApp» ({supportPreview ? "número configurado" : "configure o número no passo Suporte WhatsApp"}).
-                  </span>
-                </p>
-                <p className="flex items-center gap-2">
-                  <Package className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
-                  <span>
-                    <strong>2.º Aceder ao meu produto</strong> — {deliveryMethod === "EXTERNAL_LINK" ? "abre o link externo configurado" : deliveryMethod === "INTERNAL_PAGE" ? "abre a página de entrega da plataforma" : "configure o método no passo Entrega do produto"}.
-                  </span>
-                </p>
-                <div className="mt-1 flex flex-wrap gap-2">
-                  <Button variant="outline" size="sm" onClick={() => setStep("support")}>Configurar suporte</Button>
-                  <Button variant="outline" size="sm" onClick={() => setStep("delivery")}>Configurar entrega</Button>
-                </div>
-              </CardBody>
-            </Card>
-
-            <Card>
-              <CardHeader title="Textos" />
-              <CardBody className="grid grid-cols-1 gap-4">
-                <Field label="Título" error={err("thankYou.design.title")}>
+              <CardHeader title="Compra principal" description="O comprador entra no funil pelo checkout do produto (configurado no produto). Só depois do pagamento confirmado segue para as etapas seguintes." />
+              <CardBody className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+                <Field label="Produto principal" error={err("productId")}>
                   {(p) => (
-                    <Input
+                    <Select
                       {...p}
-                      value={design.title}
-                      onChange={(e) => updDesign({ title: e.target.value })}
-                      maxLength={120}
-                      data-testid="ty-title"
-                    />
-                  )}
-                </Field>
-                <Field label="Subtítulo">
-                  {(p) => (
-                    <Input
-                      {...p}
-                      value={design.subtitle}
-                      onChange={(e) => updDesign({ subtitle: e.target.value })}
-                      maxLength={200}
-                    />
-                  )}
-                </Field>
-                <Field label="Mensagem de agradecimento">
-                  {(p) => (
-                    <Textarea
-                      {...p}
-                      value={design.message}
-                      onChange={(e) => updDesign({ message: e.target.value })}
-                      maxLength={1500}
-                      rows={3}
-                    />
-                  )}
-                </Field>
-                <Field label="Instruções para o comprador (opcional)">
-                  {(p) => (
-                    <Textarea
-                      {...p}
-                      value={design.instructions}
-                      onChange={(e) =>
-                        updDesign({ instructions: e.target.value })
-                      }
-                      maxLength={1500}
-                      rows={3}
-                    />
-                  )}
-                </Field>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <Field label="Texto auxiliar do botão">
-                    {(p) => (
-                      <Input
-                        {...p}
-                        value={design.helperText}
-                        onChange={(e) =>
-                          updDesign({ helperText: e.target.value })
-                        }
-                        maxLength={300}
-                        placeholder="Ex.: O acesso também fica no seu email."
-                      />
-                    )}
-                  </Field>
-                  <Field label="Informação de suporte">
-                    {(p) => (
-                      <Input
-                        {...p}
-                        value={design.supportText}
-                        onChange={(e) =>
-                          updDesign({ supportText: e.target.value })
-                        }
-                        maxLength={300}
-                        placeholder="Precisa de ajuda?"
-                      />
-                    )}
-                  </Field>
-                </div>
-              </CardBody>
-            </Card>
-
-            <Card>
-              <CardHeader
-                title="Aparência"
-                description="Comece pelo modelo padrão e ajuste o que precisar."
-              />
-              <CardBody className="grid grid-cols-1 gap-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <ChoiceCard
-                    selected={design.mode === "dark"}
-                    onClick={() => updDesign({ mode: "dark", ...DARK_PRESET })}
-                    icon={Monitor}
-                    title="Escuro"
-                    text="Fundo escuro, texto claro."
-                    testId="ty-mode-dark"
-                  />
-                  <ChoiceCard
-                    selected={design.mode === "light"}
-                    onClick={() =>
-                      updDesign({ mode: "light", ...LIGHT_PRESET })
-                    }
-                    icon={Monitor}
-                    title="Claro"
-                    text="Fundo claro, texto escuro."
-                    testId="ty-mode-light"
-                  />
-                </div>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  {(["primaryColor", "backgroundColor"] as const).map((k) => (
-                    <Field
-                      key={k}
-                      label={
-                        k === "primaryColor" ? "Cor principal" : "Cor de fundo"
-                      }
-                      error={err(`thankYou.design.${k}`)}
+                      value={productId}
+                      onChange={(e) => {
+                        setProductId(e.target.value);
+                        setDeliveryPage((pg) => ({ ...pg, fileId: null }));
+                      }}
+                      data-testid="wizard-product"
                     >
-                      {(p) => (
-                        <div className="flex gap-2">
-                          <input
-                            type="color"
-                            aria-label={`${k === "primaryColor" ? "Cor principal" : "Cor de fundo"} — seletor`}
-                            value={design[k]}
-                            onChange={(e) => updDesign({ [k]: e.target.value })}
-                            className="h-10 w-10 shrink-0 cursor-pointer rounded-md border border-line bg-transparent p-0.5"
-                          />
-                          <Input
-                            {...p}
-                            value={design[k]}
-                            onChange={(e) => updDesign({ [k]: e.target.value })}
-                            maxLength={7}
-                            className="font-mono"
-                          />
+                      {products
+                        .filter((x) => x.status !== "ARCHIVED" || x.id === productId)
+                        .map((x) => (
+                          <option key={x.id} value={x.id}>
+                            {x.name}
+                          </option>
+                        ))}
+                    </Select>
+                  )}
+                </Field>
+                {product && (
+                  <div className="flex gap-4 rounded-[var(--radius-lg)] border border-line bg-surface-2 p-4" data-testid="wizard-product-card">
+                    <ProductCover src={product.imageUrl} name={product.name} className="h-16 w-16 text-base" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium">{product.name}</p>
+                      <p className="tabular text-fg">{mainOffer ? formatMoney(mainOffer.priceCents, mainOffer.currency) : "—"}</p>
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        <Badge tone={PRODUCT_STATUS_TONE[product.status]} dot>
+                          {PRODUCT_STATUS_LABELS[product.status]}
+                        </Badge>
+                        {!product.checkoutActive && <Badge tone="warning">Checkout desativado</Badge>}
+                      </div>
+                      {product.checkoutPath && (
+                        <div className="mt-2 flex min-w-0 items-center gap-2">
+                          <code className="min-w-0 truncate text-[12px] text-muted">
+                            {props.baseUrl}
+                            {product.checkoutPath}
+                          </code>
+                          <span className="shrink-0">
+                            <CopyButton value={product.checkoutPath} size="icon" label="Copiar link do checkout" />
+                          </span>
                         </div>
                       )}
-                    </Field>
-                  ))}
-                  <Field
-                    label="Logótipo (https://)"
-                    error={err("thankYou.design.logoUrl")}
-                  >
-                    {(p) => (
-                      <Input
-                        {...p}
-                        value={design.logoUrl}
-                        onChange={(e) => updDesign({ logoUrl: e.target.value })}
-                        placeholder="https://"
-                      />
-                    )}
-                  </Field>
-                  <Field
-                    label="Imagem de destaque (https://)"
-                    error={err("thankYou.design.heroImageUrl")}
-                  >
-                    {(p) => (
-                      <Input
-                        {...p}
-                        value={design.heroImageUrl}
-                        onChange={(e) =>
-                          updDesign({ heroImageUrl: e.target.value })
-                        }
-                        placeholder="https://"
-                      />
-                    )}
-                  </Field>
-                </div>
-                <div className="flex flex-wrap gap-x-6 gap-y-3">
-                  <div className="grid grid-cols-1 gap-1.5">
-                    <p className="text-[13px] font-medium">Tipografia</p>
-                    <Segmented
-                      label="Tipografia"
-                      value={design.font}
-                      onChange={(v) => updDesign({ font: v })}
-                      options={Object.entries(THANK_YOU_FONTS).map(
-                        ([value, label]) => ({
-                          value: value as ThankYouDesign["font"],
-                          label,
-                        }),
-                      )}
-                    />
+                    </div>
                   </div>
-                  <div className="grid grid-cols-1 gap-1.5">
-                    <p className="text-[13px] font-medium">Alinhamento</p>
-                    <Segmented
-                      label="Alinhamento"
-                      value={design.align}
-                      onChange={(v) => updDesign({ align: v })}
-                      options={[
-                        { value: "center", label: "Centro" },
-                        { value: "left", label: "Esquerda" },
-                      ]}
-                    />
-                  </div>
-                  <div className="grid grid-cols-1 gap-1.5">
-                    <p className="text-[13px] font-medium">Espaçamento</p>
-                    <Segmented
-                      label="Espaçamento"
-                      value={design.spacing}
-                      onChange={(v) => updDesign({ spacing: v })}
-                      options={[
-                        { value: "compact", label: "Compacto" },
-                        { value: "normal", label: "Normal" },
-                        { value: "spacious", label: "Amplo" },
-                      ]}
-                    />
+                )}
+                <div className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-dashed border-line p-4 xl:col-span-2">
+                  <p className="text-[13px] font-medium text-fg">Depois do pagamento confirmado</p>
+                  <p className="text-[12.5px] text-muted">{offers.length ? `O comprador segue para “${offers[0].name}”.` : `Sem ofertas: o comprador segue para “${thankYouName}”.`} Adicione upsells e downsells para vender mais depois da compra.</p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" onClick={() => addOffer("UPSELL")} disabled={offers.length >= 10}>
+                      <Plus className="h-4 w-4" /> Adicionar upsell
+                    </Button>
+                    {offers.length > 0 && (
+                      <Button size="sm" variant="outline" onClick={() => addOffer("DOWNSELL")} disabled={offers.length >= 10}>
+                        <Plus className="h-4 w-4" /> Adicionar downsell
+                      </Button>
+                    )}
                   </div>
                 </div>
-                <Checkbox
-                  label="Mostrar o resumo da compra"
-                  checked={design.showSummary}
-                  onChange={(e) => updDesign({ showSummary: e.target.checked })}
-                />
               </CardBody>
             </Card>
-          </div>
-          <Card className="xl:sticky xl:top-4 xl:self-start">
-            <CardBody>
-              <DevicePreview label="Pré-visualização da página de obrigado">
-                <ThankYouContent
-                  preview
-                  design={design}
-                  state="confirmed"
-                  businessName={props.businessName}
-                  code="NTP-EXEMPLO"
-                  customerFirstName="Ana"
-                  items={sampleItems}
-                  currency={mainOffer?.currency ?? "MZN"}
-                  button={previewButton}
-                  buttonKind={deliveryMethod === "EXTERNAL_LINK" ? "link" : "access"}
-                  support={supportPreview ? { href: supportPreview, label: "Precisa de ajuda? Fale connosco no WhatsApp" } : null}
-                />
-              </DevicePreview>
-            </CardBody>
-          </Card>
-        </div>
-      )}
-      {/* ETAPA — Suporte via WhatsApp */}
-      {step === "support" && (
-        <div className="grid max-w-3xl grid-cols-1 gap-5">
-          <SupportStep phone={support.phone} message={support.message} onChange={setSupport} error={err("support.phone")} />
-        </div>
-      )}
+          )}
 
-      {/* ETAPA — Entrega do produto */}
-      {step === "delivery" && (
-        <div className="grid max-w-3xl grid-cols-1 gap-5">
-          <DeliveryStep
-            method={deliveryMethod}
-            url={deliveryUrl}
-            page={deliveryPage}
-            onMethod={setDeliveryMethod}
-            onUrl={setDeliveryUrl}
-            onPage={(patch) => setDeliveryPage((pg) => ({ ...pg, ...patch }))}
-            files={productFiles}
-            uploading={uploading}
-            onUpload={upload}
-            onRemoveFile={removeFile}
-            errors={errors}
-            productName={product?.name ?? "Produto"}
-            supportOk={Boolean(supportPreview)}
-          />
-          <Card>
-            <CardBody>
-              <Checkbox
-                label="Funil principal deste produto"
-                description="As compras do checkout principal seguem este funil (página de obrigado e entrega)."
-                checked={isMain}
-                onChange={(e) => setIsMain(e.target.checked)}
+          {selOffer && (
+            <OfferPanel
+              key={selOffer.key}
+              offer={selOffer}
+              index={offerIndex}
+              offers={offers}
+              products={products}
+              mainProductId={productId}
+              thankYouName={thankYouName}
+              err={err}
+              onChange={(patch) => updOffer(selOffer.key, patch)}
+              onRemove={() => removeOffer(selOffer.key)}
+              onCreateOffer={createOffer}
+              baseUrl={props.baseUrl}
+              businessName={props.businessName}
+              design={design}
+            />
+          )}
+
+          {sel === "thank_you" && (
+            <div className="grid grid-cols-1 gap-5 2xl:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)]">
+              <div className="flex min-w-0 flex-col gap-5">
+                <Card>
+                  <CardHeader title="Página de obrigado" description="Mostrada só depois de a compra estar confirmada pelo gateway. O endereço da página, sozinho, não confirma nada." />
+                  <CardBody className="grid grid-cols-1 gap-4">
+                    <Field label="Nome da etapa" error={err("thankYou.stepName")} hint="Só para si, para identificar a etapa no funil.">
+                      {(p) => <Input {...p} value={tyStep.stepName} onChange={(e) => setTyStep((t) => ({ ...t, stepName: e.target.value }))} maxLength={80} data-testid="ty-step-name" />}
+                    </Field>
+                    <Checkbox
+                      label="Usar página de obrigado do site"
+                      description={tyStep.useSitePage ? "Ativado: o comprador vê a página de obrigado da plataforma (confirmação, suporte WhatsApp e acesso ao produto)." : "Desativado: o comprador é enviado para o endereço externo abaixo, depois do pagamento confirmado."}
+                      checked={tyStep.useSitePage}
+                      onChange={(e) => setTyStep((t) => ({ ...t, useSitePage: e.target.checked }))}
+                      data-testid="ty-use-site"
+                    />
+                    {tyStep.useSitePage && (
+                      <>
+                        <Field label="Título" error={err("thankYou.design.title")}>
+                          {(p) => <Input {...p} value={design.title} onChange={(e) => updDesign({ title: e.target.value })} maxLength={120} data-testid="ty-title" />}
+                        </Field>
+                        <Field label="Mensagem">
+                          {(p) => <Textarea {...p} value={design.message} onChange={(e) => updDesign({ message: e.target.value })} maxLength={1500} rows={3} data-testid="ty-message" />}
+                        </Field>
+                      </>
+                    )}
+                    <Field
+                      label={tyStep.useSitePage ? "Redirecionar para (opcional)" : "Redirecionar para"}
+                      error={err("thankYou.redirectUrl")}
+                      required={!tyStep.useSitePage}
+                      hint={tyStep.useSitePage ? "Se preencher, a página mostra um botão “Continuar” para este endereço. Vazio: o comprador fica na página de obrigado." : "Endereço da sua página de obrigado externa (https://)."}
+                    >
+                      {(p) => <Input {...p} type="url" inputMode="url" value={tyStep.redirectUrl} onChange={(e) => setTyStep((t) => ({ ...t, redirectUrl: e.target.value }))} placeholder="https://meusite.com/obrigado" data-testid="ty-redirect" />}
+                    </Field>
+                    {!tyStep.useSitePage && (
+                      <p className="rounded-[var(--radius-md)] border border-warning/30 bg-warning/[0.06] p-3 text-[12.5px] text-warning" data-testid="ty-external-note">
+                        Na página externa o comprador não vê o botão de acesso nem o suporte WhatsApp da plataforma: inclua na sua página as instruções de acesso ao produto. A entrega configurada no produto mantém-se.
+                      </p>
+                    )}
+                  </CardBody>
+                </Card>
+
+                {tyStep.useSitePage && (
+                  <details className="group rounded-[var(--radius-lg)] border border-line bg-surface">
+                    <summary className="flex min-h-12 cursor-pointer items-center px-5 text-[14px] font-medium text-fg">Aparência e textos adicionais</summary>
+                    <div className="grid grid-cols-1 gap-4 border-t border-line p-5">
+                      <Field label="Subtítulo">{(p) => <Input {...p} value={design.subtitle} onChange={(e) => updDesign({ subtitle: e.target.value })} maxLength={200} />}</Field>
+                      <Field label="Instruções para o comprador (opcional)">{(p) => <Textarea {...p} value={design.instructions} onChange={(e) => updDesign({ instructions: e.target.value })} maxLength={1500} rows={3} />}</Field>
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <Field label="Texto auxiliar do botão">{(p) => <Input {...p} value={design.helperText} onChange={(e) => updDesign({ helperText: e.target.value })} maxLength={300} placeholder="Ex.: O acesso também fica no seu email." />}</Field>
+                        <Field label="Informação de suporte">{(p) => <Input {...p} value={design.supportText} onChange={(e) => updDesign({ supportText: e.target.value })} maxLength={300} placeholder="Precisa de ajuda?" />}</Field>
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <p className="text-[13px] font-medium">Modo</p>
+                        <Segmented
+                          label="Modo"
+                          value={design.mode}
+                          onChange={(v) => updDesign(v === "dark" ? { mode: "dark", ...DARK_PRESET } : { mode: "light", ...LIGHT_PRESET })}
+                          options={[
+                            { value: "dark", label: "Escuro" },
+                            { value: "light", label: "Claro" },
+                          ]}
+                        />
+                      </div>
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        {(["primaryColor", "backgroundColor"] as const).map((k) => (
+                          <Field key={k} label={k === "primaryColor" ? "Cor principal" : "Cor de fundo"} error={err(`thankYou.design.${k}`)}>
+                            {(p) => (
+                              <div className="flex gap-2">
+                                <input type="color" aria-label={`${k === "primaryColor" ? "Cor principal" : "Cor de fundo"} — seletor`} value={design[k]} onChange={(e) => updDesign({ [k]: e.target.value })} className="h-10 w-10 shrink-0 cursor-pointer rounded-md border border-line bg-transparent p-0.5" />
+                                <Input {...p} value={design[k]} onChange={(e) => updDesign({ [k]: e.target.value })} maxLength={7} className="font-mono" />
+                              </div>
+                            )}
+                          </Field>
+                        ))}
+                        <Field label="Logótipo (https://)" error={err("thankYou.design.logoUrl")}>{(p) => <Input {...p} value={design.logoUrl} onChange={(e) => updDesign({ logoUrl: e.target.value })} placeholder="https://" />}</Field>
+                        <Field label="Imagem de destaque (https://)" error={err("thankYou.design.heroImageUrl")}>{(p) => <Input {...p} value={design.heroImageUrl} onChange={(e) => updDesign({ heroImageUrl: e.target.value })} placeholder="https://" />}</Field>
+                      </div>
+                      <div className="flex flex-wrap gap-x-6 gap-y-3">
+                        <div className="grid grid-cols-1 gap-1.5">
+                          <p className="text-[13px] font-medium">Tipografia</p>
+                          <Segmented label="Tipografia" value={design.font} onChange={(v) => updDesign({ font: v })} options={Object.entries(THANK_YOU_FONTS).map(([value, label]) => ({ value: value as ThankYouDesign["font"], label }))} />
+                        </div>
+                        <div className="grid grid-cols-1 gap-1.5">
+                          <p className="text-[13px] font-medium">Alinhamento</p>
+                          <Segmented label="Alinhamento" value={design.align} onChange={(v) => updDesign({ align: v })} options={[{ value: "center", label: "Centro" }, { value: "left", label: "Esquerda" }]} />
+                        </div>
+                        <div className="grid grid-cols-1 gap-1.5">
+                          <p className="text-[13px] font-medium">Espaçamento</p>
+                          <Segmented label="Espaçamento" value={design.spacing} onChange={(v) => updDesign({ spacing: v })} options={[{ value: "compact", label: "Compacto" }, { value: "normal", label: "Normal" }, { value: "spacious", label: "Amplo" }]} />
+                        </div>
+                      </div>
+                      <Checkbox label="Mostrar o resumo da compra" checked={design.showSummary} onChange={(e) => updDesign({ showSummary: e.target.checked })} />
+                      <div className="grid grid-cols-1 gap-2 rounded-[var(--radius-md)] border border-line p-3 text-[12.5px]" data-testid="thank-you-buttons-info">
+                        <p className="flex items-center gap-2">
+                          <MessageCircle className="h-4 w-4 shrink-0 text-[#25D366]" aria-hidden="true" />
+                          <span>
+                            <strong>Suporte WhatsApp</strong> — {supportPreview ? "número configurado" : "configure o número em Suporte"}.
+                          </span>
+                        </p>
+                        <p className="flex items-center gap-2">
+                          <Package className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+                          <span>
+                            <strong>Aceder ao meu produto</strong> — {deliveryMethod === "EXTERNAL_LINK" ? "abre o link externo configurado" : deliveryMethod === "INTERNAL_PAGE" ? "abre a página de entrega da plataforma" : "configure o método em Entrega"}.
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                  </details>
+                )}
+              </div>
+              <Card className="2xl:sticky 2xl:top-4 2xl:self-start">
+                <CardBody>
+                  {tyStep.useSitePage ? (
+                    <DevicePreview label="Pré-visualização da página de obrigado">
+                      <ThankYouContent
+                        preview
+                        design={design}
+                        state="confirmed"
+                        businessName={props.businessName}
+                        code="NTP-EXEMPLO"
+                        customerFirstName="Ana"
+                        items={sampleItems}
+                        currency={mainOffer?.currency ?? "MZN"}
+                        button={previewButton}
+                        buttonKind={deliveryMethod === "EXTERNAL_LINK" ? "link" : "access"}
+                        support={supportPreview ? { href: supportPreview, label: "Precisa de ajuda? Fale connosco no WhatsApp" } : null}
+                        continueUrl={tyStep.redirectUrl || null}
+                      />
+                    </DevicePreview>
+                  ) : (
+                    <div className="flex flex-col items-start gap-3 text-[13px] text-muted">
+                      <ExternalLink className="h-6 w-6 text-accent" aria-hidden="true" />
+                      <p className="font-medium text-fg">Página de obrigado externa</p>
+                      <p>Depois do pagamento confirmado (e das ofertas do funil), o comprador é enviado para:</p>
+                      <code className="break-all rounded bg-surface-2 px-2 py-1 text-fg">{tyStep.redirectUrl || "https://…"}</code>
+                      <p>A página de obrigado da plataforma não é apagada: volte a ativar “Usar página de obrigado do site” para a usar de novo.</p>
+                    </div>
+                  )}
+                </CardBody>
+              </Card>
+            </div>
+          )}
+
+          {sel === "support" && (
+            <div className="grid max-w-3xl grid-cols-1 gap-5">
+              <SupportStep phone={support.phone} message={support.message} onChange={setSupport} error={err("support.phone")} />
+            </div>
+          )}
+
+          {sel === "delivery" && (
+            <div className="grid max-w-3xl grid-cols-1 gap-5">
+              <DeliveryStep
+                method={deliveryMethod}
+                url={deliveryUrl}
+                page={deliveryPage}
+                onMethod={setDeliveryMethod}
+                onUrl={setDeliveryUrl}
+                onPage={(patch) => setDeliveryPage((pg) => ({ ...pg, ...patch }))}
+                files={productFiles}
+                uploading={uploading}
+                onUpload={upload}
+                onRemoveFile={removeFile}
+                errors={errors}
+                productName={product?.name ?? "Produto"}
+                supportOk={Boolean(supportPreview)}
               />
-            </CardBody>
-          </Card>
+              <Card>
+                <CardBody>
+                  <Checkbox label="Funil principal deste produto" description="As compras do checkout principal seguem este funil (página de obrigado e entrega)." checked={isMain} onChange={(e) => setIsMain(e.target.checked)} />
+                </CardBody>
+              </Card>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

@@ -1,9 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { assertId, guarded, parseForm } from "@/server/actions";
+import { assertId, guarded } from "@/server/actions";
 import { funnelMetaSchema, graphSchema } from "@/server/funnels/schema";
-import { createFunnel, deleteFunnel, duplicateFunnel, saveFunnel } from "@/server/services/funnels";
+import { deleteFunnel, duplicateFunnel, saveFunnel } from "@/server/services/funnels";
 import { activateWizardFunnel, createWizardFunnel, deactivateWizardFunnel, saveWizardFunnel } from "@/server/services/funnel-wizard";
 import { deleteProductFile } from "@/server/services/product-files";
 import { addOffer } from "@/server/services/products";
@@ -11,16 +11,6 @@ import { offerSchema } from "@/server/validation/schemas";
 import { flattenErrors } from "@/server/validation/common";
 import type { FunnelValidation } from "@/lib/funnels/validate";
 import type { FunnelGraph } from "@/lib/funnels/types";
-
-export async function createFunnelAction(fd: FormData) {
-  return guarded<{ id: string }>(async ({ scope }) => {
-    const p = parseForm(funnelMetaSchema, { name: fd.get("name") ?? "", description: fd.get("description") ?? "" });
-    if (!p.ok) return p.result;
-    const f = await createFunnel(p.data, scope);
-    revalidatePath("/funis");
-    return { ok: true, data: { id: f.id }, message: "Funil criado com um modelo base." };
-  });
-}
 
 const savePayload = funnelMetaSchema.extend({ graph: graphSchema });
 
@@ -77,11 +67,13 @@ export async function deleteFunnelAction(id: string) {
 
 // ───────────── Assistente de funis (produto inicial → upsell → página de obrigado) ─────────────
 
-export async function createWizardFunnelAction(productId: string) {
+export async function createWizardFunnelAction(productId: string, name?: string) {
   return guarded<{ id: string }>(async ({ scope }) => {
-    const f = await createWizardFunnel(assertId(productId), scope);
+    const n = typeof name === "string" ? name.trim().slice(0, 100) : "";
+    if (n && n.length < 2) return { ok: false, error: "Dê um nome ao funil.", fieldErrors: { name: "Mínimo de 2 caracteres" } };
+    const f = await createWizardFunnel(assertId(productId), scope, n || undefined);
     revalidatePath("/funis");
-    return { ok: true, data: { id: f.id }, message: "Funil criado. Configure o que acontece depois do pagamento." };
+    return { ok: true, data: { id: f.id }, message: "Funil criado. Adicione upsells e downsells e configure a página de obrigado." };
   });
 }
 

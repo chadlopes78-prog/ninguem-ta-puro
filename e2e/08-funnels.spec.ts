@@ -38,15 +38,18 @@ test.describe.serial("funis: upsell e página de obrigado", () => {
     await expect(productCard).toContainText(mzn("1250,00"));
     await expect(productCard).toContainText("/checkout/ebook-mocambique");
 
-    // Etapa 2: depois do pagamento → upsell
-    await page.getByRole("button", { name: "Continuar" }).click();
-    await page.getByTestId("after-upsell").click();
-    await page.getByRole("button", { name: /Configurar upsell/ }).click();
-    await expect(page.getByTestId("funnel-flow")).toContainText("Upsell");
-    await page.getByTestId("upsell-product").selectOption({ label: "Guia Digital Renomeado" });
-    await page.getByTestId("upsell-headline").fill("Leve também o Guia Digital");
+    // Depois do pagamento confirmado → adicionar um upsell no mapa do funil
+    await expect(page.getByTestId("funnel-flow")).toContainText("pagamento confirmado → Página de obrigado");
+    await page.getByTestId("add-upsell").click();
+    await expect(page.getByTestId("funnel-flow")).toContainText("Upsell 1");
+    await page.getByTestId("offer-name").fill("Upsell 1 — Guia Digital");
+    await page.getByTestId("offer-product").selectOption({ label: "Guia Digital Renomeado" });
+    await expect(page.getByTestId("map-offer-upsell")).toContainText("Guia Digital Renomeado");
+    await expect(page.getByTestId("map-branches-upsell")).toContainText("Se aceitar → checkout do upsell → pagamento confirmado → Página de obrigado");
+    await expect(page.getByTestId("map-branches-upsell")).toContainText("Se recusar → Página de obrigado");
+    // sem link de página externa: pré-visualização da página de oferta da plataforma (preço vem do servidor)
     const preview = page.getByTestId("device-frame");
-    await expect(preview.getByRole("heading", { name: "Leve também o Guia Digital" })).toBeVisible();
+    await expect(preview.getByRole("heading", { name: "Guia Digital Renomeado" })).toBeVisible();
     await expect(preview.getByTestId("upsell-price")).toHaveText(mzn("247,90"));
     await page.getByTestId("preview-mobile").click();
     await expect(preview).toHaveAttribute("data-device", "mobile");
@@ -68,14 +71,14 @@ test.describe.serial("funis: upsell e página de obrigado", () => {
     await toast(page, "Funil guardado");
     await expect(page.getByText("Ativo").first()).toBeVisible();
     await page.reload();
-    await expect(page.getByTestId("funnel-flow")).toContainText("Upsell");
+    await expect(page.getByTestId("funnel-flow")).toContainText("Upsell 1 — Guia Digital");
   });
 
   test("pagamento confirmado → upsell; recusar mantém a compra e leva à página de obrigado", async ({ page }) => {
     await buyEbook(page, "84 111 2221");
     // a página de estado só avança depois de o servidor confirmar o pagamento
     await expect(page).toHaveURL(/\/oferta\/[A-Za-z0-9]+/, { timeout: 45_000 });
-    await expect(page.getByRole("heading", { name: "Leve também o Guia Digital" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Guia Digital Renomeado" })).toBeVisible();
     await expect(page.getByTestId("upsell-price")).toHaveText(mzn("247,90"));
     await page.getByTestId("upsell-decline").click();
     await expect(page).toHaveURL(/\/obrigado\//);

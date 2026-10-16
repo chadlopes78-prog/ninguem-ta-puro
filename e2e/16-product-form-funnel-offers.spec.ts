@@ -125,31 +125,32 @@ test.describe.serial("produto simples com imagem e ofertas nos funis", () => {
     await ctx.close();
   });
 
-  test("9–10. funil: upsell + downsell com preço criado no próprio funil; o funil guarda e reabre", async ({ page }) => {
+  test("9–10. funil: downsell ligado à recusa do upsell, com preço criado no próprio funil; o funil guarda e reabre", async ({ page }) => {
     await login(page);
     await page.goto("/funis");
     await page.getByRole("link", { name: /Funil — Ebook Moçambique/ }).first().click();
-    const flow = page.getByTestId("funnel-flow");
-    await flow.getByRole("button", { name: /Upsell/ }).click();
-    await expect(page.getByTestId("upsell-product")).toHaveValue(/.+/); // upsell existente preservado
-    await page.getByTestId("upsell-step").getByRole("radio", { name: "Mostrar downsell" }).click();
-    await expect(flow).toContainText("Downsell");
-    await page.getByTestId("go-downsell").click();
-    await page.getByTestId("downsell-product").selectOption({ label: "Guia Digital Renomeado" });
+    await expect(page.getByTestId("map-offer-upsell")).toContainText("Guia Digital Renomeado"); // upsell existente preservado
+    await page.getByTestId("add-downsell").click();
+    await expect(page.getByTestId("downsell-step")).toBeVisible();
+    // ligação habitual criada: recusar o upsell → downsell
+    await expect(page.getByTestId("map-branches-upsell")).toContainText("Se recusar → Downsell 1");
+    await page.getByTestId("offer-name").fill("Downsell — Essencial");
+    await page.getByTestId("offer-product").selectOption({ label: "Guia Digital Renomeado" });
     // preço especial criado aqui (as ofertas deixaram de estar no formulário do produto)
-    await page.getByTestId("downsell-new-offer-open").click();
-    await page.getByTestId("downsell-new-offer-price").fill("99,00");
-    await page.getByTestId("downsell-new-offer-save").click();
+    await page.getByTestId("offer-new-price-open").click();
+    await page.getByTestId("offer-new-price-value").fill("99,00");
+    await page.getByTestId("offer-new-price-save").click();
     await toast(page, "Preço criado");
-    await expect(page.getByTestId("downsell-offer").locator("option:checked")).toContainText(mzn("99,00"));
-    await page.getByTestId("downsell-headline").fill("Fique só com o essencial por menos");
+    await expect(page.getByTestId("offer-price").locator("option:checked")).toContainText(mzn("99,00"));
     await expect(page.getByTestId("device-frame").getByTestId("upsell-price")).toHaveText(mzn("99,00"));
+    await page.getByTestId("offer-accept-text").fill("SIM, QUERO O ESSENCIAL");
     await page.getByTestId("wizard-save").click();
     await toast(page, "Funil guardado");
     await page.reload();
-    await expect(flow).toContainText("Downsell");
-    await flow.getByRole("button", { name: /Downsell/ }).click();
-    await expect(page.getByTestId("downsell-headline")).toHaveValue("Fique só com o essencial por menos");
+    await expect(page.getByTestId("map-branches-upsell")).toContainText("Se recusar → Downsell — Essencial");
+    await expect(page.getByTestId("map-branches-downsell")).toContainText("Se recusar → Página de obrigado");
+    await page.getByTestId("map-offer-downsell").click();
+    await expect(page.getByTestId("offer-accept-text")).toHaveValue("SIM, QUERO O ESSENCIAL");
   });
 
   test("10. compra real de teste: recusar o upsell mostra o downsell; aceitar cobra o preço do downsell", async ({ page }) => {
@@ -161,11 +162,11 @@ test.describe.serial("produto simples com imagem e ofertas nos funis", () => {
     await page.getByLabel(/Número M-Pesa/).fill("84 555 6661");
     await page.getByRole("button", { name: "Pagar agora" }).click();
     await expect(page).toHaveURL(/\/oferta\//, { timeout: 45_000 });
-    await expect(page.getByRole("heading", { name: "Leve também o Guia Digital" })).toBeVisible();
+    await expect(page.getByTestId("upsell-price")).toHaveText(mzn("247,90"));
     await page.getByTestId("upsell-decline").click();
     // mesma página de oferta, agora com o downsell
-    await expect(page.getByRole("heading", { name: "Fique só com o essencial por menos" })).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId("upsell-price")).toHaveText(mzn("99,00"));
+    await expect(page.getByTestId("upsell-price")).toHaveText(mzn("99,00"), { timeout: 15_000 });
+    await expect(page.getByTestId("upsell-accept")).toContainText("SIM, QUERO O ESSENCIAL");
     await page.getByTestId("upsell-accept").click();
     await expect(page).toHaveURL(/\/obrigado\//, { timeout: 45_000 });
     const summary = page.getByTestId("thank-you-summary");

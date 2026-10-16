@@ -23,6 +23,8 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders },
+      // Código de integração das páginas externas de upsell/downsell (público, sem segredos)
+      { source: "/ntp-funil.js", headers: [{ key: "Cache-Control", value: "public, max-age=300" }, { key: "Content-Type", value: "application/javascript; charset=utf-8" }] },
       // Service worker sempre atualizado e limitado à própria origem
       { source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }, { key: "Content-Type", value: "application/javascript; charset=utf-8" }, { key: "Content-Security-Policy", value: "default-src 'self'; script-src 'self'" }] },
     ];

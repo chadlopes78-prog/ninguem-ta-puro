@@ -52,17 +52,23 @@ test("sidebar recolhível no desktop", async ({ page }) => {
   await page.getByRole("button", { name: "Expandir menu" }).click();
 });
 
-test("construtor de funis utilizável no telemóvel", async ({ page }) => {
+test("editor de funis utilizável no telemóvel", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 800 });
   await login(page);
   await page.goto("/funis");
   await page.getByRole("button", { name: "Funil avançado" }).first().click();
-  await page.getByRole("dialog").getByLabel("Nome").fill("Funil Mobile");
-  await page.getByRole("button", { name: "Criar e abrir editor" }).click();
-  await expect(page.getByTestId("funnel-canvas")).toBeVisible();
-  const box = await page.getByTestId("funnel-canvas").boundingBox();
-  expect(box!.height).toBeGreaterThan(350);
-  await page.getByTestId("add-END").click();
-  await expect(page.getByTestId("funnel-canvas").locator(".react-flow__node")).toHaveCount(5);
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByTestId("new-funnel-product")).toBeVisible();
+  await noHorizontalScroll(page);
+  await dialog.getByRole("button", { name: "Cancelar" }).click();
+  await page.getByRole("link", { name: /Funil — / }).first().click();
+  const flow = page.getByTestId("funnel-flow");
+  await expect(flow).toBeVisible();
+  await page.getByTestId("add-upsell").click();
+  await expect(page.getByTestId("upsell-step")).toBeVisible();
+  await noHorizontalScroll(page);
+  await page.getByTestId("map-thank-you").click();
+  await expect(page.getByTestId("ty-step-name")).toBeVisible();
   await noHorizontalScroll(page);
 });
+

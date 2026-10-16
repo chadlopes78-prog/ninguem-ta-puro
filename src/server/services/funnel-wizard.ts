@@ -2,7 +2,7 @@
 // Reutiliza o motor de funis existente: o assistente escreve o mesmo grafo que o editor avançado.
 import "server-only";
 import { prisma } from "@/server/db";
-import { buildWizardGraph, downsellFromGraph, upsellFromGraph, wizardSchema, type UpsellConfig, type WizardInput } from "@/lib/funnels/wizard";
+import { buildWizardGraph, downsellFromGraph, offersFromGraph, thankYouStepFromGraph, upsellFromGraph, wizardSchema, type FunnelOffer, type UpsellConfig, type WizardInput } from "@/lib/funnels/wizard";
 import { defaultThankYouAction, defaultThankYouDesign, parseThankYouAction, parseThankYouDesign, type ThankYouAction, type ThankYouDesign } from "@/lib/thank-you";
 import { internalPageHasContent, normalizeWhatsApp } from "@/lib/product-setup";
 import { flattenErrors } from "@/server/validation/common";
@@ -19,12 +19,12 @@ async function productInScope(productId: string, scope: Scope) {
 }
 
 /** Cria um funil do assistente para um produto, com a página de obrigado no modelo padrão. */
-export async function createWizardFunnel(productId: string, scope: Scope) {
+export async function createWizardFunnel(productId: string, scope: Scope, name?: string) {
   const product = await productInScope(productId, scope);
   if (product.status === "ARCHIVED") throw new DomainError("Este produto está arquivado.");
   const checkout = await ensurePrimaryCheckout(product.id);
-  const graph = buildWizardGraph({ checkoutId: checkout.id, productName: product.name, afterPayment: "thank_you", thankYouTitle: defaultThankYouDesign().title });
-  const funnel = await createFunnel({ name: `Funil — ${product.name}`.slice(0, 100) }, scope, graph);
+  const graph = buildWizardGraph({ checkoutId: checkout.id, productName: product.name, offers: [], thankYou: { title: defaultThankYouDesign().title, stepName: "Página de obrigado", useSitePage: true, redirectUrl: "" } });
+  const funnel = await createFunnel({ name: (name?.trim() || `Funil — ${product.name}`).slice(0, 100) }, scope, graph);
   await prisma.$transaction([
     prisma.funnel.update({ where: { id: funnel.id }, data: { productId: product.id } }),
     prisma.thankYouPage.create({ data: { funnelId: funnel.id, design: defaultThankYouDesign(), action: defaultThankYouAction() } }),
@@ -50,9 +50,12 @@ export interface WizardState {
   status: "DRAFT" | "ACTIVE" | "INACTIVE";
   productId: string;
   afterPayment: "upsell" | "thank_you";
+  /** Etapas de oferta (upsells/downsells) pela ordem do funil */
+  offers: FunnelOffer[];
+  /** Compatibilidade: primeiro upsell/downsell no formato anterior */
   upsell: UpsellConfig | null;
   downsell: UpsellConfig | null;
-  thankYou: { design: ThankYouDesign; action: ThankYouAction | null; fileId: string | null };
+  thankYou: { design: ThankYouDesign; action: ThankYouAction | null; fileId: string | null; stepName: string; useSitePage: boolean; redirectUrl: string };
   setup: WizardSetup;
 }
 
@@ -67,15 +70,17 @@ export async function getWizardFunnel(id: string, scope: Scope) {
   const checkout = await ensurePrimaryCheckout(product.id);
   const graph = toGraph(f);
   const upsell = upsellFromGraph(graph);
+  const offers = offersFromGraph(graph);
   const state: WizardState = {
     id: f.id,
     name: f.name,
     status: f.status,
     productId: product.id,
     afterPayment: upsell ? "upsell" : "thank_you",
+    offers,
     upsell,
     downsell: downsellFromGraph(graph),
-    thankYou: { design: parseThankYouDesign(page?.design), action: parseThankYouAction(page?.action), fileId: page?.fileId ?? null },
+    thankYou: { design: parseThankYouDesign(page?.design), action: parseThankYouAction(page?.action), fileId: page?.fileId ?? null, ...thankYouStepFromGraph(graph) },
     setup: {
       support: { phone: product.supportWhatsApp ?? "", message: product.supportMessage ?? "" },
       delivery: {
@@ -114,16 +119,19 @@ export async function saveWizardFunnel(id: string, raw: unknown, scope: Scope): 
   if (!product) return { ok: false, error: "Produto inicial inválido.", fieldErrors: { productId: "Selecione um produto" } };
   if (product.status === "ARCHIVED") return { ok: false, error: "O produto inicial está arquivado.", fieldErrors: { productId: "Produto arquivado" } };
 
-  if (input.afterPayment === "upsell" && input.upsell) {
-    const offer = await prisma.offer.findFirst({ where: { id: input.upsell.offerId, productId: input.upsell.productId, product: own(scope) }, include: { product: true } });
-    if (!offer || offer.product.status === "ARCHIVED") return { ok: false, error: "Produto ou preço do upsell inválido.", fieldErrors: { "upsell.offerId": "Selecione um preço do produto" } };
-    if (!offer.isActive) return { ok: false, error: "O preço escolhido para o upsell está inativo.", fieldErrors: { "upsell.offerId": "Preço inativo" } };
-  }
-  const downsell = input.afterPayment === "upsell" && input.upsell?.afterDecline === "downsell" ? input.downsell : undefined;
-  if (downsell) {
-    const offer = await prisma.offer.findFirst({ where: { id: downsell.offerId, productId: downsell.productId, product: own(scope) }, include: { product: true } });
-    if (!offer || offer.product.status === "ARCHIVED") return { ok: false, error: "Produto ou preço do downsell inválido.", fieldErrors: { "downsell.offerId": "Selecione um preço do produto" } };
-    if (!offer.isActive) return { ok: false, error: "O preço escolhido para o downsell está inativo.", fieldErrors: { "downsell.offerId": "Preço inativo" } };
+  // Cada oferta: produto da própria conta (não arquivado) e preço ativo desse produto. Sem preço escolhido,
+  // usa o preço principal do produto. O valor cobrado vem sempre da base de dados, nunca do browser.
+  const offers: FunnelOffer[] = [];
+  for (const [i, o] of input.offers.entries()) {
+    const label = o.type === "DOWNSELL" ? "downsell" : "upsell";
+    const p = await prisma.product.findFirst({ where: { id: o.productId, ...own(scope) }, include: { offers: { where: { isActive: true }, orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }] } } });
+    if (!p || p.status === "ARCHIVED") return { ok: false, error: `Produto do ${label} “${o.name}” inválido.`, fieldErrors: { [`offers.${i}.productId`]: "Selecione um produto da sua conta" } };
+    const price = o.offerId ? p.offers.find((x) => x.id === o.offerId) : p.offers[0];
+    if (!price) {
+      const inactive = o.offerId ? await prisma.offer.findFirst({ where: { id: o.offerId, productId: p.id } }) : null;
+      return { ok: false, error: inactive ? `O preço escolhido para o ${label} está inativo.` : `Produto ou preço do ${label} inválido.`, fieldErrors: { [`offers.${i}.offerId`]: inactive ? "Preço inativo" : "Selecione um preço do produto" } };
+    }
+    offers.push({ ...o, offerId: price.id });
   }
   if (input.thankYou.fileId) {
     const file = await prisma.productFile.findFirst({ where: { id: input.thankYou.fileId, productId: product.id } });
@@ -150,7 +158,8 @@ export async function saveWizardFunnel(id: string, raw: unknown, scope: Scope): 
   }
 
   const checkout = await ensurePrimaryCheckout(product.id);
-  const graph = buildWizardGraph({ checkoutId: checkout.id, productName: product.name, afterPayment: input.afterPayment, upsell: input.upsell, downsell, thankYouTitle: input.thankYou.design.title });
+  const ty = input.thankYou;
+  const graph = buildWizardGraph({ checkoutId: checkout.id, productName: product.name, offers, thankYou: { title: ty.design.title, stepName: ty.stepName, useSitePage: ty.useSitePage, redirectUrl: ty.redirectUrl } });
   const productChanged = f.productId !== product.id;
   const { validation, deactivated } = await saveFunnel(id, { name: input.name, graph }, scope);
 

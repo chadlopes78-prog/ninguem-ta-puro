@@ -88,7 +88,10 @@ describe("validateFunnel", () => {
     const g = fullGraph();
     g.nodes[3].config = {};
     const v = validateFunnel(g, refs);
-    expect(v.errors.filter((e) => e.nodeKey === "u").map((e) => e.field)).toEqual(expect.arrayContaining(["productId", "offerId", "headline"]));
+    expect(v.errors.filter((e) => e.nodeKey === "u").map((e) => e.field)).toEqual(expect.arrayContaining(["productId", "offerId"]));
+    // sem título a página de oferta usa o nome do produto: apenas aviso
+    expect(v.errors.some((e) => e.nodeKey === "u" && e.field === "headline")).toBe(false);
+    expect(v.warnings.some((w) => w.nodeKey === "u" && w.field === "headline")).toBe(true);
   });
 
   it("avisa sobre etapas não alcançáveis", () => {

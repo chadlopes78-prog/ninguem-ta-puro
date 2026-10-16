@@ -63,6 +63,8 @@ const asLive = (token: string) => prisma.order.update({ where: { publicToken: to
 const TC = "TEST12345";
 
 type Call = { url: string; body: Record<string, unknown> };
+type MetaEvt = { event_id: string; event_time: number; event_source_url?: string; custom_data: Record<string, unknown>; user_data: { em: string[]; ph: string[]; client_user_agent?: string; fbc?: string } };
+const evOf = (c: Call) => (c.body.data as MetaEvt[])[0];
 function graph(status = 200, body: unknown = { events_received: 1, fbtrace_id: "AbC123" }) {
   const calls: Call[] = [];
   const fn = (async (url: string, init?: RequestInit) => {
@@ -139,7 +141,7 @@ describe("evento Purchase", () => {
     expect(body.access_token).toBe(TOKEN);
     expect(body.test_event_code).toBeUndefined();
     const order = await prisma.order.findUniqueOrThrow({ where: { publicToken: t } });
-    const ev = (body.data as Record<string, any>[])[0];
+    const ev = (body.data as MetaEvt[])[0];
     expect(ev).toMatchObject({ event_name: "Purchase", event_id: `purchase_${order.id}`, action_source: "website", event_time: Math.floor(order.approvedAt!.getTime() / 1000) });
     expect(ev.custom_data).toMatchObject({ currency: "MZN", value: 1250, content_ids: [p.id], content_name: "Ebook Moz", content_type: "product", order_id: order.code });
     // dados pessoais só com hash; sem nome, IP ou query do URL
@@ -206,7 +208,7 @@ describe("evento Purchase", () => {
     await saveMetaPixel(S, { id: px.id, pixelId: "123456789", token: "", testEventCode: TC, productIds: [sel.id], enabled: true });
     await processMetaOutbox(25, { fetch: g.fn });
     expect(g.calls).toHaveLength(1);
-    const ev = (g.calls[0].body.data as Record<string, any>[])[0];
+    const ev = evOf(g.calls[0]);
     expect(ev.event_id).toBe(`purchase_${(await prisma.order.findUniqueOrThrow({ where: { publicToken: paid } })).id}`);
   });
 
@@ -221,7 +223,7 @@ describe("evento Purchase", () => {
     expect(ev).toMatchObject({ status: "PENDING", attempts: 1 });
     const ok = graph();
     await processMetaOutbox(25, { fetch: ok.fn, now: new Date(Date.now() + 10 * 60_000) });
-    expect((down.calls[0].body.data as any[])[0].event_id).toBe((ok.calls[0].body.data as any[])[0].event_id);
+    expect(evOf(down.calls[0]).event_id).toBe(evOf(ok.calls[0]).event_id);
     ev = await prisma.metaEvent.findFirstOrThrow();
     expect(ev).toMatchObject({ status: "SENT", attempts: 2 });
 
@@ -254,9 +256,9 @@ describe("evento Purchase", () => {
     expect(g.calls).toHaveLength(2);
     const byPixel = Object.fromEntries(g.calls.map((c) => [c.url.split("/")[4], c.body]));
     expect(byPixel["111111111"].access_token).toBe(TOKEN);
-    expect((byPixel["111111111"].data as any[])[0].custom_data.content_ids).toEqual([a.id]);
+    expect((byPixel["111111111"].data as MetaEvt[])[0].custom_data.content_ids).toEqual([a.id]);
     expect(byPixel["222222222"].access_token).toBe(TOKEN_B);
-    expect((byPixel["222222222"].data as any[])[0].custom_data.content_ids).toEqual([b.id]);
+    expect((byPixel["222222222"].data as MetaEvt[])[0].custom_data.content_ids).toEqual([b.id]);
   });
 
   it("upsell e downsell: cada compra confirmada gera o seu evento, com o produto e o valor pagos", async () => {
@@ -294,7 +296,7 @@ describe("evento Purchase", () => {
     await webhook(acc.token, "paid");
     await processMetaOutbox(25, { fetch: g.fn });
     expect(g.calls).toHaveLength(2);
-    const [first, second] = g.calls.map((c) => (c.body.data as any[])[0]);
+    const [first, second] = g.calls.map((c) => evOf(c));
     expect(first.custom_data).toMatchObject({ content_ids: [main.id], value: 500 });
     expect(second.custom_data).toMatchObject({ content_ids: [extra.id], value: 300 });
     expect(second.event_id).not.toBe(first.event_id);

@@ -56,6 +56,35 @@ export type Destination = { kind: "upsell" | "thank_you" | "external"; url: stri
 const thankYouUrl = (root: { publicToken: string | null }, extra = "") => `/obrigado/${root.publicToken}${extra}`;
 
 /**
+ * Destino da página de obrigado: a da plataforma ou, se o vendedor a desativou, o endereço externo configurado.
+ * Só é calculado depois de a compra inicial estar confirmada (ver chamadas).
+ */
+function thankYouDestination(root: { publicToken: string | null }, graph: FunnelGraph, extra = ""): NonNullable<Destination> {
+  const ty = graph.nodes.find((n) => n.type === "THANK_YOU");
+  if (ty?.config.useSitePage === false && ty.config.redirectUrl && /^https:\/\//i.test(ty.config.redirectUrl)) return { kind: "external", url: ty.config.redirectUrl };
+  return { kind: "thank_you", url: thankYouUrl(root, extra) };
+}
+
+/**
+ * Página de uma oferta: a da plataforma (/oferta/<percurso>) ou a página externa do vendedor, que recebe o
+ * percurso e a etapa no URL (ntp_run, ntp_step) para o código de integração comunicar a decisão à plataforma.
+ * O identificador do percurso é aleatório e não dá acesso a dados pessoais nem permite marcar pagamentos.
+ */
+export function offerDestination(runId: string, node: GraphNode): NonNullable<Destination> {
+  if (node.config.pageUrl && /^https:\/\//i.test(node.config.pageUrl)) {
+    try {
+      const u = new URL(node.config.pageUrl);
+      u.searchParams.set("ntp_run", runId);
+      u.searchParams.set("ntp_step", node.key);
+      return { kind: "external", url: u.toString() };
+    } catch {
+      // endereço inválido: usa a página da plataforma
+    }
+  }
+  return { kind: "upsell", url: `/oferta/${runId}` };
+}
+
+/**
  * Próximo destino para uma encomenda (compra inicial ou upsell), com base apenas no estado real no servidor.
  * Devolve null quando não há funil ou o pagamento ainda não está confirmado.
  */
@@ -78,9 +107,9 @@ export async function nextDestination(publicToken: string): Promise<Destination>
       // upsell já aceite e pago/pendente: segue o estado dessa encomenda
       const child = await prisma.order.findFirst({ where: { parentOrderId: root.id, funnelStepKey: node.key }, orderBy: { createdAt: "desc" } });
       if (child?.status === "APPROVED" || child?.status === "PENDING") return child.publicToken ? nextDestination(child.publicToken) : null;
-      return { kind: "upsell", url: `/oferta/${run.id}` };
+      return offerDestination(run.id, node);
     }
-    return { kind: "thank_you", url: thankYouUrl(root) };
+    return thankYouDestination(root, graph);
   }
 
   // Encomenda de upsell
@@ -89,14 +118,14 @@ export async function nextDestination(publicToken: string): Promise<Destination>
   if (order.status === "APPROVED") {
     await completeRun(run.id, order.funnelStepKey!, "accept", graph, "paid");
     if (c.afterAccept === "url" && c.afterAcceptUrl) return { kind: "external", url: c.afterAcceptUrl };
-    const offerUrl = await openOfferUrl(run.id, graph);
-    if (offerUrl) return { kind: "upsell", url: offerUrl };
-    return { kind: "thank_you", url: thankYouUrl(root) };
+    const offer = await openOffer(run.id, graph);
+    if (offer) return offerDestination(run.id, offer);
+    return thankYouDestination(root, graph);
   }
   if (order.status === "DECLINED" || order.status === "CANCELED") {
     if (c.afterFail === "retry" && run.currentStepKey === order.funnelStepKey && !run.completedAt) return { kind: "upsell", url: `/oferta/${run.id}?pagamento=falhou` };
     await completeRun(run.id, order.funnelStepKey!, "decline", graph, "payment_failed", true);
-    return { kind: "thank_you", url: thankYouUrl(root, "?oferta=nao-paga") };
+    return thankYouDestination(root, graph, "?oferta=nao-paga");
   }
   return null; // pendente: continua na página de estado do pagamento
 }
@@ -120,10 +149,10 @@ async function completeRun(runId: string, stepKey: string, handle: "accept" | "d
 }
 
 /** O percurso ficou numa nova oferta (ex.: downsell)? Então é para lá que o comprador segue. */
-async function openOfferUrl(runId: string, graph: FunnelGraph): Promise<string | null> {
+async function openOffer(runId: string, graph: FunnelGraph): Promise<GraphNode | null> {
   const run = await prisma.funnelRun.findUnique({ where: { id: runId }, select: { completedAt: true, currentStepKey: true } });
   const node = run && !run.completedAt ? graph.nodes.find((n) => n.key === run.currentStepKey) : null;
-  return node && OFFER_STEP_TYPES.includes(node.type) ? `/oferta/${runId}` : null;
+  return node && OFFER_STEP_TYPES.includes(node.type) ? node : null;
 }
 
 // ───────────── Página de upsell (real) ─────────────
@@ -271,15 +300,16 @@ export async function declineUpsell(runId: string, stepKey: string): Promise<Des
   if (!step || !OFFER_STEP_TYPES.includes(step.type)) return null;
   // Um upsell já pago ou em pagamento não pode ser "recusado" depois
   if (view.child && (view.child.status === "APPROVED" || view.child.status === "PENDING")) return view.child.publicToken ? nextDestination(view.child.publicToken) : null;
-  if (node?.key === stepKey && view.active) {
-    await completeRun(run.id, stepKey, "decline", graph, "declined");
-    await trackEvent({ type: EVENT_TYPES.OFFER_DECLINE, ownerId: root.ownerId, isDemo: false, funnelId: run.funnelId, orderId: root.id, stepKey });
-  }
+  // Etapa que não é a atual (URL alterado, botão antigo, clique repetido): nada muda; o comprador segue para
+  // onde o percurso realmente está — nunca salta para uma etapa não autorizada.
+  if (node?.key !== stepKey || !view.active) return root.publicToken ? nextDestination(root.publicToken) : null;
+  await completeRun(run.id, stepKey, "decline", graph, "declined");
+  await trackEvent({ type: EVENT_TYPES.OFFER_DECLINE, ownerId: root.ownerId, isDemo: false, funnelId: run.funnelId, orderId: root.id, stepKey });
   if (step.config.afterDecline === "url" && step.config.afterDeclineUrl) return { kind: "external", url: step.config.afterDeclineUrl };
   // recusa ligada a outra oferta (downsell): mostra-a
-  const offerUrl = await openOfferUrl(run.id, graph);
-  if (offerUrl) return { kind: "upsell", url: offerUrl };
-  return { kind: "thank_you", url: thankYouUrl(root) };
+  const offer = await openOffer(run.id, graph);
+  if (offer) return offerDestination(run.id, offer);
+  return thankYouDestination(root, graph);
 }
 
 // ───────────── Página de obrigado ─────────────
@@ -302,7 +332,7 @@ export async function getThankYouView(publicToken: string, opts: { refresh?: boo
       delivery: { select: { token: true } },
       customer: { select: { name: true } },
       checkout: { select: { supportEmail: true, publicId: true, slug: true } },
-      funnel: { include: { thankYouPage: true } },
+      funnel: { include: { thankYouPage: true, steps: { where: { type: "THANK_YOU" }, select: { config: true }, take: 1 } } },
       upsellOrders: { include: { items: true, delivery: { select: { token: true } } }, orderBy: { createdAt: "asc" } },
     },
   });
@@ -333,6 +363,10 @@ export async function getThankYouView(publicToken: string, opts: { refresh?: boo
     else if (root.delivery) [button, buttonKind] = [{ label: "Aceder ao meu produto", href: `/acesso/${root.delivery.token}`, external: false }, "access"];
   }
 
+  // "Redirecionar para" com a página da plataforma ativa: botão para continuar (só com a compra confirmada)
+  const tyConfig = (root.funnel?.steps[0]?.config ?? {}) as { redirectUrl?: string; useSitePage?: boolean };
+  const continueUrl = state === "confirmed" && tyConfig.useSitePage !== false && tyConfig.redirectUrl && /^https:\/\//i.test(tyConfig.redirectUrl) ? tyConfig.redirectUrl : null;
+
   const upsells = root.upsellOrders.map((u) => ({
     code: u.code,
     description: u.items[0]?.description ?? "Oferta adicional",
@@ -357,6 +391,7 @@ export async function getThankYouView(publicToken: string, opts: { refresh?: boo
     support,
     actionType: action?.type ?? null,
     upsells,
+    continueUrl,
     supportEmail: root.checkout?.supportEmail ?? null,
     retryPath: root.checkout ? `/checkout/${root.checkout.slug ?? root.checkout.publicId}` : null,
   };

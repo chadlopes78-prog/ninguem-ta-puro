@@ -120,33 +120,34 @@ test.describe.serial("modo de demonstração (secção 28)", () => {
     await expect(sim.getByTestId("sim-final")).toContainText("Kit Complementar");
   });
 
-  test("construtor de funis: criar, adicionar etapas, validação e persistência", async ({ page }) => {
+  test("editor visual de funis antigos: paleta sem Checkout/Página de vendas/Oferta adicional; etapas existentes preservadas; adicionar e guardar", async ({ page }) => {
     await login(page);
     await page.goto("/funis");
-    await page.getByRole("button", { name: "Funil avançado" }).click();
-    await page.getByRole("dialog").getByLabel("Nome").fill("Funil E2E");
-    await page.getByRole("button", { name: "Criar e abrir editor" }).click();
-    await expect(page).toHaveURL(/\/funis\/[a-z0-9]+$/);
-    await expect(page.getByTestId("funnel-canvas").locator(".react-flow__node")).toHaveCount(4);
-    await expect(page.getByRole("button", { name: /erro/ })).toBeVisible(); // checkout por configurar
+    // entrada única: "Funil avançado" (o antigo "Criar funil" deixou de existir)
+    await expect(page.getByRole("button", { name: "Funil avançado" })).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "Criar funil", exact: true })).toHaveCount(0);
+    await page.getByRole("link", { name: /Funil de Demonstração/ }).first().click();
+    const canvas = page.getByTestId("funnel-canvas");
+    await expect(canvas).toBeVisible();
+    const nodes = canvas.locator(".react-flow__node");
+    const before = await nodes.count();
+    for (const t of ["CHECKOUT", "SALES_PAGE", "ORDER_BUMP"]) await expect(page.getByTestId(`add-${t}`)).toHaveCount(0);
+    await expect(page.getByTestId("add-UPSELL")).toBeVisible();
+    await expect(page.getByTestId("add-DOWNSELL")).toBeVisible();
+    // as etapas destes tipos que o funil já tinha mantêm-se
+    await expect(canvas).toContainText("Checkout principal");
 
     await page.getByTestId("add-UPSELL").click();
-    await expect(page.getByTestId("funnel-canvas").locator(".react-flow__node")).toHaveCount(5);
+    await expect(nodes).toHaveCount(before + 1);
     await page.getByLabel("Nome da etapa").fill("Upsell E2E");
-    await page.getByLabel("Título da oferta").fill("Oferta E2E");
     await page.getByRole("button", { name: /erro/ }).click();
-    await expect(page.getByTestId("funnel-issues")).toContainText("selecione um checkout");
     await expect(page.getByTestId("funnel-issues")).toContainText("selecione um produto");
-
     await page.getByRole("button", { name: "Guardar" }).click();
-    await toast(page, "Funil guardado");
+    await expect(page.getByText(/guardado/i).first()).toBeVisible();
     await page.reload();
-    await expect(page.getByTestId("funnel-canvas").locator(".react-flow__node")).toHaveCount(5);
+    await expect(nodes).toHaveCount(before + 1);
     await expect(page.getByText("Upsell E2E")).toBeVisible();
-
-    await page.getByRole("button", { name: "Ativar" }).click();
-    await expect(page.getByRole("alert").filter({ hasText: "Não é possível ativar" }).first()).toBeVisible();
-    await expect(page.getByTestId("funnel-issues")).toBeVisible();
+    await expect(canvas).toContainText("Checkout principal");
   });
 
   test("desativar demo volta aos dados reais", async ({ page }) => {

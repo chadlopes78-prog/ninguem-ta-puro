@@ -1,6 +1,6 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-15 · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
+Última atualização: 2026-10-16 · Sessão 18 (funis: entrada única, várias ofertas, páginas externas com código de integração, obrigado externo) · Sessão 17 (Facebook Pixel / API de Conversões) · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
 
 ## Estado geral
 
@@ -10,8 +10,8 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 |---|---|---|
 | Lint | `npm run lint` | ✅ 0 erros, 0 avisos |
 | Tipos TypeScript | `npm run typecheck` | ✅ sem erros |
-| Testes unitários + integração | `npm test` | ✅ 272/272 (10 do formulário de produto/imagem/downsell, 16 do checkout renderizado/editor simples, 13 de publicação/entrega/configurações/palavra-passe, 6 de operações do editor, 5 da biblioteca de imagens, 16 de personalização do checkout, 12 de multiutilizador A–G, 16 de notificações/relatórios, 10 de funis, 18 de gateways) |
-| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 117/117 (5 do formulário de produto e ofertas nos funis, 13 da auditoria em 12 larguras, 13 de interações com toque, 3 de revisão mobile a 320/375/414 px e 3 da aba Produtos no computador a 1024/1280/1440 px, 4 de configurações/palavra-passe/telemóvel, 6 do editor visual com arrastar e soltar real, 1 de navegação lenta no telemóvel, 5 de várias contas, 10 de notificações/PWA/relatórios, 8 de funis, 9 de pagamentos, 4 de personalização, 3 de gateways) |
+| Testes unitários + integração | `npm test` | ✅ 294/294 (12 de funis com páginas externas/obrigado externo, 10 da API de Conversões da Meta, 10 do formulário de produto/imagem/downsell, 16 do checkout renderizado/editor simples, 13 de publicação/entrega/configurações/palavra-passe, 6 de operações do editor, 5 da biblioteca de imagens, 16 de personalização do checkout, 12 de multiutilizador A–G, 16 de notificações/relatórios, 10 de funis, 18 de gateways) |
+| Testes E2E (Playwright, build de produção) | `npm run test:e2e` | ✅ 124/124 (5 de funis com páginas externas e obrigado externo, 2 do Pixel da Meta, 5 do formulário de produto e ofertas nos funis, 13 da auditoria em 12 larguras, 13 de interações com toque, 3 de revisão mobile a 320/375/414 px e 3 da aba Produtos no computador a 1024/1280/1440 px, 4 de configurações/palavra-passe/telemóvel, 6 do editor visual com arrastar e soltar real, 1 de navegação lenta no telemóvel, 5 de várias contas, 10 de notificações/PWA/relatórios, 8 de funis, 9 de pagamentos, 4 de personalização, 3 de gateways) |
 | Build de produção | `npm run build` | ✅ sem erros |
 | Fuga de segredos | build com `EPAY_SECRET_KEY`, `E2PAYMENTS_CLIENT_ID/SECRET` e `INTEGRATIONS_ENCRYPTION_KEY` fictícias + `grep` em `.next/` e log | ✅ valor ausente do bundle do browser, do output do servidor e do log; nenhuma variável `NEXT_PUBLIC_`; `.env` com segredos fora do Git |
 
@@ -22,10 +22,61 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | 1 — Fundação | ✅ Concluída | Next.js 15 + TS + Tailwind 4 + Prisma/PostgreSQL, design system, auth, navegação |
 | 2 — Dashboard | ✅ Concluída | 8 KPIs, 4 visualizações, comparação de períodos, filtros, atividade recente, estados vazios |
 | 3 — Produtos e checkouts | ✅ Concluída | CRUD, ofertas/preços, checkout principal criado automaticamente com link legível, editor visual com rascunho/publicação |
-| 4 — Funis | ✅ Concluída | Assistente por produto (produto inicial → upsell → página de obrigado) com upsell pago a sério (sessão 8); editor avançado React Flow mantido ("Funil avançado") |
+| 4 — Funis | ✅ Concluída | Entrada única «Funil avançado»: mapa do funil, vários upsells/downsells com página externa opcional (código de integração), obrigado interno ou externo (sessão 18); vendas reais por etapa (sessão 8); editor visual antigo mantido para funis sem produto |
 | 5 — Operação | ✅ Concluída | Pedidos (filtros, detalhe, transições), clientes, cupões (com testador), relatórios |
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
+
+## Funis: entrada única, várias ofertas, páginas externas e página de obrigado externa (sessão 18)
+
+**Objetivo:** área de Funis com uma só entrada («Funil avançado»), etapas organizadas num mapa, upsells/downsells com página externa opcional (código de integração), página de obrigado interna ou externa e registo correto de cada venda — sem tocar na EPay, na E2Payments, nos webhooks, na confirmação de pagamentos, no checkout principal nem na entrega.
+
+**Análise da estrutura existente (antes de alterar):**
+- Dois tipos de funil: o do «assistente» (com `productId`, o que faz vendas reais: checkout do produto, upsell pago, página de obrigado, suporte, entrega e publicação) e o «avançado» antigo (React Flow, sem produto, usado sobretudo em simulação/demonstração).
+- O motor real (`src/server/services/post-purchase.ts`) já criava uma **encomenda própria** para cada upsell/downsell aceite (`parentOrderId`, `funnelId`, `funnelStepKey`, item `UPSELL`/`DOWNSELL`), cobrada pelos gateways existentes e só aprovada por `applyPaymentStatus` — por isso o registo de vendas (ponto 9) foi mantido e reforçado com testes, não reescrito.
+
+**O que mudou:**
+| Área | Alteração |
+|---|---|
+| Entrada | Botão único **«Funil avançado»** (nome + produto principal); «Criar funil» removido. Abre o editor com mapa. O endereço `/funis?criar=<produto>` («Completar configuração») continua a funcionar. |
+| Editor | Mapa do funil (Compra principal → ofertas com ramos **Se aceitar / Se recusar** → Página de obrigado; Suporte e Entrega do produto) e painel da etapa selecionada. Vários upsells/downsells (até 10), destinos escolhidos por etapa (só para etapas seguintes ou para o obrigado — sem ciclos nem saltos para trás), «Tipo de venda» Upsell/Downsell, remover etapa. |
+| Etapa de oferta | Nome da etapa · Produto · Preço cobrado (por omissão o preço principal; preço especial criável na etapa) · **Link da página** (opcional) · Botão de aceitar · Botão de recusar · destinos · se o pagamento falhar. Título/texto/imagem/vídeo antigos deixaram de ser editados aqui mas **são preservados** e continuam a aparecer na página de oferta da plataforma. |
+| Página de obrigado | Nome da etapa · Título · Mensagem · **Usar página de obrigado do site** (ativado/desativado) · **Redirecionar para**. Ativado: página da plataforma (com botão «Continuar» se houver endereço). Desativado: o comprador vai para o endereço externo **só depois do pagamento confirmado**. A página interna nunca é apagada; aparência e textos adicionais ficam num bloco recolhido. |
+| Editor visual antigo | Paleta sem «Checkout principal», «Página de vendas» e «Oferta adicional»; etapas destes tipos já existentes mantêm-se e continuam editáveis. |
+| Lista de funis | Cartão mostra a sequência real (upsells/downsells pelo nome e o tipo de obrigado). |
+
+**Páginas externas (código de integração):**
+- Com «Link da página», depois do pagamento confirmado o comprador é enviado para essa página com `?ntp_run=<percurso>&ntp_step=<etapa>` (parâmetros existentes da página mantidos). `ntp_run` é o identificador aleatório (20 caracteres) do percurso dessa compra; não dá acesso a dados pessoais nem permite marcar pagamentos.
+- O editor mostra o código para colar: `<script src="<site>/ntp-funil.js" defer></script>` + botões `href="#ntp-aceitar"` / `href="#ntp-recusar"` (também `data-ntp-accept`/`data-ntp-decline` ou as classes `ntp-aceitar`/`ntp-recusar`). Funciona em HTML simples e em construtores que só permitem ligações. Sem segredos.
+- `public/ntp-funil.js` envia a decisão por formulário (navegação de topo, sem CORS) para `POST /api/public/funil/v1/aceitar|recusar`; expõe também `NTPFunil.estado()` (`GET …/estado`, CORS, sem dados pessoais) para personalizar a página.
+- O servidor valida percurso, etapa **atual**, compra inicial aprovada e ação. **Aceitar não cria venda**: leva ao pagamento da oferta na plataforma (`/oferta/<percurso>`, EPay/E2Payments). **Recusar** avança o percurso para o destino configurado (outra oferta — interna ou externa — ou o obrigado). Etapa errada, percurso inventado ou oferta já decidida → o comprador segue para onde o percurso realmente está; nada é aceite nem saltado.
+
+**Registo das vendas:** compra principal e cada upsell/downsell são encomendas distintas (código único, produto, valor pago, moeda, `funnelId`, `funnelStepKey`, tipo `MAIN`/`UPSELL`/`DOWNSELL`, pagamento com referência do gateway e estado). Só ficam pagas quando o gateway confirma; webhooks repetidos e cliques repetidos não duplicam (chaves de idempotência e encomenda única por etapa). A integração Meta (sessão 17) envia cada uma como compra própria, respeitando os produtos selecionados.
+
+**Ficheiros:** `src/lib/funnels/wizard.ts` (modelo `offers[]`, conversão do formato antigo, grafo), `src/server/services/funnel-wizard.ts`, `src/server/services/post-purchase.ts` (destinos externos, obrigado externo, etapas não autorizadas), `src/app/api/public/funil/v1/[acao]/route.ts`, `public/ntp-funil.js`, `src/components/funnels/funnel-wizard.tsx` (editor reescrito), `new-wizard-funnel-button.tsx`, `funnel-builder.tsx` (paleta), `src/app/(app)/funis/*`, `thank-you-content.tsx`, `src/lib/funnels/validate.ts` (título da oferta passa a opcional). **Sem migração** (configuração guardada no JSON das etapas).
+
+**Compatibilidade:** pedidos no formato anterior (`afterPayment`/`upsell`/`downsell`) continuam aceites e são convertidos; funis existentes reabrem com as suas ofertas, textos e preços; o mesmo grafo e o mesmo motor servem funis novos e antigos.
+
+**Testes:** `tests/integration/funnels-external.test.ts` (12) cobre os 15 cenários pedidos (obrigado interno/externo/desativado, upsell com produto, página externa, aceitar/recusar, downsell, cliques sem venda, pagamentos por confirmar, duplicados, comunicação com páginas externas, etapas não autorizadas, funis antigos, vários upsells em sequência); `e2e/18-funnels-external.spec.ts` (5) faz o fluxo completo no browser com uma página externa servida pelo teste e o código copiado do editor; specs 03, 04, 08 e 16 atualizadas para a nova interface.
+
+**Limitações / dependem de configuração externa:**
+- A oferta numa página externa é **paga sempre na plataforma** (EPay/E2Payments). Um checkout externo (pago fora da plataforma) não pode ser confirmado com segurança e por isso não é suportado: a página externa apresenta a oferta; o botão de aceitar leva ao pagamento seguro.
+- A página externa tem de incluir o script e manter os parâmetros `ntp_run`/`ntp_step`; construtores que bloqueiam scripts precisam de permitir HTML personalizado.
+- Com a página de obrigado externa, o comprador não vê o botão de acesso nem o suporte WhatsApp da plataforma: a página externa deve explicar como aceder ao produto.
+
+## Facebook Pixel / API de Conversões (sessão 17)
+
+**Onde:** Integrações → «Rastreamento de anúncios» → cartão «Facebook Pixel / API de Conversões».
+
+- Por conta: ID do Pixel, **token da API de Conversões cifrado** (AES-256-GCM, `secret-box`), código de eventos de teste opcional, ativo/inativo, produtos selecionados por caixas. O token nunca é devolvido ao browser (só `••••últimos4`), nem posto em URLs, logs ou mensagens de erro (removido de qualquer texto de erro da Meta).
+- Evento **Purchase** enviado pelo servidor (`POST https://graph.facebook.com/v21.0/{pixel_id}/events`, token no corpo) **apenas para encomendas APROVADAS** (aprovação exclusiva de `applyPaymentStatus`; `confirm.ts` não foi alterado) que tenham um produto selecionado, num Pixel ativo da mesma conta, aprovadas depois da seleção e com menos de 7 dias. Nunca para checkout aberto, pagamento iniciado/pendente/falhado, abandonado ou demonstração. Pagamentos de teste só com código de eventos de teste.
+- Conteúdo: `event_name`, `event_time` (aprovação), `event_id` = `purchase_<encomenda>` (o mesmo em todas as tentativas), `action_source: website`, `event_source_url` (sem query), `user_data` só com hash SHA-256 (email, telefone, ID de cliente) + navegador e `fbc` (clique do anúncio), `custom_data` (moeda, valor pago proporcional aos produtos selecionados, `content_ids`, `content_name`, `num_items`, `order_id`).
+- Fila idempotente `MetaEvent` (única por Pixel + encomenda), reivindicação com `lockedUntil`, novas tentativas com espera exponencial (até 5), erros 4xx permanentes não repetem; estado e estatísticas no cartão; falhas no registo de integrações (sem token).
+- Disparo: depois de cada venda (mesmo `after()` das notificações) e na rotina diária (`/api/cron/notifications`) como rede de segurança. Contexto do navegador gravado pela ação do checkout depois de criar a compra (nunca altera a compra).
+- Upsell/downsell: cada encomenda confirmada gera o seu evento com o produto e o valor pagos (contexto do navegador herdado da compra principal).
+- Migração **aditiva** `20261026090000_meta_conversions` (MetaPixel, MetaPixelProduct, MetaEvent, OrderTrackingContext).
+- Testes: `tests/integration/meta-capi.test.ts` (10) e `e2e/17-meta-pixel.spec.ts` (2).
+- Não incluído (por decisão de segurança/âmbito): o script do Pixel no browser (o evento é só servidor), reembolsos (a API de Conversões não tem evento de reembolso padrão).
 
 ## Formulário de produto simplificado, foto por upload e ofertas centralizadas nos funis (sessão 16)
 
@@ -851,7 +902,8 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 1. **EPay**: definir `EPAY_SECRET_KEY` (`sk_test_…`) e `APP_BASE_URL`, fazer o teste no sandbox e depois uma transação real de valor baixo com `sk_live_…` (ver "O que falta fazer"). **Não declarar produção pronta antes disso.**
 2. Reembolsos reais através da API EPay (se a API os suportar); hoje só existem como simulação em modo demo.
-3. Upsell com pagamento real: implementado na sessão 8 (assistente de funis); falta uma compra real de valor baixo com upsell em cada gateway. Downsell continua só no editor avançado/simulação.
+3. Upsell/downsell com pagamento real: implementados (sessões 8, 16 e 18, incluindo páginas externas); falta uma compra real de valor baixo com upsell e downsell em cada gateway e um teste com uma página externa publicada num construtor real.
+3b. Meta: confirmar no Events Manager (separador «Testar eventos») com um código de teste e depois uma venda real; a rotina diária da Vercel (plano Hobby) só corre uma vez por dia — as novas tentativas também correm a cada nova venda.
 4. Envio do link de acesso por email: o envio via Resend existe para a recuperação da palavra-passe (sessão 13, ativo só com `RESEND_API_KEY`/`EMAIL_FROM`); o acesso ao produto continua a ser mostrado na página de obrigado/entrega após confirmação.
 3. Rate limiting de endpoints públicos em memória → mover para armazenamento partilhado (Redis) se houver várias instâncias.
 4. Upload de imagens: atualmente por URL; adicionar armazenamento de ficheiros (ex.: S3/Blob) se necessário.
@@ -868,6 +920,8 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 18 (2026-10-16)**: área de Funis com entrada única «Funil avançado» (removido «Criar funil»), editor com mapa do fluxo, vários upsells/downsells com destinos por aceitar/recusar, link de página externa por etapa com código de integração (`/ntp-funil.js` + `POST /api/public/funil/v1/aceitar|recusar`, validação de percurso e etapa no servidor), página de obrigado do site ou externa, paleta do editor antigo sem Checkout principal/Página de vendas/Oferta adicional (etapas existentes preservadas). Vendas de upsell/downsell continuam encomendas próprias confirmadas só pelo gateway. Sem migração; EPay/E2Payments/webhooks/confirmação intactos. 294 testes unitários/integração e 124 E2E a passar.
+- **Sessão 17 (2026-10-15/16)**: Facebook Pixel / API de Conversões (token cifrado, produtos selecionados, Purchase só para compras confirmadas, fila idempotente com event_id estável, isolamento por conta). Migração aditiva. Testes de integração e E2E.
 - **Sessão 16 (2026-10-15)**: formulário de produto simplificado (nome, descrição, foto carregada do dispositivo, preço principal, tipo), sem preço de referência/página de vendas/ofertas (valores guardados preservados); ofertas centralizadas nos funis (preço criado no funil + downsell com a etapa existente do motor); correção do motor para mostrar a oferta seguinte depois de uma recusa. Sem migração. 272 testes unitários/integração e 117 E2E a passar.
 - **Sessão 15 (2026-10-15)**: auditoria de todas as páginas em 12 larguras e de interações com toque (simulação no Chromium); 12 grupos de problemas corrigidos (página do pedido mais larga que o ecrã, dicas inacessíveis no iPhone, menu de ações cortado nas tabelas, modais com teclado, faixas de chips/separadores/etapas do funil escondidas, tabelas com deslocamento lateral, controlos só com hover, alvos de toque pequenos); aba Cupom removida da interface sem apagar dados nem lógica do checkout. APIs e pagamentos não alterados. 262 testes unitários/integração e 112 E2E a passar.
 - **Sessão 14 (2026-10-15)**: checkout simples numa coluna (nome, imagem, preço, dados, pagamento, total único e botão), mensagem longa da EPay removida (só visual), cronómetro com a cor em todo o componente e texto legível, editor simplificado (9 elementos, produto/preço/pagamento protegidos, propriedades por elemento, estilo global e restauro do padrão) e correções no telemóvel (menu de ações e avisos na aba Produtos, filtros, campos de 16 px). Sem migração. 262 testes unitários/integração e 83 E2E a passar.

@@ -50,8 +50,8 @@ export default async function OfferPage({ params, searchParams }: { params: Prom
           primaryColor={primary}
           backgroundColor={bg}
           headline={node.config.headline ?? offer.product.name}
-          body={node.config.body}
-          imageUrl={node.config.imageUrl}
+          body={node.config.body ?? offer.product.description ?? undefined}
+          imageUrl={node.config.imageUrl ?? offer.product.imageUrl ?? undefined}
           videoUrl={node.config.videoUrl}
           productName={offer.product.name}
           offerName={offer.name}

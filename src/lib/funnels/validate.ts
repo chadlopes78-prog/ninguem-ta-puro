@@ -103,7 +103,8 @@ export function validateFunnel(graph: FunnelGraph, refs?: FunnelRefs): FunnelVal
     if (OFFER_STEP_TYPES.includes(n.type)) {
       if (!c.productId) err({ nodeKey: n.key, field: "productId", message: `${nodeName(n)}: selecione um produto.` });
       if (!c.offerId) err({ nodeKey: n.key, field: "offerId", message: `${nodeName(n)}: selecione uma oferta/preço.` });
-      if (!c.headline?.trim()) err({ nodeKey: n.key, field: "headline", message: `${nodeName(n)}: falta o título da oferta.` });
+      // Sem título nem página externa, a página de oferta da plataforma usa o nome do produto
+      if (!c.headline?.trim() && !c.pageUrl) warn({ nodeKey: n.key, field: "headline", message: `${nodeName(n)}: sem título, a página de oferta mostra o nome do produto.` });
       if (refs && c.productId) {
         const p = refs.products.get(c.productId);
         if (!p) err({ nodeKey: n.key, field: "productId", message: `${nodeName(n)}: o produto selecionado não existe.` });

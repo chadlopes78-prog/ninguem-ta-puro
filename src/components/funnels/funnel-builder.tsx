@@ -21,6 +21,8 @@ import {
 } from "@xyflow/react";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Play, Plus, Power, Save, Trash2, XCircle } from "lucide-react";
 import { STEP_META, STEP_TYPES, OFFER_STEP_TYPES, HANDLE_LABELS, type FunnelGraph, type SourceHandle, type StepConfig, type StepType } from "@/lib/funnels/types";
+
+const HIDDEN_IN_PALETTE: StepType[] = ["SALES_PAGE", "CHECKOUT", "ORDER_BUMP"];
 import { validateFunnel, type FunnelIssue, type FunnelRefs } from "@/lib/funnels/validate";
 import { formatMoney, type CurrencyCode } from "@/lib/money";
 import type { ActionResult } from "@/server/validation/common";
@@ -353,7 +355,9 @@ function BuilderInner(props: Props) {
         <aside className="border-b border-line bg-surface lg:w-[200px] lg:shrink-0 lg:overflow-y-auto lg:border-r lg:border-b-0" aria-label="Adicionar etapas">
           <p className="hidden px-4 pt-4 pb-2 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-subtle lg:block">Adicionar etapa</p>
           <ul className="flex gap-1.5 overflow-x-auto p-2 scrollbar-thin lg:flex-col lg:gap-0.5 lg:px-2 lg:pt-0">
-            {STEP_TYPES.map((t) => {
+            {/* Checkout principal e página de venda configuram-se no produto; "Oferta adicional" deu lugar a Upsell/Downsell.
+                Etapas destes tipos já existentes em funis antigos mantêm-se e continuam editáveis. */}
+            {STEP_TYPES.filter((t) => !HIDDEN_IN_PALETTE.includes(t)).map((t) => {
               const Icon = STEP_ICON[t];
               return (
                 <li key={t} className="shrink-0">

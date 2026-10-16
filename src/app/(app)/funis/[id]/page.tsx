@@ -48,7 +48,7 @@ export default async function FunnelEditorPage({ params }: { params: Promise<{ i
     return (
       <FunnelWizard
         funnel={{ id: f.id, name: f.name, status: f.status }}
-        initial={{ productId: w.state.productId, afterPayment: w.state.afterPayment, upsell: w.state.upsell, downsell: w.state.downsell, thankYou: w.state.thankYou, setup: w.state.setup }}
+        initial={{ productId: w.state.productId, offers: w.state.offers, thankYou: w.state.thankYou, setup: w.state.setup }}
         readiness={{ stageLabel: STAGE_LABELS[readiness.stage], published: w.product.status === "PUBLISHED", requirements: readiness.requirements }}
         publishAction={publishProductAction.bind(null, w.state.productId)}
         products={all.map((p) => ({

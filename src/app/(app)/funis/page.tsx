@@ -11,12 +11,11 @@ import { Badge, DemoBadge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ListFilters } from "@/components/filters/list-filters";
 import { RowMenu } from "@/components/ui/row-menu";
-import { NewFunnelButton } from "@/components/funnels/new-funnel-button";
 import { NewWizardFunnelButton } from "@/components/funnels/new-wizard-funnel-button";
 import { prisma } from "@/server/db";
 import { ArrowRight } from "lucide-react";
 import { STEP_ICON, STEP_TINT } from "@/components/funnels/step-visuals";
-import { createFunnelAction, createWizardFunnelAction, deactivateFunnelAction, deleteFunnelAction, duplicateFunnelAction, activateFunnelAction } from "./actions";
+import { createWizardFunnelAction, deactivateFunnelAction, deleteFunnelAction, duplicateFunnelAction, activateFunnelAction } from "./actions";
 import { own } from "@/server/scope";
 import { readinessMap } from "@/server/services/product-readiness";
 import { STAGE_LABELS } from "@/lib/product-setup";
@@ -42,13 +41,8 @@ export default async function FunnelsPage({ searchParams }: { searchParams: Prom
     <>
       <PageHeader
         title={<span className="flex flex-wrap items-center gap-3">Funis de vendas {isDemo && <DemoBadge />}</span>}
-        description="Defina o que acontece depois de cada compra: upsell e página de obrigado."
-        actions={
-          <>
-            <NewFunnelButton action={createFunnelAction} label="Funil avançado" />
-            <NewWizardFunnelButton action={createWizardFunnelAction} products={products} initialProductId={preselect} />
-          </>
-        }
+        description="Defina o que acontece depois de cada compra: upsells, downsells e página de obrigado."
+        actions={<NewWizardFunnelButton action={createWizardFunnelAction} products={products} initialProductId={preselect} />}
       />
       <div className="mb-4">
         <ListFilters
@@ -61,8 +55,8 @@ export default async function FunnelsPage({ searchParams }: { searchParams: Prom
           <EmptyState
             icon={Workflow}
             title={sp.q || sp.status ? "Nenhum funil encontrado" : "Sem funis"}
-            description={sp.q || sp.status ? undefined : "Escolha um produto e defina o que acontece depois do pagamento: um upsell ou uma página de obrigado."}
-            action={!sp.q && !sp.status ? <NewWizardFunnelButton action={createWizardFunnelAction} products={products} label="Criar funil" testId="new-wizard-funnel-empty" /> : undefined}
+            description={sp.q || sp.status ? undefined : "Escolha um produto e defina o que acontece depois do pagamento: upsells, downsells e a página de obrigado."}
+            action={!sp.q && !sp.status ? <NewWizardFunnelButton action={createWizardFunnelAction} products={products} testId="new-wizard-funnel-empty" /> : undefined}
           />
         </Card>
       ) : (
@@ -92,14 +86,16 @@ export default async function FunnelsPage({ searchParams }: { searchParams: Prom
                   {f.product ? (
                     <div className="mt-4 flex flex-wrap items-center gap-1.5 text-[12.5px]" aria-label="Fluxo do funil" data-testid="funnel-card-flow">
                       <span className="rounded-full border border-line bg-surface-2 px-2.5 py-1 font-medium text-fg">{f.product.name}</span>
-                      {types.includes("UPSELL") && (
-                        <>
-                          <ArrowRight className="h-3.5 w-3.5 text-subtle" aria-hidden="true" />
-                          <span className="rounded-full border border-line bg-surface-2 px-2.5 py-1 text-muted">Upsell</span>
-                        </>
-                      )}
-                      <ArrowRight className="h-3.5 w-3.5 text-subtle" aria-hidden="true" />
-                      <span className="rounded-full border border-line bg-surface-2 px-2.5 py-1 text-muted">Página de obrigado</span>
+                      {f.steps
+                        .filter((s) => s.type === "UPSELL" || s.type === "DOWNSELL" || s.type === "THANK_YOU")
+                        .map((s, i) => (
+                          <span key={i} className="contents">
+                            <ArrowRight className="h-3.5 w-3.5 text-subtle" aria-hidden="true" />
+                            <span className="max-w-full truncate rounded-full border border-line bg-surface-2 px-2.5 py-1 text-muted" title={s.label}>
+                              {s.type === "THANK_YOU" ? ((s.config as { useSitePage?: boolean } | null)?.useSitePage === false ? "Obrigado (externa)" : "Página de obrigado") : s.label || (s.type === "DOWNSELL" ? "Downsell" : "Upsell")}
+                            </span>
+                          </span>
+                        ))}
                     </div>
                   ) : (
                   <div className="mt-4 flex flex-wrap gap-1.5" aria-label="Tipos de etapa">

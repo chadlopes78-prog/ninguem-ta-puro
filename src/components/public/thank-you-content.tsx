@@ -23,6 +23,8 @@ export interface ThankYouContentProps {
   buttonKind?: "pdf" | "link" | "whatsapp" | "access" | null;
   upsells?: { description: string; totalCents: number; status: string; accessHref: string | null }[];
   upsellNote?: string | null;
+  /** "Redirecionar para" configurado na etapa de obrigado (só com a compra confirmada) */
+  continueUrl?: string | null;
   supportEmail?: string | null;
   retryPath?: string | null;
   /** Pré-visualização no editor: links desativados */
@@ -161,6 +163,12 @@ export function ThankYouContent(p: ThankYouContentProps) {
               </li>
             ))}
           </ul>
+        )}
+
+        {p.continueUrl && p.state === "confirmed" && (
+          <a href={p.preview ? undefined : p.continueUrl} rel="noopener" className={cn("inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border px-6 py-3 text-[15px] font-semibold", card)} data-testid="thank-you-continue">
+            Continuar <ExternalLink className="h-4 w-4" aria-hidden="true" />
+          </a>
         )}
 
         {p.state === "failed" && p.retryPath && (

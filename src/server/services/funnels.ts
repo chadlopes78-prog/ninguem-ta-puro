@@ -28,7 +28,7 @@ export async function listFunnels(params: { scope: Scope; q?: string; status?: s
   return prisma.funnel.findMany({
     where,
     orderBy: { updatedAt: "desc" },
-    include: { _count: { select: { steps: true, checkouts: true, orders: true } }, steps: { select: { type: true } }, product: { select: { name: true } } },
+    include: { _count: { select: { steps: true, checkouts: true, orders: true } }, steps: { select: { type: true, label: true, positionX: true, config: true }, orderBy: { positionX: "asc" } }, product: { select: { name: true } } },
   });
 }
 

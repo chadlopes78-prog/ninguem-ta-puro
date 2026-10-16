@@ -24,6 +24,8 @@ export const stepConfigSchema = z
     afterDecline: z.enum(["thank_you", "url"]).optional(),
     afterDeclineUrl: opt(2000).refine((v) => !v || /^https:\/\//i.test(v), "URL inválido"),
     afterFail: z.enum(["retry", "thank_you"]).optional(),
+    pageUrl: opt(2000).refine((v) => !v || /^https:\/\//i.test(v), "URL inválido"),
+    useSitePage: z.boolean().optional(),
   })
   .strip();
 

@@ -33,6 +33,10 @@ export interface StepConfig {
   /** Upsell: destino depois de recusar */
   afterDecline?: "thank_you" | "url";
   afterDeclineUrl?: string;
+  /** Upsell/Downsell: página externa que apresenta a oferta (com o código de integração da plataforma) */
+  pageUrl?: string;
+  /** Obrigado: false = enviar o comprador para redirectUrl em vez da página da plataforma */
+  useSitePage?: boolean;
   /** Upsell: se o pagamento falhar — voltar à oferta ou seguir para a página de obrigado */
   afterFail?: "retry" | "thank_you";
 }
