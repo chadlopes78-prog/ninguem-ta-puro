@@ -1,6 +1,6 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-16 · Sessão 22 (preparação para tráfego pago: carga, concorrência, telemóvel, imagens otimizadas, limites CGNAT) · Sessão 21 (página de obrigado personalizada; área Operações com abas; Dashboard com atividades de hoje e metas de faturamento; partilha das credenciais de pagamento do administrador; logótipos sem fundo) · Sessão 20 (modo simples: vender sem funil; logótipos nas Integrações) · Sessão 19 (entrega do produto PDF/link no produto, área «Os meus produtos», recuperação de acesso, Integrações em cartões) · Sessão 18 (funis: entrada única, várias ofertas, páginas externas com código de integração, obrigado externo) · Sessão 17 (Facebook Pixel / API de Conversões) · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
+Última atualização: 2026-10-19 · Sessão 23 (novo design padrão do checkout: claro e proporcionado; cupão só com cupões ativos) · Sessão 22 (preparação para tráfego pago: carga, concorrência, telemóvel, imagens otimizadas, limites CGNAT) · Sessão 21 (página de obrigado personalizada; área Operações com abas; Dashboard com atividades de hoje e metas de faturamento; partilha das credenciais de pagamento do administrador; logótipos sem fundo) · Sessão 20 (modo simples: vender sem funil; logótipos nas Integrações) · Sessão 19 (entrega do produto PDF/link no produto, área «Os meus produtos», recuperação de acesso, Integrações em cartões) · Sessão 18 (funis: entrada única, várias ofertas, páginas externas com código de integração, obrigado externo) · Sessão 17 (Facebook Pixel / API de Conversões) · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
 
 ## Estado geral
 
@@ -26,6 +26,19 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | 5 — Operação | ✅ Concluída | Pedidos (filtros, detalhe, transições), clientes, cupões (com testador), relatórios |
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
+
+## Novo design padrão do checkout (sessão 23)
+
+- **Antes:** o modelo padrão era escuro com verde-néon, título enorme (até 38 px), imagem muito grande e o campo «Cupão de desconto» sempre visível, apesar de a aba de cupões ter sido retirada.
+- **Agora (`defaultDesign` em `src/lib/checkout-design.ts`):**
+  - **Tema claro:** fundo `#F6F7F9`, formulário em cartão branco, botão verde `#16A34A` e tipo de letra Inter também no título.
+  - **Proporções:** título com 28 px no computador e 22 px no telemóvel, preço com 26/24 px e imagem 16:9 com cantos de 14 px.
+  - **Estrutura:** a mesma numa coluna (nome, imagem, preço, dados, pagamento, total e botão), sem Subtotal nem Taxa de entrega.
+- **Cores próprias:** se o vendedor escolheu cores para o checkout, diferentes das de fábrica, essas cores são respeitadas.
+- **Checkouts personalizados e publicados:** não mudam.
+- **«Restaurar estilo padrão» no editor:** repõe o tema claro.
+- **Campo de cupão:** só aparece se a conta tiver cupões ativos e dentro da validade (`hasUsableCoupons`). Os cupões existentes continuam a funcionar.
+- **Testes:** unitário do modelo padrão; testes de tema atualizados (E2E 08 e unitários do editor e da renderização).
 
 ## Preparação para tráfego pago: auditoria, carga, concorrência e telemóvel (sessão 22)
 
@@ -1209,6 +1222,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 23 (2026-10-19)**: novo design padrão do checkout (tema claro, título/preço proporcionados, imagem com cantos suaves, botão verde; cores próprias do vendedor respeitadas; checkouts publicados inalterados); campo de cupão só quando a conta tem cupões ativos. A análise do checkout da RatixPay não foi possível (domínio bloqueado neste ambiente). Sem migração. 342 testes unitários/integração a passar; E2E 150 (1 falha intermitente conhecida de hidratação React #418 na lista de Produtos, que passou ao repetir).
 - **Sessão 22 (2026-10-16)**: auditoria para tráfego pago com testes de carga reais (10–250 clientes, 1 processo), concorrência de pagamentos e telemóvel emulado; correções: limites anti-abuso por comprador (CGNAT), imagens redimensionadas em WebP com cache na CDN, tentativa de compra preservada quando a WebView recarrega, aviso de ligação lenta, menos consultas no checkout. Lógica de pagamento e APIs EPay/E2Payments inalteradas. Sem migração. 341 testes unitários/integração e 150 E2E a passar.
 - **Sessão 21 (2026-10-16)**: página de obrigado personalizada em Personalizar Checkout (rascunho, pré-visualização, publicação e restauro; botão ligado à entrega real; com e sem funil); área **Operações** com uma única entrada no menu e abas Pedidos/Clientes/Relatórios/Notificações (rotas antigas preservadas); logótipos das Integrações sem fundo; **Dashboard**: atividades recentes só do dia atual no fuso da conta (data real de cada evento) e barra de meta de faturamento (10 mil → 1 milhão MZN) com celebrações únicas guardadas por utilizador. **Partilha das credenciais de pagamento do administrador** por utilizador e método (EPay/E2Payments), sem expor credenciais, com venda e faturamento no vendedor, revogação só para novos pagamentos e pedidos de remoção. Migrações aditivas `CheckoutThankYou`, `RevenueMilestone` e `PaymentCredentialGrant` (+ `Payment.credentialOwnerId`). 334 testes unitários/integração e 147 E2E a passar.
 - **Sessão 20 (2026-10-16)**: logótipos oficiais (fundo removido) na aba Integrações; **modo simples** — publicar só exige produto, checkout e entrega (funil, página de obrigado e WhatsApp opcionais, no servidor e na interface); sem funil, o comprador vai do pagamento confirmado diretamente para a página de acesso ao produto. Funis, upsell e downsell inalterados. Sem migração. 308 testes unitários/integração e E2E completos a passar.

@@ -5,6 +5,8 @@ import { getSettings } from "@/server/services/settings";
 import { getActivePaymentProviders } from "@/server/payments/registry";
 import { listPaymentOptions } from "@/server/services/payment-flow";
 import { publicDesign } from "@/server/services/checkout-design";
+import { hasUsableCoupons } from "@/server/services/coupons";
+import { scopeOf } from "@/server/scope";
 import { CheckoutView } from "@/components/checkouts/checkout-view";
 import { Unavailable } from "@/components/public/unavailable";
 import { applyCouponAction, submitCheckoutAction } from "./actions";
@@ -28,7 +30,12 @@ export default async function PublicCheckoutPage({ params }: { params: Promise<{
   const c = r.checkout;
   // Nome do negócio e gateways da conta dona deste checkout (consultas independentes, em paralelo).
   // Apenas gateways ativos e configurados que aceitem a moeda do produto.
-  const [settings, active] = await Promise.all([getSettings(c.ownerId), c.isDemo ? Promise.resolve([]) : getActivePaymentProviders(c.ownerId)]);
+  const [settings, active, couponsAvailable] = await Promise.all([
+    getSettings(c.ownerId),
+    c.isDemo ? Promise.resolve([]) : getActivePaymentProviders(c.ownerId),
+    // o campo de cupão só aparece se a conta tiver cupões utilizáveis
+    c.allowCoupons ? hasUsableCoupons(scopeOf(c.ownerId, c.isDemo)) : Promise.resolve(false),
+  ]);
   const providers = active.filter((p) => p.supportedCurrencies.includes(c.offer.currency));
   const paymentOptions = listPaymentOptions(providers);
   return (
@@ -46,7 +53,7 @@ export default async function PublicCheckoutPage({ params }: { params: Promise<{
         requirePhone: c.requirePhone,
         collectDocument: c.collectDocument,
         requireDocument: c.requireDocument,
-        allowCoupons: c.allowCoupons,
+        allowCoupons: couponsAvailable,
         supportEmail: c.supportEmail ?? c.product.supportEmail ?? settings.supportEmail,
         productName: c.product.name,
         offerName: c.offer.name,

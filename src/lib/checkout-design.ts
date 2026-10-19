@@ -387,29 +387,37 @@ export function cloneWithNewIds<T extends DesignElement | DesignSection>(x: T): 
 
 // ───────────────────────────── modelo padrão ─────────────────────────────
 
+/** Cores de fábrica dos checkouts (tema escuro néon). Quando o vendedor não as alterou, o modelo padrão usa o tema claro. */
+const FACTORY_COLORS = { primaryColor: "#C8F135", backgroundColor: "#0B0C0E" } as const;
+
 /**
  * Modelo padrão (checkout simples, numa coluna, como nas plataformas de produtos digitais):
  * 1. nome do produto · 2. imagem (se existir) · 3. preço · 4–6. formulário com os dados do comprador,
  * os métodos de pagamento ativos e o botão de finalizar (o total aparece uma única vez, junto ao botão).
+ * Visual limpo e claro por omissão (fundo cinza-claro, cartões brancos, botão verde), título e preço em tamanho
+ * moderado e imagem com cantos suaves, para o formulário aparecer cedo no telemóvel. Se o vendedor escolheu cores
+ * próprias para o checkout, essas cores são respeitadas.
  * Não inclui benefícios, depoimentos nem garantias: dependem de informação que só o vendedor tem.
  */
 export function defaultDesign(theme: { primaryColor: string; backgroundColor: string; buttonText: string }): CheckoutDesign {
+  const factory = theme.primaryColor.toUpperCase() === FACTORY_COLORS.primaryColor && theme.backgroundColor.toUpperCase() === FACTORY_COLORS.backgroundColor;
+  const colors = factory ? { ...CHECKOUT_THEME_PRESETS.light, mode: "light" as const } : { primaryColor: theme.primaryColor, backgroundColor: theme.backgroundColor };
   const main = newSection("1");
   main.id = "hero";
   main.style.contentWidth = "narrow";
-  main.style.paddingY = 32;
-  main.style.rowGap = 18;
+  main.style.paddingY = 28;
+  main.style.rowGap = 14;
   main.columns = [
     [
-      { id: "product-name", type: "heading", style: {}, source: "productName", text: "", level: "h1" },
-      { id: "product-image", type: "image", style: {}, source: "product", src: "", alt: "", caption: "", widthPct: 100, mobileWidthPct: 100, maxWidthPx: 0, aspect: "16/9", heightPx: 0, fit: "cover", focusX: 50, focusY: 50, imgRadius: 16, imgAlign: "center" },
-      { id: "product-price", type: "price", style: {}, label: "", showCompareAt: true },
-      { id: "checkout", type: "checkout", style: {}, title: "Os seus dados", subtitle: "", stickyDesktop: false },
+      { id: "product-name", type: "heading", style: { fontSize: 28, fontSizeMobile: 22 }, source: "productName", text: "", level: "h1" },
+      { id: "product-image", type: "image", style: {}, source: "product", src: "", alt: "", caption: "", widthPct: 100, mobileWidthPct: 100, maxWidthPx: 0, aspect: "16/9", heightPx: 0, fit: "cover", focusX: 50, focusY: 50, imgRadius: 14, imgAlign: "center" },
+      { id: "product-price", type: "price", style: { fontSize: 26, fontSizeMobile: 24 }, label: "", showCompareAt: true },
+      { id: "checkout", type: "checkout", style: { marginTop: 4 }, title: "Os seus dados", subtitle: "", stickyDesktop: false },
     ],
   ];
   return {
     version: 2,
-    theme: { primaryColor: theme.primaryColor, backgroundColor: theme.backgroundColor, buttonText: theme.buttonText, announcement: "", fontFamily: "inter", headingFont: "grotesk", buttonColor: "", textColor: "", countdownColor: "" },
+    theme: { ...colors, buttonText: theme.buttonText, announcement: "", fontFamily: "inter", headingFont: "inter", buttonColor: "", textColor: "", countdownColor: "" },
     sections: [main],
   };
 }

@@ -131,3 +131,15 @@ export function couponDateKeys(c: Pick<Coupon, "startsAt" | "endsAt">, tz: strin
     endsAt: c.endsAt ? addDays(zonedDayKey(c.endsAt, tz), -1) : "",
   };
 }
+
+/**
+ * A conta tem algum cupão ativo e dentro da validade? Sem cupões, o checkout não mostra o campo «Cupão de desconto»
+ * (a aba de cupões foi retirada da interface; os cupões existentes continuam válidos).
+ */
+export async function hasUsableCoupons(scope: Scope, now = new Date()): Promise<boolean> {
+  const c = await prisma.coupon.findFirst({
+    where: { ...own(scope), isActive: true, OR: [{ endsAt: null }, { endsAt: { gt: now } }] },
+    select: { id: true },
+  });
+  return c !== null;
+}

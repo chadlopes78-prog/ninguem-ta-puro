@@ -92,7 +92,8 @@ describe("estrutura simplificada, estilo padrão e cronómetro", () => {
       sections: d.sections.map((s) => ({ ...s, columns: s.columns.map((c) => c.map((e) => (e.id === "product-name" ? { ...e, style: { fontSize: 50, color: "#FF5500", hideMobile: true } } : e))) })),
     };
     const r = restoreDefaultStyle(d);
-    expect(r.theme).toMatchObject({ primaryColor: "#C8F135", backgroundColor: "#0B0C0E", buttonColor: "", textColor: "", countdownColor: "", buttonText: "Finalizar compra" });
+    // o modelo padrão é claro: restaurar repõe as cores do tema claro
+    expect(r.theme).toMatchObject({ mode: "light", primaryColor: "#16A34A", backgroundColor: "#F6F7F9", buttonColor: "", textColor: "", countdownColor: "", buttonText: "Finalizar compra" });
     expect(order(r)).toEqual(order(d));
     const name = locate(r, "product-name")!.el;
     expect(name.style).toEqual({ hideMobile: true }); // a visibilidade é uma escolha de conteúdo, mantém-se
@@ -109,5 +110,17 @@ describe("estrutura simplificada, estilo padrão e cronómetro", () => {
     const parsed = designSchema.parse(old);
     expect(parsed.theme.buttonColor).toBe("");
     expect(locate(parsed, "cd1")!.el).toMatchObject({ bgColor: "", textColor: "", size: "md" });
+  });
+});
+
+describe("modelo padrão", () => {
+  it("cores de fábrica → tema claro (fundo cinza-claro, botão verde); cores escolhidas pelo vendedor são respeitadas", () => {
+    expect(base().theme).toMatchObject({ mode: "light", primaryColor: "#16A34A", backgroundColor: "#F6F7F9" });
+    const own = defaultDesign({ primaryColor: "#FF5500", backgroundColor: "#101820", buttonText: "Comprar" });
+    expect(own.theme).toMatchObject({ primaryColor: "#FF5500", backgroundColor: "#101820", buttonText: "Comprar" });
+    expect(own.theme.mode).toBeUndefined();
+    expect(designSchema.safeParse(own).success).toBe(true);
+    // estrutura: nome, imagem, preço e formulário, numa coluna
+    expect(base().sections[0].columns[0].map((e) => e.type)).toEqual(["heading", "image", "price", "checkout"]);
   });
 });

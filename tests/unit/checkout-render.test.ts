@@ -132,7 +132,7 @@ describe("cronómetro", () => {
     expect(box(html)).toContain("background:#2563EB");
     // a caixa exterior do elemento não recebe fundo; o resto da página mantém as cores do tema
     expect(html).not.toMatch(/data-block="countdown"[^>]*style="[^"]*background/);
-    expect(html).toMatch(/<button type="submit"[^>]*style="background:#C8F135/);
+    expect(html).toMatch(/<button type="submit"[^>]*style="background:#16A34A/);
   });
 
   it("tamanho: classes de tamanho diferentes para pequeno e grande", () => {

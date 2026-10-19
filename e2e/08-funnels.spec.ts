@@ -155,21 +155,22 @@ test.describe.serial("funis: upsell e página de obrigado", () => {
     await expect(page.getByTestId("thank-you-button")).toHaveCount(0);
   });
 
-  test("tema do checkout: claro na pré-visualização e no checkout público; outros checkouts não mudam", async ({ page }) => {
+  test("tema do checkout: escuro na pré-visualização e no checkout público; outros checkouts não mudam", async ({ page }) => {
     await login(page);
     await page.goto("/checkouts");
     await page.getByTestId("personalization-card").filter({ hasText: "Ebook Moçambique" }).getByTestId("personalize").click();
     await page.getByRole("button", { name: "Estilo do checkout" }).click();
-    await page.getByTestId("checkout-theme-light").click();
-    await expect(page.getByTestId("editor-preview").getByTestId("checkout-root")).toHaveAttribute("data-mode", "light");
+    // o modelo padrão é claro; este checkout passa a escuro
+    await page.getByTestId("checkout-theme-dark").click();
+    await expect(page.getByTestId("editor-preview").getByTestId("checkout-root")).toHaveAttribute("data-mode", "dark");
     await page.getByTestId("publish").click();
     await toast(page, "Personalização publicada");
     await page.goto("/checkout/ebook-mocambique");
-    await expect(page.getByTestId("checkout-root")).toHaveAttribute("data-mode", "light");
+    await expect(page.getByTestId("checkout-root")).toHaveAttribute("data-mode", "dark");
     await expect(page.getByLabel("Nome completo")).toBeVisible();
     await expect(page.getByText(mzn("1250,00")).first()).toBeVisible(); // preço inalterado
     await page.goto("/checkout/guia-digital-de-exemplo");
-    await expect(page.getByTestId("checkout-root")).toHaveAttribute("data-mode", "dark");
+    await expect(page.getByTestId("checkout-root")).toHaveAttribute("data-mode", "light");
   });
 
   test("tema do painel: alterna sem recarregar, fica guardado e não muda os checkouts públicos", async ({ page }) => {
@@ -182,8 +183,8 @@ test.describe.serial("funis: upsell e página de obrigado", () => {
     await page.reload();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
     await expect(page.getByTestId("theme-light")).toHaveAttribute("aria-checked", "true");
-    // checkout público escuro continua escuro com o painel em modo claro
-    await page.goto("/checkout/guia-digital-de-exemplo");
+    // o checkout público mantém o seu próprio tema (escuro), qualquer que seja o tema do painel
+    await page.goto("/checkout/ebook-mocambique");
     await expect(page.getByTestId("checkout-root")).toHaveAttribute("data-mode", "dark");
     const checkoutBg = await page.evaluate(() => getComputedStyle(document.querySelector("[data-testid=checkout-root]")!).backgroundColor);
     expect(checkoutBg).toBe("rgb(11, 12, 14)");
