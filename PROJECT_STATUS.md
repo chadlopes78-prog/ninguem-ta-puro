@@ -1,6 +1,6 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-29 · Sessão 26 (checkout: confirmação do PIN numa janela sem sair do checkout; ícones M-Pesa/e-Mola; produtos só Publicado/Rascunho e Eliminar) · Sessão 25 (Pagar: modo de teste e modo real nas Integrações; checkout com +258 e marcas M-Pesa/e-Mola) · Sessão 24 (Pagar API: pagamentos C2B assinados, webhooks validados, confirmação por consulta autenticada) · Sessão 23 (novo design padrão do checkout: claro e proporcionado; cupão só com cupões ativos) · Sessão 22 (preparação para tráfego pago: carga, concorrência, telemóvel, imagens otimizadas, limites CGNAT) · Sessão 21 (página de obrigado personalizada; área Operações com abas; Dashboard com atividades de hoje e metas de faturamento; partilha das credenciais de pagamento do administrador; logótipos sem fundo) · Sessão 20 (modo simples: vender sem funil; logótipos nas Integrações) · Sessão 19 (entrega do produto PDF/link no produto, área «Os meus produtos», recuperação de acesso, Integrações em cartões) · Sessão 18 (funis: entrada única, várias ofertas, páginas externas com código de integração, obrigado externo) · Sessão 17 (Facebook Pixel / API de Conversões) · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
+Última atualização: 2026-10-29 · Sessão 27 (produto: Pixel do Facebook por produto e link de upsell com funil automático) · Sessão 26 (checkout: confirmação do PIN numa janela sem sair do checkout; ícones M-Pesa/e-Mola; produtos só Publicado/Rascunho e Eliminar) · Sessão 25 (Pagar: modo de teste e modo real nas Integrações; checkout com +258 e marcas M-Pesa/e-Mola) · Sessão 24 (Pagar API: pagamentos C2B assinados, webhooks validados, confirmação por consulta autenticada) · Sessão 23 (novo design padrão do checkout: claro e proporcionado; cupão só com cupões ativos) · Sessão 22 (preparação para tráfego pago: carga, concorrência, telemóvel, imagens otimizadas, limites CGNAT) · Sessão 21 (página de obrigado personalizada; área Operações com abas; Dashboard com atividades de hoje e metas de faturamento; partilha das credenciais de pagamento do administrador; logótipos sem fundo) · Sessão 20 (modo simples: vender sem funil; logótipos nas Integrações) · Sessão 19 (entrega do produto PDF/link no produto, área «Os meus produtos», recuperação de acesso, Integrações em cartões) · Sessão 18 (funis: entrada única, várias ofertas, páginas externas com código de integração, obrigado externo) · Sessão 17 (Facebook Pixel / API de Conversões) · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
 
 ## Estado geral
 
@@ -26,6 +26,20 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | 5 — Operação | ✅ Concluída | Pedidos (filtros, detalhe, transições), clientes, cupões (com testador), relatórios |
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
+
+## Produto: Pixel por produto e link de upsell (sessão 27)
+
+- **Pixel do Facebook no produto** (secção «Depois da compra e anúncios» do formulário): ID do Pixel e token da API de Conversões.
+  - Com um Pixel novo, o token é obrigatório e fica cifrado. Com um Pixel já existente na conta, basta o ID.
+  - O produto fica ligado a esse Pixel (um Pixel por produto; a ligação anterior é substituída) e aparece automaticamente em Integrações → Facebook Pixel com o produto marcado.
+  - Campo vazio: o produto deixa de enviar compras (o Pixel continua nas Integrações).
+  - Usa os modelos existentes (`MetaPixel`, `MetaPixelProduct`); o envio continua só para compras confirmadas.
+- **Link de upsell no produto:** depois do pagamento CONFIRMADO, o comprador é levado para o link.
+  - O funil principal do produto é criado automaticamente (motor de funis existente, `src/server/services/product-upsell.ts`) e ativado. A etapa final fica «Upsell (link)», a redirecionar para o endereço (`useSitePage: false`), por isso o fluxo aparece na aba Funis.
+  - Remover o link volta à página de obrigado/acesso. Não há funis duplicados.
+  - Nota: com o link, o comprador não vê a página de acesso da plataforma; recupera o acesso em `/acesso`.
+- Validação antes de gravar (formato do ID do Pixel, token em falta, link https), para não criar produtos a meio.
+- Testes: `tests/integration/product-extras.test.ts` (4 cenários: Pixel por produto e isolamento, upsell com pagamento confirmado, produto em rascunho, sem link). Sem migração.
 
 ## Checkout com janela de confirmação, ícones dos métodos e produtos simplificados (sessão 26)
 
@@ -1324,6 +1338,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 27 (2026-10-29)**: Pixel do Facebook e link de upsell no formulário do produto (Pixel aparece nas Integrações; upsell cria o funil automaticamente e redireciona só depois do pagamento confirmado). Sem migração. 358 testes unitários/integração.
 - **Sessão 26 (2026-10-29)**: checkout mantém o comprador na página com uma janela «Confirme no seu telemóvel» até o servidor confirmar o pagamento; ícones M-Pesa/e-Mola; produtos só com Publicado/Rascunho e «Eliminar» (sem apagar histórico). Sem migração.
 - **Sessão 25 (2026-10-29)**: Pagar com modo de teste e modo real nas Integrações (credenciais separadas cifradas, mudança só com confirmação e com a key LIVE aceite pela Pagar); checkout com indicativo +258 e bandeira de Moçambique, marcas M-Pesa/e-Mola. Sem migração. 354 testes unitários/integração.
 - **Sessão 24 (2026-10-29)**: integração da Pagar API seguindo só o guia oficial (POST /payments assinado com HMAC e Idempotency-Key, título/valor da BD, repetições seguras, recuperação por reference, webhook com Pagar-Signature e Pagar-Event-Id único, entrega só com PAID por consulta autenticada); credenciais em variáveis do servidor (conta proprietária) ou cifradas por conta no painel; sem top-ups nem payouts. Sem migração. 353 testes unitários/integração e 151 E2E a passar.

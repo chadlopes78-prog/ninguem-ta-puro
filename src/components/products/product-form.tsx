@@ -25,6 +25,10 @@ export interface ProductFormValues {
   currency: string;
   status: string;
   delivery: { method: DeliveryChoice; url: string; file: DeliveryFile | null };
+  /** Pixel do Facebook ligado ao produto (o token nunca vem para o browser) */
+  pixel?: { pixelId: string; tokenHint: string } | null;
+  /** Link para onde o comprador vai depois do pagamento confirmado */
+  upsellUrl?: string;
 }
 
 /**
@@ -143,6 +147,33 @@ export function ProductForm({
               removeFileAction={removeDeliveryFileAction}
               funnelHref={funnelHref}
             />
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader title="Depois da compra e anúncios" description="Opcional. Pode deixar em branco." />
+          <CardBody className="grid gap-4">
+            <Field
+              label="Link de upsell"
+              name="upsellUrl"
+              error={fe.upsellUrl}
+              hint="Depois do pagamento confirmado, o comprador é levado para este link. O fluxo é criado automaticamente na aba Funis."
+            >
+              {(p) => <Input {...p} type="url" inputMode="url" placeholder="https://…" defaultValue={initial.upsellUrl ?? ""} data-testid="product-upsell-url" />}
+            </Field>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="ID do Facebook Pixel" name="pixelId" error={fe.pixelId} hint="Cada produto pode ter o seu Pixel. Aparece também em Integrações.">
+                {(p) => <Input {...p} inputMode="numeric" placeholder="123456789012345" defaultValue={initial.pixel?.pixelId ?? ""} data-testid="product-pixel-id" />}
+              </Field>
+              <Field
+                label="Token da API de Conversões"
+                name="pixelToken"
+                error={fe.pixelToken}
+                hint={initial.pixel ? `Guardado (${initial.pixel.tokenHint}). Deixe em branco para manter.` : "Gerado no Gestor de Eventos da Meta. Só é pedido na primeira vez para cada Pixel."}
+              >
+                {(p) => <Input {...p} type="password" autoComplete="new-password" spellCheck={false} placeholder={initial.pixel ? "••••••••" : "EAA…"} data-testid="product-pixel-token" />}
+              </Field>
+            </div>
           </CardBody>
         </Card>
 

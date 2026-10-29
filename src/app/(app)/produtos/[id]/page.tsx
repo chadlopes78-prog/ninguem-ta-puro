@@ -17,6 +17,8 @@ import { ProductForm } from "@/components/products/product-form";
 import { PRODUCT_STATUS_LABELS, PRODUCT_STATUS_TONE } from "@/components/products/labels";
 import { duplicateProductAction, publishProductAction, removeDeliveryFileAction, saveProductAction, setProductStatusAction } from "../actions";
 import { getReadiness } from "@/server/services/product-readiness";
+import { productPixel } from "@/server/services/meta-capi";
+import { productUpsellUrl } from "@/server/services/product-upsell";
 import { STAGE_LABELS } from "@/lib/product-setup";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import Link from "next/link";
@@ -36,6 +38,7 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
   const main = product.offers.find((o) => o.isDefault) ?? product.offers[0];
   // Garante (e recupera, se necessário) o checkout principal com o seu link
   const primary = await ensurePrimaryCheckout(product.id);
+  const [pixel, upsellUrl] = await Promise.all([productPixel(scope, product.id), productUpsellUrl(product.id, scope)]);
   const design = await prisma.checkoutDesign.findUnique({ where: { checkoutId: primary.id }, select: { draft: true, published: true } });
   const path = checkoutPath(primary);
   const base = await resolveAppBaseUrl();
@@ -166,6 +169,8 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
           currency: main?.currency ?? settings.defaultCurrency,
           status: product.status,
           delivery: { method: product.deliveryMethod ?? "", url: product.deliveryUrl ?? "", file: product.deliveryFile },
+          pixel,
+          upsellUrl,
         }}
       />
     </>

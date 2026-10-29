@@ -144,6 +144,59 @@ export async function saveMetaPixel(scope: Scope, raw: unknown): Promise<SaveMet
   return { ok: true, id };
 }
 
+// ───────────── Pixel de um produto (formulário do produto) ─────────────
+// Cada produto pode ter o seu Pixel: o ID (e o token, na primeira vez) indicados no produto criam ou reutilizam o
+// Pixel da conta e ligam-no a este produto — aparece automaticamente na aba Integrações com o produto marcado.
+
+const PIXEL_ID_RE = /^\d{6,20}$/;
+
+/** Pixel ligado ao produto (o primeiro, se houver vários) — só o ID e a indicação do token, nunca o token. */
+export async function productPixel(scope: Scope, productId: string): Promise<{ pixelId: string; tokenHint: string } | null> {
+  const link = await prisma.metaPixelProduct.findFirst({ where: { productId, metaPixel: { ownerId: scope.ownerId } }, orderBy: { createdAt: "asc" }, include: { metaPixel: { select: { pixelId: true, tokenHint: true } } } });
+  return link ? { pixelId: link.metaPixel.pixelId, tokenHint: link.metaPixel.tokenHint } : null;
+}
+
+/** Validação prévia (antes de gravar o produto): formato do ID e token obrigatório para um Pixel novo. */
+export async function checkProductPixel(scope: Scope, input: { pixelId?: string; token?: string }): Promise<FieldErrors | null> {
+  const pixelId = input.pixelId?.trim() ?? "";
+  if (!pixelId) return null;
+  if (scope.isDemo) return { pixelId: "Desative o modo de demonstração para configurar o Pixel" };
+  if (!PIXEL_ID_RE.test(pixelId)) return { pixelId: "O ID do Pixel tem só algarismos (ex.: 123456789012345)." };
+  const token = input.token?.trim() ?? "";
+  if (token && (token.length < 20 || token.length > 1000 || /\s/.test(token))) return { pixelToken: "Token de acesso inválido" };
+  const exists = await prisma.metaPixel.findFirst({ where: { ownerId: scope.ownerId, pixelId }, select: { id: true } });
+  if (!exists && !token) return { pixelToken: "Introduza o token de acesso da API de Conversões (só na primeira vez)" };
+  if (token && !secretStorageAvailable()) return { pixelToken: "O servidor não tem chave de cifra disponível para guardar o token" };
+  return null;
+}
+
+/**
+ * Liga o produto a um Pixel (cria-o se ainda não existir na conta). Sem ID, o produto deixa de enviar compras a
+ * qualquer Pixel. Vendas anteriores nunca são enviadas (só as confirmadas a partir da ligação).
+ */
+export async function setProductPixel(scope: Scope, productId: string, input: { pixelId?: string; token?: string }): Promise<void> {
+  const product = await prisma.product.findFirst({ where: { id: productId, ownerId: scope.ownerId, isDemo: false }, select: { id: true } });
+  if (!product) return;
+  const pixelId = input.pixelId?.trim() ?? "";
+  const token = input.token?.trim() ?? "";
+  await prisma.$transaction(async (tx) => {
+    if (!pixelId) {
+      await tx.metaPixelProduct.deleteMany({ where: { productId, metaPixel: { ownerId: scope.ownerId } } });
+      return;
+    }
+    const existing = await tx.metaPixel.findFirst({ where: { ownerId: scope.ownerId, pixelId } });
+    const secret = token ? { tokenEnc: encryptSecret(token), tokenHint: hint(token), lastError: null } : null;
+    const pixel = existing
+      ? secret
+        ? await tx.metaPixel.update({ where: { id: existing.id }, data: secret })
+        : existing
+      : await tx.metaPixel.create({ data: { ownerId: scope.ownerId, pixelId, tokenEnc: secret!.tokenEnc, tokenHint: secret!.tokenHint, enabled: true } });
+    // um Pixel por produto: as ligações a outros Pixels deste produto são substituídas
+    await tx.metaPixelProduct.deleteMany({ where: { productId, metaPixelId: { not: pixel.id }, metaPixel: { ownerId: scope.ownerId } } });
+    await tx.metaPixelProduct.createMany({ data: [{ metaPixelId: pixel.id, productId }], skipDuplicates: true });
+  });
+}
+
 /** Ativa ou desativa todos os Pixels da conta (interruptor do cartão na aba Integrações). Nada é apagado. */
 export async function setMetaPixelsEnabled(scope: Scope, enabled: boolean) {
   const r = await prisma.metaPixel.updateMany({ where: { ownerId: scope.ownerId }, data: { enabled } });
