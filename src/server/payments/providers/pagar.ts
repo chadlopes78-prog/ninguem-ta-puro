@@ -49,12 +49,29 @@ export function pagarBaseUrl(): string {
 }
 
 /** Credenciais nas variáveis de ambiente (só para a conta proprietária — ver gateways.ts). */
-export function pagarEnvCredentials(): PagarCredentials | null {
-  const apiKey = process.env.PAGAR_API_KEY?.trim() ?? "";
-  const signingSecret = process.env.PAGAR_SIGNING_SECRET?.trim() ?? "";
-  const webhookSecret = process.env.PAGAR_WEBHOOK_SECRET?.trim() ?? "";
+export type PagarMode = "test" | "live";
+
+function envSet(prefix: string): PagarCredentials | null {
+  const apiKey = process.env[`${prefix}API_KEY`]?.trim() ?? "";
+  const signingSecret = process.env[`${prefix}SIGNING_SECRET`]?.trim() ?? "";
+  const webhookSecret = process.env[`${prefix}WEBHOOK_SECRET`]?.trim() ?? "";
   if (!apiKey || !signingSecret || !webhookSecret) return null;
   return { apiKey, signingSecret, webhookSecret, baseUrl: pagarBaseUrl(), source: "env" };
+}
+
+/** Primeiro conjunto das variáveis do servidor (PAGAR_* e, opcionalmente, PAGAR_LIVE_* para produção). */
+export function pagarEnvCredentials(): PagarCredentials | null {
+  return envSet("PAGAR_") ?? envSet("PAGAR_LIVE_");
+}
+
+/** Conjuntos das variáveis do servidor por ambiente (pelo prefixo da API key: sk_test_ / sk_live_). */
+export function pagarEnvCredentialSets(): Partial<Record<PagarMode, PagarCredentials>> {
+  const out: Partial<Record<PagarMode, PagarCredentials>> = {};
+  for (const set of [envSet("PAGAR_"), envSet("PAGAR_LIVE_")]) {
+    const env = set && pagarKeyEnvironment(set.apiKey);
+    if (set && env && !out[env]) out[env] = set;
+  }
+  return out;
 }
 
 export function validPagarSecret(v: string | null | undefined): v is string {

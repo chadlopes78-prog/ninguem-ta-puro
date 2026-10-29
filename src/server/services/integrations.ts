@@ -18,11 +18,14 @@ import {
   swapStoredE2Credentials,
   GATEWAY_STATUS_LABELS,
   pagarCredentials,
+  pagarCredentialSets,
   pagarFromEnv,
+  pagarMode,
   savePagarCredentials,
+  storePagarMode,
   type GatewayContext,
 } from "@/server/payments/gateways";
-import { createPagarProvider, pagarKeyEnvironment } from "@/server/payments/providers/pagar";
+import { createPagarProvider, pagarKeyEnvironment, type PagarMode } from "@/server/payments/providers/pagar";
 import { createE2PaymentsProvider, e2HostLabel } from "@/server/payments/providers/e2payments";
 import { epayKeyEnvironment } from "@/server/payments/providers/epay";
 import { secretStorageAvailable, maskSecret } from "@/server/secret-box";
@@ -42,7 +45,7 @@ export async function listGateways(ownerId: string) {
     const provider = providerFor(p.id, ctx);
     const status = gatewayStatus(p.id, provider, ctx);
     const fromEnv = p.id === "epay" ? epayFromEnv(ctx) : p.id === "pagar" ? pagarFromEnv(ctx) : e2FromEnv(ctx);
-    const pagar = p.id === "pagar" ? pagarCredentials(ctx) : null;
+    const pagarSets = p.id === "pagar" ? pagarCredentialSets(ctx) : {};
     const e2 = p.id === "e2payments" ? e2Credentials(ctx) : null;
     const epayKey = p.id === "epay" ? epayKeyForDisplay(ctx) : null;
     return {
@@ -76,10 +79,13 @@ export async function listGateways(ownerId: string) {
           ? {
               fromEnv,
               storageAvailable: secretStorageAvailable(),
-              apiKeyMasked: maskSecret(pagar?.apiKey),
-              keyEnvironment: pagarKeyEnvironment(pagar?.apiKey),
-              hasSigningSecret: Boolean(pagar?.signingSecret),
-              hasWebhookSecret: Boolean(pagar?.webhookSecret),
+              mode: pagarMode(ctx),
+              sets: Object.fromEntries(
+                (["test", "live"] as const).map((m) => {
+                  const c = pagarSets[m];
+                  return [m, { apiKeyMasked: maskSecret(c?.apiKey), keyEnvironment: pagarKeyEnvironment(c?.apiKey), hasSigningSecret: Boolean(c?.signingSecret), hasWebhookSecret: Boolean(c?.webhookSecret), fromEnv: c?.source === "env" }];
+                }),
+              ) as Record<PagarMode, { apiKeyMasked: string | null; keyEnvironment: "test" | "live" | null; hasSigningSecret: boolean; hasWebhookSecret: boolean; fromEnv: boolean }>,
             }
           : null,
       epay:
@@ -179,12 +185,41 @@ export async function updateE2Credentials(ownerId: string, input: { clientId?: s
   return { ok: true as const, message: t.ok ? "Credenciais guardadas e ligação verificada." : `Credenciais guardadas, mas o teste de ligação falhou: ${t.message}` };
 }
 
-/** Guarda as credenciais da Pagar desta conta (cifradas) e testa a ligação de imediato. Não altera os outros gateways. */
-export async function updatePagarCredentials(ownerId: string, input: { apiKey?: string; signingSecret?: string; webhookSecret?: string }) {
+/**
+ * Guarda as credenciais da Pagar desta conta para um modo (teste/real), cifradas, e testa-as de imediato.
+ * Credenciais do modo ativo atualizam o estado verificado; as do outro modo só são testadas. Não altera os outros gateways.
+ */
+export async function updatePagarCredentials(ownerId: string, input: { mode?: string; apiKey?: string; signingSecret?: string; webhookSecret?: string }) {
   const saved = await savePagarCredentials(await gatewayContext(ownerId), input);
   if (!saved.ok) return saved;
-  const t = await testPagarConnection(ownerId);
-  return { ok: true as const, message: t.ok ? "Credenciais guardadas (cifradas) e ligação verificada. Ative a Pagar para a usar nos seus checkouts." : `Credenciais guardadas, mas o teste de ligação falhou: ${t.message}` };
+  const ctx = await gatewayContext(ownerId);
+  if (saved.mode === pagarMode(ctx)) {
+    const t = await testPagarConnection(ownerId);
+    return { ok: true as const, message: t.ok ? "Credenciais guardadas (cifradas) e ligação verificada. Ative a Pagar para a usar nos seus checkouts." : `Credenciais guardadas, mas o teste de ligação falhou: ${t.message}` };
+  }
+  const t = await createPagarProvider(pagarCredentials(ctx, saved.mode)).verifyCredentials();
+  const other = saved.mode === "live" ? "modo real" : "modo de teste";
+  return { ok: true as const, message: t.ok ? `Credenciais do ${other} guardadas (cifradas) e aceites pela Pagar. Mude para o ${other} quando quiser usá-las.` : `Credenciais do ${other} guardadas, mas a Pagar recusou-as: ${t.message}` };
+}
+
+/**
+ * Muda o modo da Pagar desta conta (teste ↔ real). Só muda se a Pagar aceitar as credenciais do novo modo
+ * (GET /wallet); o modo real exige confirmação explícita. Pagamentos já iniciados não são alterados.
+ */
+export async function setPagarMode(ownerId: string, mode: PagarMode, confirmLive: boolean): Promise<{ ok: boolean; message: string }> {
+  const ctx = await gatewayContext(ownerId);
+  if (mode === pagarMode(ctx) && ctx.rows.get("pagar")?.verifiedAt) return { ok: true, message: mode === "live" ? "A Pagar já está no modo real." : "A Pagar já está no modo de teste." };
+  if (mode === "live" && !confirmLive) return { ok: false, message: "Confirme que quer processar pagamentos reais." };
+  const creds = pagarCredentials(ctx, mode);
+  if (!creds) return { ok: false, message: mode === "live" ? "Guarde primeiro as credenciais de produção (API key sk_live_…, signing secret e webhook secret)." : "Guarde primeiro as credenciais de teste (sk_test_…)." };
+  const t = await createPagarProvider(creds).verifyCredentials();
+  if (!t.ok) {
+    await log(ownerId, "pagar", "warn", `Mudança para o ${mode === "live" ? "modo real" : "modo de teste"} recusada: ${t.message}`);
+    return { ok: false, message: `O modo não foi alterado: ${t.message}` };
+  }
+  await storePagarMode(ctx, mode, new Date());
+  await log(ownerId, "pagar", "info", mode === "live" ? "Pagar mudada para o MODO REAL: os novos pagamentos cobram dinheiro real." : "Pagar mudada para o modo de teste: os novos pagamentos são simulados.");
+  return { ok: true, message: mode === "live" ? "Modo real ativo: os novos pagamentos da Pagar cobram dinheiro real." : "Modo de teste ativo: os novos pagamentos são simulados." };
 }
 
 /**

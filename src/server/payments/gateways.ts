@@ -11,7 +11,7 @@ import { decryptSecret, encryptSecret, secretStorageAvailable } from "@/server/s
 import { staticAppBaseUrl } from "@/server/app-url";
 import { createEPayProvider, epayKeyEnvironment } from "./providers/epay";
 import { createE2PaymentsProvider, isE2Host, sanitizeCredential, WALLET_ID_RE, type E2Credentials, type E2Host } from "./providers/e2payments";
-import { createPagarProvider, pagarBaseUrl, pagarEnvCredentials, pagarKeyEnvironment, validPagarSecret, type PagarCredentials } from "./providers/pagar";
+import { createPagarProvider, pagarBaseUrl, pagarEnvCredentialSets, pagarKeyEnvironment, validPagarSecret, type PagarCredentials, type PagarMode } from "./providers/pagar";
 import type { GatewayId, PaymentProvider } from "./types";
 
 /** Estado inicial quando a conta ainda não tem registo: a EPay mantém o comportamento anterior (ativa se configurada). */
@@ -229,63 +229,123 @@ export async function rememberE2Host(ctx: GatewayContext, host: E2Host | null): 
 }
 
 // ───────────── Pagar ─────────────
+//
+// Dois conjuntos de credenciais por conta — TESTE (sk_test_) e PRODUÇÃO/real (sk_live_) — e um modo ativo
+// (publicConfig.mode). Só o conjunto do modo ativo inicia pagamentos. Mudar de modo exige que a Pagar aceite as
+// credenciais desse modo (GET /wallet); a produção depende ainda da aprovação da app na Pagar (KYC, guia secção 11).
 
-interface PagarSecretConfig {
+interface PagarSet {
   apiKey: string;
   signingSecret: string;
   webhookSecret: string;
 }
+type PagarSlots = Partial<Record<PagarMode, PagarSet>>;
 
-function readPagarSecret(row: IntegrationConfig | undefined): PagarSecretConfig | null {
-  return readSecretJson(row, (j) =>
-    typeof j.apiKey === "string" && typeof j.signingSecret === "string" && typeof j.webhookSecret === "string" ? { apiKey: j.apiKey, signingSecret: j.signingSecret, webhookSecret: j.webhookSecret } : null,
+function asPagarSet(j: unknown): PagarSet | null {
+  if (!j || typeof j !== "object") return null;
+  const o = j as Record<string, unknown>;
+  return typeof o.apiKey === "string" && typeof o.signingSecret === "string" && typeof o.webhookSecret === "string" ? { apiKey: o.apiKey, signingSecret: o.signingSecret, webhookSecret: o.webhookSecret } : null;
+}
+
+/** Conjuntos guardados no painel (aceita o formato antigo, um único conjunto, classificado pelo prefixo da key). */
+function readPagarSlots(row: IntegrationConfig | undefined): PagarSlots {
+  return (
+    readSecretJson(row, (j) => {
+      const out: PagarSlots = {};
+      const legacy = asPagarSet(j);
+      const legacyEnv = legacy && pagarKeyEnvironment(legacy.apiKey);
+      if (legacy && legacyEnv) out[legacyEnv] = legacy;
+      for (const m of ["test", "live"] as const) {
+        const set = asPagarSet(j[m]);
+        if (set) out[m] = set;
+      }
+      return out;
+    }) ?? {}
   );
 }
 
-/** As credenciais da Pagar desta conta vêm das variáveis PAGAR_* (só possível na conta proprietária). */
+/** Credenciais de cada modo desta conta: as do painel; na conta proprietária, as variáveis PAGAR_* completam o que faltar. */
+export function pagarCredentialSets(ctx: GatewayContext): Partial<Record<PagarMode, PagarCredentials>> {
+  const env = ctx.isPlatformOwner ? pagarEnvCredentialSets() : {};
+  const panel = readPagarSlots(ctx.rows.get("pagar"));
+  const out: Partial<Record<PagarMode, PagarCredentials>> = {};
+  for (const m of ["test", "live"] as const) {
+    const p = panel[m];
+    if (p) out[m] = { ...p, baseUrl: pagarBaseUrl(), source: "panel" };
+    else if (env[m]) out[m] = env[m];
+  }
+  return out;
+}
+
+/** Modo ativo: o escolhido na aba Integrações; sem escolha, teste se existirem credenciais de teste. */
+export function pagarMode(ctx: GatewayContext): PagarMode {
+  const pub = ctx.rows.get("pagar")?.publicConfig as Record<string, unknown> | undefined;
+  if (pub?.mode === "test" || pub?.mode === "live") return pub.mode;
+  const sets = pagarCredentialSets(ctx);
+  return !sets.test && sets.live ? "live" : "test";
+}
+
+/** As credenciais do modo ativo vêm das variáveis PAGAR_* (só possível na conta proprietária). */
 export function pagarFromEnv(ctx: GatewayContext): boolean {
-  return ctx.isPlatformOwner && pagarEnvCredentials() !== null;
+  return pagarCredentials(ctx)?.source === "env";
 }
 
-/** Credenciais da Pagar DESTA conta (variáveis do servidor na conta proprietária, ou guardadas cifradas no painel). */
-export function pagarCredentials(ctx: GatewayContext): PagarCredentials | null {
-  if (pagarFromEnv(ctx)) return pagarEnvCredentials();
-  const secret = readPagarSecret(ctx.rows.get("pagar"));
-  return secret ? { ...secret, baseUrl: pagarBaseUrl(), source: "panel" } : null;
+/** Credenciais da Pagar DESTA conta no modo indicado (por omissão, o modo ativo). */
+export function pagarCredentials(ctx: GatewayContext, mode: PagarMode = pagarMode(ctx)): PagarCredentials | null {
+  return pagarCredentialSets(ctx)[mode] ?? null;
 }
 
-export function buildPagarProvider(ctx: GatewayContext) {
-  return createPagarProvider(pagarCredentials(ctx), {
+export function buildPagarProvider(ctx: GatewayContext, mode?: PagarMode) {
+  return createPagarProvider(pagarCredentials(ctx, mode), {
     onConfigError: (reason) => markConfigError(ctx.ownerId, "pagar", reason),
   });
 }
 
 /**
- * Guarda as credenciais da Pagar DESTA conta (cifradas). Um campo deixado em branco mantém o valor guardado; nenhum
- * valor é devolvido ao browser. Não toca na EPay, na E2Payments nem noutras contas.
+ * Guarda as credenciais da Pagar DESTA conta para um modo (cifradas). Um campo deixado em branco mantém o valor
+ * guardado desse modo; nenhum valor é devolvido ao browser. Não toca no outro modo, na EPay, na E2Payments nem noutras contas.
  */
-export async function savePagarCredentials(ctx: GatewayContext, input: { apiKey?: string; signingSecret?: string; webhookSecret?: string }): Promise<{ ok: true } | { ok: false; error: string; fieldErrors?: Record<string, string> }> {
-  if (pagarFromEnv(ctx)) return { ok: false, error: "As credenciais da Pagar desta conta estão definidas nas variáveis PAGAR_* do servidor; altere-as lá." };
+export async function savePagarCredentials(
+  ctx: GatewayContext,
+  input: { mode?: string; apiKey?: string; signingSecret?: string; webhookSecret?: string },
+): Promise<{ ok: true; mode: PagarMode } | { ok: false; error: string; fieldErrors?: Record<string, string> }> {
   if (!secretStorageAvailable()) return { ok: false, error: "O servidor não tem chave de cifra disponível; as credenciais não foram guardadas." };
-  const current = readPagarSecret(ctx.rows.get("pagar"));
   const clean = (v: string | undefined) => sanitizeCredential(v);
-  const apiKey = clean(input.apiKey) || current?.apiKey || "";
+  const typedKey = clean(input.apiKey);
+  // modo do formulário; sem indicação (formato anterior), o do prefixo da key introduzida, ou o modo ativo
+  const mode: PagarMode = input.mode === "live" || input.mode === "test" ? input.mode : (pagarKeyEnvironment(typedKey) ?? pagarMode(ctx));
+  const slots = readPagarSlots(ctx.rows.get("pagar"));
+  const current = slots[mode];
+  const apiKey = typedKey || current?.apiKey || "";
   const signingSecret = clean(input.signingSecret) || current?.signingSecret || "";
   const webhookSecret = clean(input.webhookSecret) || current?.webhookSecret || "";
   const fieldErrors: Record<string, string> = {};
   if (!validPagarSecret(apiKey) || !pagarKeyEnvironment(apiKey)) fieldErrors.apiKey = "A API key da Pagar começa por sk_test_ ou sk_live_";
+  else if (pagarKeyEnvironment(apiKey) !== mode) fieldErrors.apiKey = mode === "live" ? "Para o modo real use a API key de produção (sk_live_…)" : "Para o modo de teste use a API key de teste (sk_test_…)";
   if (!validPagarSecret(signingSecret)) fieldErrors.signingSecret = "Introduza o signing secret";
   if (!validPagarSecret(webhookSecret)) fieldErrors.webhookSecret = "Introduza o webhook secret";
   if (Object.keys(fieldErrors).length) return { ok: false, error: "Corrija os campos assinalados.", fieldErrors };
-  const secretConfig = encryptSecret(JSON.stringify({ apiKey, signingSecret, webhookSecret } satisfies PagarSecretConfig));
-  // Credenciais novas exigem nova verificação antes de serem usadas no checkout.
+  const secretConfig = encryptSecret(JSON.stringify({ ...slots, [mode]: { apiKey, signingSecret, webhookSecret } } satisfies PagarSlots));
+  // Credenciais novas do modo ativo exigem nova verificação antes de serem usadas no checkout.
+  const active = mode === pagarMode(ctx);
   await prisma.integrationConfig.upsert({
     where: { ownerId_provider: { ownerId: ctx.ownerId, provider: "pagar" } },
     create: { ownerId: ctx.ownerId, provider: "pagar", enabled: false, secretConfig, status: "CONFIGURED", verifiedAt: null, lastError: null },
-    update: { secretConfig, status: "CONFIGURED", verifiedAt: null, lastError: null },
+    update: { secretConfig, ...(active ? { status: "CONFIGURED", verifiedAt: null, lastError: null } : {}) },
   });
-  await log(ctx.ownerId, "pagar", "info", "Credenciais da Pagar atualizadas na aba Integrações (valores não registados).");
-  return { ok: true };
+  await log(ctx.ownerId, "pagar", "info", `Credenciais da Pagar (${mode === "live" ? "modo real" : "modo de teste"}) atualizadas na aba Integrações (valores não registados).`);
+  return { ok: true, mode };
+}
+
+/** Grava o modo ativo da Pagar (a verificação das credenciais desse modo é feita antes, pelo chamador). */
+export async function storePagarMode(ctx: GatewayContext, mode: PagarMode, verifiedAt: Date) {
+  const pub = (ctx.rows.get("pagar")?.publicConfig as Record<string, unknown> | undefined) ?? {};
+  const data = { publicConfig: { ...pub, mode }, environment: mode === "live" ? ("PRODUCTION" as const) : ("SANDBOX" as const), status: "CONFIGURED" as const, verifiedAt, lastError: null, lastCheckedAt: verifiedAt };
+  await prisma.integrationConfig.upsert({
+    where: { ownerId_provider: { ownerId: ctx.ownerId, provider: "pagar" } },
+    create: { ownerId: ctx.ownerId, provider: "pagar", enabled: false, ...data },
+    update: data,
+  });
 }
 
 // ───────────── Estado apresentado ─────────────

@@ -84,7 +84,11 @@ test.describe.serial("gateways de pagamento", () => {
     await card.getByTestId("configure-pagar").click();
     await expect(page).toHaveURL(/\/integracoes\/pagar$/);
     const form = page.getByTestId("pagar-form");
-    await expect(form.locator("input")).toHaveCount(3);
+    await expect(form.locator("input:not([type=hidden])")).toHaveCount(3);
+    // modo de teste por omissão; o modo real só fica disponível com credenciais de produção guardadas
+    await expect(page.getByTestId("pagar-mode")).toHaveAttribute("data-mode", "test");
+    await expect(page.getByTestId("pagar-mode-live")).toBeDisabled();
+    await expect(page.getByTestId("pagar-creds-live")).toBeVisible();
     for (const name of ["apiKey", "signingSecret", "webhookSecret"]) await expect(form.locator(`input[name=${name}]`)).toHaveAttribute("type", "password");
     await expect(page.getByTestId("pagar-webhook-url")).toContainText("/api/webhooks/pagar");
     // formato inválido: recusado no servidor, nada é guardado nem mostrado

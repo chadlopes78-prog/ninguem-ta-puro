@@ -30,6 +30,55 @@ export function methodChips(label: string): string[] {
   return parts.length ? parts : [label];
 }
 
+/** Mantém só os 9 dígitos do número local (aceita colar "+258 84…"/"258 84…") e formata como "84 123 4567". */
+export function formatMzLocalPhone(raw: string): string {
+  let d = raw.replace(/\D/g, "");
+  if (d.length > 9 && d.startsWith("258")) d = d.slice(3);
+  d = d.slice(0, 9);
+  return [d.slice(0, 2), d.slice(2, 5), d.slice(5)].filter(Boolean).join(" ");
+}
+
+function MozambiqueFlag() {
+  // bandeira simplificada (sem o emblema, ilegível a este tamanho); os emojis de bandeira não aparecem no Windows
+  return (
+    <svg viewBox="0 0 30 20" className="h-[14px] w-[21px] shrink-0 rounded-[2px] shadow-[0_0_0_1px_rgba(0,0,0,0.12)]" aria-hidden="true">
+      <rect width="30" height="20" fill="#FCE100" />
+      <rect width="30" height="13.6" fill="#fff" />
+      <rect width="30" height="6.4" fill="#007168" />
+      <rect y="6.9" width="30" height="6.2" fill="#000" />
+      <path d="M0 0 L13 10 L0 20 Z" fill="#D21034" />
+      <path d="M5 6.6 L5.8 9 L8.3 9 L6.3 10.5 L7.1 12.9 L5 11.4 L2.9 12.9 L3.7 10.5 L1.7 9 L4.2 9 Z" fill="#FCE100" />
+    </svg>
+  );
+}
+
+const METHOD_MARKS: Record<string, { bg: string; text: string; name: string }> = {
+  mpesa: { bg: "#E60000", text: "M", name: "M-Pesa" },
+  emola: { bg: "#F58220", text: "e", name: "e-Mola" },
+};
+
+/** "M-Pesa (teste)" → "mpesa"; null para métodos sem marca. */
+function markKey(label: string): string | null {
+  const k = label.toLowerCase().replace(/\(.*\)/g, "").replace(/[^a-z]/g, "");
+  return METHOD_MARKS[k] ? k : null;
+}
+
+/** Marca do método (cores das marcas; substituível pelos logótipos oficiais em /public/methods/). */
+function MethodMark({ method, small }: { method: string; small?: boolean }) {
+  const mark = METHOD_MARKS[method];
+  if (!mark) return null;
+  return (
+    <span
+      className={cn("flex shrink-0 items-center justify-center rounded-md font-extrabold leading-none text-white", small ? "h-5 w-5 text-[11px]" : "h-7 w-7 text-[14px]")}
+      style={{ background: mark.bg }}
+      aria-hidden="true"
+      data-testid={`method-mark-${method}`}
+    >
+      {mark.text}
+    </span>
+  );
+}
+
 /** Âncora do formulário de compra (usada pelos botões "levar ao formulário"). */
 export const PURCHASE_FORM_ID = "finalizar-compra";
 
@@ -212,21 +261,24 @@ export function PurchaseForm({
     });
   };
 
-  const field = (name: string, label: string, props: React.InputHTMLAttributes<HTMLInputElement>, required: boolean) => (
+  const field = (name: string, label: string, props: React.InputHTMLAttributes<HTMLInputElement>, required: boolean, prefix?: React.ReactNode) => (
     <div className="flex flex-col gap-1.5">
       <label htmlFor={`co-${name}`} className="text-[13px] font-medium">
         {label} {!required && <span className={cn("font-normal", muted)}>(opcional)</span>}
       </label>
-      <input
-        id={`co-${name}`}
-        name={name}
-        className={cn(inputCls, errors[name] && "border-red-500/70")}
-        style={{ ["--tw-ring-color" as string]: `${data.primaryColor}55` }}
-        aria-invalid={errors[name] ? true : undefined}
-        aria-describedby={errors[name] ? `co-${name}-err` : undefined}
-        required={required}
-        {...props}
-      />
+      <div className="relative">
+        {prefix}
+        <input
+          id={`co-${name}`}
+          name={name}
+          className={cn(inputCls, errors[name] && "border-red-500/70")}
+          style={{ ["--tw-ring-color" as string]: `${data.primaryColor}55`, ...(prefix ? { paddingLeft: "5.6rem" } : {}) }}
+          aria-invalid={errors[name] ? true : undefined}
+          aria-describedby={errors[name] ? `co-${name}-err` : undefined}
+          required={required}
+          {...props}
+        />
+      </div>
       {errors[name] && (
         <p id={`co-${name}-err`} role="alert" className="text-[12.5px] font-medium text-red-500">
           {errors[name]}
@@ -234,6 +286,19 @@ export function PurchaseForm({
       )}
     </div>
   );
+
+  // Número moçambicano: o indicativo +258 é fixo; o comprador escreve só os 9 dígitos (84 123 4567)
+  const phoneField = (label: string, required: boolean) =>
+    field(
+      "phone",
+      label,
+      { type: "tel", autoComplete: "tel-national", inputMode: "numeric", placeholder: "84 123 4567", onInput: (e) => (e.currentTarget.value = formatMzLocalPhone(e.currentTarget.value)) },
+      required,
+      <span className={cn("pointer-events-none absolute inset-y-0 left-0 flex items-center gap-1.5 border-r pl-3 pr-2.5 text-[15px] font-medium", dark ? "border-white/12" : "border-black/10")} aria-hidden="true" data-testid="phone-prefix">
+        <MozambiqueFlag />
+        +258
+      </span>,
+    );
 
   return (
     <form id={PURCHASE_FORM_ID} onSubmit={onSubmit} noValidate className={cn("flex scroll-mt-6 flex-col gap-5 rounded-2xl border p-5 sm:p-6", panel)} data-testid="purchase-form">
@@ -245,7 +310,7 @@ export function PurchaseForm({
       )}
       {field("name", "Nome completo", { autoComplete: "name", placeholder: "O seu nome" }, true)}
       {field("email", "Email", { type: "email", autoComplete: "email", placeholder: "voce@exemplo.com", inputMode: "email" }, true)}
-      {data.collectPhone && !selectedMethod?.requiresPhone && field("phone", "Telefone", { type: "tel", autoComplete: "tel", placeholder: "84 123 4567" }, data.requirePhone)}
+      {data.collectPhone && !selectedMethod?.requiresPhone && phoneField("Telefone", data.requirePhone)}
       {data.collectDocument && field("document", "Documento (CPF/NIF)", { autoComplete: "off" }, data.requireDocument)}
 
       {data.allowCoupons && (
@@ -304,7 +369,7 @@ export function PurchaseForm({
           <div className="flex min-h-12 flex-wrap items-center gap-x-3 gap-y-1 rounded-[10px] border px-3.5 py-2.5 text-[14px] font-medium" style={{ borderColor: data.primaryColor }}>
             {methodChips(onlyHosted.methodsLabel).map((m) => (
               <span key={m} className="flex items-center gap-1.5">
-                <span className="h-1.5 w-1.5 rounded-full" style={{ background: data.primaryColor }} aria-hidden="true" />
+                {markKey(m) ? <MethodMark method={markKey(m)!} small /> : <span className="h-1.5 w-1.5 rounded-full" style={{ background: data.primaryColor }} aria-hidden="true" />}
                 {m}
               </span>
             ))}
@@ -326,6 +391,7 @@ export function PurchaseForm({
                 style={method === m.id ? { borderColor: data.primaryColor } : undefined}
               >
                 <input type="radio" name="method" value={m.id} checked={method === m.id} onChange={() => setMethod(m.id)} className="h-4 w-4 shrink-0" style={{ accentColor: data.primaryColor }} />
+                {!m.hosted && <MethodMark method={m.id.split(":").pop() ?? ""} />}
                 <span className="min-w-0">
                   <span className="block [overflow-wrap:anywhere]">{m.hosted ? `${m.providerName} — ${methodChips(m.hosted.methodsLabel).join(" · ")}` : m.label}</span>
                   {multiProvider && !m.hosted && <span className={cn("block text-[11.5px] font-normal", muted)}>via {m.providerName}</span>}
@@ -334,7 +400,7 @@ export function PurchaseForm({
             ))}
           </div>
           {errors.method && <p role="alert" className="text-[12.5px] font-medium text-red-500">{errors.method}</p>}
-          {selectedMethod?.requiresPhone && field("phone", `Número ${selectedMethod.label} para pagamento`, { type: "tel", autoComplete: "tel", inputMode: "tel", placeholder: "84 123 4567" }, true)}
+          {selectedMethod?.requiresPhone && phoneField(`Número ${selectedMethod.label} para pagamento`, true)}
           {hosted ? (
             // EPay selecionada: sem a mensagem longa; só o aviso curto do ambiente de teste
             hosted.isTest && (

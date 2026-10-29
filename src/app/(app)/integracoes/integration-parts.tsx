@@ -63,9 +63,9 @@ export function Checks({ g }: { g: GatewayView }) {
 }
 
 /** Secção recolhida para explicações técnicas (não ocupa a página principal). */
-export function Details({ title, children, testId }: { title: string; children: React.ReactNode; testId?: string }) {
+export function Details({ title, children, testId, open }: { title: string; children: React.ReactNode; testId?: string; open?: boolean }) {
   return (
-    <details className="group rounded-[var(--radius-md)] border border-line text-[13px]" data-testid={testId}>
+    <details className="group rounded-[var(--radius-md)] border border-line text-[13px]" data-testid={testId} open={open}>
       <summary className="flex min-h-11 cursor-pointer items-center px-4 font-medium text-fg">{title}</summary>
       <div className="border-t border-line px-4 py-3 text-[12.5px] leading-relaxed text-muted">{children}</div>
     </details>

@@ -10,7 +10,7 @@ import { submitCheckout } from "@/server/services/purchase";
 import { getPaymentView, refreshPaymentStatus } from "@/server/services/payment-flow";
 import { handleProviderWebhook } from "@/server/payments/webhooks";
 import { getActivePaymentProviders } from "@/server/payments/registry";
-import { listGateways, updatePagarCredentials } from "@/server/services/integrations";
+import { listGateways, setPagarMode, updatePagarCredentials } from "@/server/services/integrations";
 import { verifyPagarWebhook } from "@/server/payments/providers/pagar";
 import { scopeOf, type Scope } from "@/server/scope";
 import type { AuthUser } from "@/server/auth/service";
@@ -287,5 +287,64 @@ describe("Pagar — credenciais", () => {
     expect(view).not.toContain("whsec_test_vendedor");
     expect((await updatePagarCredentials(seller.id, { apiKey: "chave-sem-prefixo-000" })).ok).toBe(false);
     delete process.env.INTEGRATIONS_ENCRYPTION_KEY;
+  });
+});
+
+describe("Pagar — modo de teste e modo real", () => {
+  const LIVE = { apiKey: "sk_live_fictitious_key_for_tests_0001", signingSecret: "sig_live_fictitious_signing_0001", webhookSecret: "whsec_live_fictitious_webhook_0001" };
+  beforeEach(() => {
+    process.env.INTEGRATIONS_ENCRYPTION_KEY = "chave-de-cifra-apenas-para-testes-0123456789";
+  });
+  afterEach(() => {
+    delete process.env.INTEGRATIONS_ENCRYPTION_KEY;
+  });
+
+  it("credenciais de produção guardadas à parte; modo real só com confirmação e com a Pagar a aceitar a key sk_live_", async () => {
+    // guardar as credenciais de produção não muda o modo nem a verificação do modo de teste em uso
+    const saved = await updatePagarCredentials(OWNER.id, { mode: "live", ...LIVE });
+    expect(saved.ok).toBe(true);
+    let view = (await listGateways(OWNER.id)).find((g) => g.id === "pagar")!;
+    expect(view.pagar!.mode).toBe("test");
+    expect(view.status).toBe("active");
+    expect(view.pagar!.sets.live.keyEnvironment).toBe("live");
+    expect(view.pagar!.sets.test.fromEnv).toBe(true);
+    expect(JSON.stringify(view)).not.toContain(LIVE.apiKey);
+
+    // key de teste no formulário do modo real é recusada
+    expect((await updatePagarCredentials(OWNER.id, { mode: "live", apiKey: KEY })).ok).toBe(false);
+    // sem confirmação não muda
+    expect((await setPagarMode(OWNER.id, "live", false)).ok).toBe(false);
+    // a Pagar recusa a key: o modo mantém-se
+    respond = (c) => (c.url.endsWith("/wallet") ? { status: 401, body: { error: "UNAUTHORIZED", message: "App não aprovada para LIVE" } } : defaultRespond(c));
+    expect((await setPagarMode(OWNER.id, "live", true)).ok).toBe(false);
+    expect((await listGateways(OWNER.id)).find((g) => g.id === "pagar")!.pagar!.mode).toBe("test");
+
+    respond = defaultRespond;
+    const r = await setPagarMode(OWNER.id, "live", true);
+    expect(r.ok).toBe(true);
+    view = (await listGateways(OWNER.id)).find((g) => g.id === "pagar")!;
+    expect(view.pagar!.mode).toBe("live");
+    expect(view.environment).toBe("live");
+    expect(view.status).toBe("active");
+
+    // novos pagamentos usam a key de produção
+    calls = [];
+    const p = await createProduct(form(), S);
+    expect((await buy(p.primaryCheckout.slug!)).kind).toBe("payment_started");
+    expect(calls.find((c) => c.method === "POST")!.headers.authorization).toBe(`Bearer ${LIVE.apiKey}`);
+
+    // webhook assinado com o secret de produção é aceite e consultado com a key de produção
+    const pay = await prisma.payment.findFirstOrThrow({ where: { provider: "pagar" } });
+    remote.get(pay.externalId!)!.status = "PAID";
+    calls = [];
+    const w = signedWebhook(event(pay.externalId!), "evt_live_1", LIVE.webhookSecret);
+    const out = await handleProviderWebhook("pagar", w.raw, w.headers);
+    expect(out.status).toBe(200);
+    expect(calls.every((c) => c.headers.authorization === `Bearer ${LIVE.apiKey}`)).toBe(true);
+    expect((await prisma.order.findFirstOrThrow({ where: { id: pay.orderId } })).status).toBe("APPROVED");
+
+    // voltar ao modo de teste
+    expect((await setPagarMode(OWNER.id, "test", false)).ok).toBe(true);
+    expect((await listGateways(OWNER.id)).find((g) => g.id === "pagar")!.pagar!.mode).toBe("test");
   });
 });

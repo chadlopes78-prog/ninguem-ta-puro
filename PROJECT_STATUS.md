@@ -1,6 +1,6 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-29 · Sessão 24 (Pagar API: pagamentos C2B assinados, webhooks validados, confirmação por consulta autenticada) · Sessão 23 (novo design padrão do checkout: claro e proporcionado; cupão só com cupões ativos) · Sessão 22 (preparação para tráfego pago: carga, concorrência, telemóvel, imagens otimizadas, limites CGNAT) · Sessão 21 (página de obrigado personalizada; área Operações com abas; Dashboard com atividades de hoje e metas de faturamento; partilha das credenciais de pagamento do administrador; logótipos sem fundo) · Sessão 20 (modo simples: vender sem funil; logótipos nas Integrações) · Sessão 19 (entrega do produto PDF/link no produto, área «Os meus produtos», recuperação de acesso, Integrações em cartões) · Sessão 18 (funis: entrada única, várias ofertas, páginas externas com código de integração, obrigado externo) · Sessão 17 (Facebook Pixel / API de Conversões) · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
+Última atualização: 2026-10-29 · Sessão 25 (Pagar: modo de teste e modo real nas Integrações; checkout com +258 e marcas M-Pesa/e-Mola) · Sessão 24 (Pagar API: pagamentos C2B assinados, webhooks validados, confirmação por consulta autenticada) · Sessão 23 (novo design padrão do checkout: claro e proporcionado; cupão só com cupões ativos) · Sessão 22 (preparação para tráfego pago: carga, concorrência, telemóvel, imagens otimizadas, limites CGNAT) · Sessão 21 (página de obrigado personalizada; área Operações com abas; Dashboard com atividades de hoje e metas de faturamento; partilha das credenciais de pagamento do administrador; logótipos sem fundo) · Sessão 20 (modo simples: vender sem funil; logótipos nas Integrações) · Sessão 19 (entrega do produto PDF/link no produto, área «Os meus produtos», recuperação de acesso, Integrações em cartões) · Sessão 18 (funis: entrada única, várias ofertas, páginas externas com código de integração, obrigado externo) · Sessão 17 (Facebook Pixel / API de Conversões) · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
 
 ## Estado geral
 
@@ -26,6 +26,26 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | 5 — Operação | ✅ Concluída | Pedidos (filtros, detalhe, transições), clientes, cupões (com testador), relatórios |
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
+
+## Pagar: modo de teste / modo real; telefone +258 e marcas dos métodos (sessão 25)
+
+**Modo de processamento da Pagar (Integrações → Pagar):**
+- Cada conta guarda dois conjuntos de credenciais, cifrados: **teste** (`sk_test_…`) e **produção / modo real** (`sk_live_…`), cada um com o seu signing secret e webhook secret. Formato antigo (um só conjunto) continua a ser lido e é classificado pelo prefixo da key.
+- O modo ativo fica em `IntegrationConfig.publicConfig.mode` (e `environment` SANDBOX/PRODUCTION). Só o conjunto do modo ativo inicia pagamentos.
+- «Ativar modo real» pede confirmação e só muda se a Pagar aceitar a key de produção (`GET /wallet`); caso contrário o modo fica igual e o erro da Pagar é mostrado. «Usar modo de teste» volta atrás. Mudanças registadas no registo da integração.
+- Guardar credenciais do outro modo não mexe no modo em uso (só são testadas). Uma key de teste no formulário de produção (ou vice-versa) é recusada.
+- Conta proprietária: as variáveis `PAGAR_*` continuam a valer; opcionalmente `PAGAR_LIVE_API_KEY`, `PAGAR_LIVE_SIGNING_SECRET`, `PAGAR_LIVE_WEBHOOK_SECRET` para produção. Credenciais guardadas no painel têm prioridade sobre as variáveis do mesmo modo.
+- Webhooks: aceita a assinatura do webhook secret de qualquer um dos modos da conta e consulta o pagamento com a API key desse mesmo modo.
+- Limitação: depois de mudar de modo, a consulta periódica de pagamentos pendentes iniciados no modo anterior usa as credenciais do modo atual (a Pagar invalida a key antiga ao mudar a app para LIVE).
+- Requisito externo: o modo real só funciona depois de a app estar aprovada para LIVE na Pagar (KYC, endereços verificados, key LIVE criada — guia secção 11).
+- Corrigido: o botão «Testar ligação» da Pagar devolvia «não disponível» (a ação só aceitava a E2Payments).
+
+**Checkout:**
+- Campo do telefone com o indicativo fixo **🇲🇿 +258** (bandeira em SVG, porque os emojis de bandeira não aparecem no Windows); o comprador escreve só os 9 dígitos, formatados como `84 123 4567`; colar `+258…` ou `258…` funciona.
+- Marcas M-Pesa (vermelho) e e-Mola (laranja) nas opções de pagamento e nos chips da EPay. Os logótipos oficiais nunca foram enviados para o projeto; podem substituir as marcas quando forem fornecidos.
+- Erro de teste reportado pelo proprietário («No sandbox use 860000001…»): a Pagar está em modo TESTE e só aceita os números de teste — comportamento esperado.
+
+Testes: 354 unitários/integração (novo: modos de teste/real, confirmação, recusa da key LIVE, pagamento e webhook com as credenciais de produção). Sem migração.
 
 ## Pagar API (sessão 24)
 
@@ -1286,6 +1306,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 25 (2026-10-29)**: Pagar com modo de teste e modo real nas Integrações (credenciais separadas cifradas, mudança só com confirmação e com a key LIVE aceite pela Pagar); checkout com indicativo +258 e bandeira de Moçambique, marcas M-Pesa/e-Mola. Sem migração. 354 testes unitários/integração.
 - **Sessão 24 (2026-10-29)**: integração da Pagar API seguindo só o guia oficial (POST /payments assinado com HMAC e Idempotency-Key, título/valor da BD, repetições seguras, recuperação por reference, webhook com Pagar-Signature e Pagar-Event-Id único, entrega só com PAID por consulta autenticada); credenciais em variáveis do servidor (conta proprietária) ou cifradas por conta no painel; sem top-ups nem payouts. Sem migração. 353 testes unitários/integração e 151 E2E a passar.
 - **Sessão 23 (2026-10-19)**: novo design padrão do checkout (tema claro, título/preço proporcionados, imagem com cantos suaves, botão verde; cores próprias do vendedor respeitadas; checkouts publicados inalterados); campo de cupão só quando a conta tem cupões ativos. A análise do checkout da RatixPay não foi possível (domínio bloqueado neste ambiente). Sem migração. 342 testes unitários/integração a passar; E2E 150 (1 falha intermitente conhecida de hidratação React #418 na lista de Produtos, que passou ao repetir).
 - **Sessão 22 (2026-10-16)**: auditoria para tráfego pago com testes de carga reais (10–250 clientes, 1 processo), concorrência de pagamentos e telemóvel emulado; correções: limites anti-abuso por comprador (CGNAT), imagens redimensionadas em WebP com cache na CDN, tentativa de compra preservada quando a WebView recarrega, aviso de ligação lenta, menos consultas no checkout. Lógica de pagamento e APIs EPay/E2Payments inalteradas. Sem migração. 341 testes unitários/integração e 150 E2E a passar.

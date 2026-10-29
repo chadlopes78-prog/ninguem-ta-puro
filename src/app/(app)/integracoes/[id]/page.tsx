@@ -25,6 +25,7 @@ import {
   saveE2CredentialsAction,
   saveEPayCredentialsAction,
   savePagarCredentialsAction,
+  setPagarModeAction,
   saveMetaPixelAction,
   setGatewayEnabledAction,
   setMetaEnabledAction,
@@ -56,12 +57,62 @@ function GatewayConfig({ g, tz, webhookUrl }: { g: GatewayView; tz: string; webh
           <CardBody className="flex flex-col gap-4">
             {g.id === "pagar" ? (
               <>
-                {g.pagar?.fromEnv ? (
+                {g.pagar && (
+                  <div className="flex flex-col gap-3 rounded-[var(--radius-md)] border border-line p-3" data-testid="pagar-mode" data-mode={g.pagar.mode}>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-[13px] font-medium text-fg">Modo de processamento</p>
+                      <Badge tone={g.pagar.mode === "live" ? "success" : "warning"} dot>
+                        {g.pagar.mode === "live" ? "Real (dinheiro real)" : "Teste (simulado)"}
+                      </Badge>
+                    </div>
+                    <p className="text-[12.5px] text-muted">
+                      {g.pagar.mode === "live"
+                        ? "Os novos pagamentos cobram dinheiro real aos compradores."
+                        : "Os pagamentos são simulados: use os números de teste da Pagar (M-Pesa 840000001, e-Mola 860000001 = sucesso). Para cobrar de verdade, guarde as credenciais de produção e ative o modo real."}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {g.pagar.mode === "live" ? (
+                        <ActionButton
+                          size="sm"
+                          variant="secondary"
+                          action={setPagarModeAction.bind(null, "test", false)}
+                          disabled={!g.pagar.sets.test.apiKeyMasked}
+                          data-testid="pagar-mode-test"
+                          confirm={{ title: "Voltar ao modo de teste", description: "Os novos pagamentos passam a ser simulados. Pagamentos já iniciados não são alterados.", confirmLabel: "Usar modo de teste" }}
+                        >
+                          Usar modo de teste
+                        </ActionButton>
+                      ) : (
+                        <ActionButton
+                          size="sm"
+                          action={setPagarModeAction.bind(null, "live", true)}
+                          disabled={!g.pagar.sets.live.apiKeyMasked}
+                          data-testid="pagar-mode-live"
+                          confirm={{
+                            title: "Ativar o modo real",
+                            description: "A partir de agora, os novos pagamentos da Pagar cobram dinheiro real aos compradores. A Pagar verifica primeiro as credenciais de produção; a sua app tem de estar aprovada para LIVE na Pagar.",
+                            confirmLabel: "Ativar modo real",
+                          }}
+                        >
+                          Ativar modo real
+                        </ActionButton>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {g.pagar?.storageAvailable ? (
+                  <>
+                    <Details title={`Credenciais de teste${g.pagar.mode === "test" ? " (em uso)" : ""}`} testId="pagar-creds-test" open={g.pagar.mode === "test"}>
+                      <PagarForm key={`t-${g.pagar.sets.test.apiKeyMasked}-${g.pagar.sets.test.hasSigningSecret}-${g.pagar.sets.test.hasWebhookSecret}`} action={savePagarCredentialsAction} initial={g.pagar.sets.test} mode="test" />
+                    </Details>
+                    <Details title={`Credenciais de produção — modo real${g.pagar.mode === "live" ? " (em uso)" : ""}`} testId="pagar-creds-live" open={g.pagar.mode === "live"}>
+                      <PagarForm key={`l-${g.pagar.sets.live.apiKeyMasked}-${g.pagar.sets.live.hasSigningSecret}-${g.pagar.sets.live.hasWebhookSecret}`} action={savePagarCredentialsAction} initial={g.pagar.sets.live} mode="live" />
+                    </Details>
+                  </>
+                ) : g.pagar?.fromEnv ? (
                   <p className="text-[13px] text-muted">
-                    Credenciais definidas nas variáveis do servidor (<code className="text-fg">PAGAR_*</code>) e nunca mostradas. Para as alterar, edite-as no alojamento.
+                    Credenciais definidas nas variáveis do servidor (<code className="text-fg">PAGAR_*</code>; produção em <code className="text-fg">PAGAR_LIVE_*</code>) e nunca mostradas.
                   </p>
-                ) : g.pagar?.storageAvailable ? (
-                  <PagarForm key={`${g.pagar.apiKeyMasked}-${g.pagar.hasSigningSecret}-${g.pagar.hasWebhookSecret}`} action={savePagarCredentialsAction} initial={g.pagar} />
                 ) : (
                   <KeySetup />
                 )}

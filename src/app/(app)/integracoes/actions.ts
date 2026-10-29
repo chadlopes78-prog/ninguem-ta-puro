@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { assertId, guarded } from "@/server/actions";
-import { checkIntegration, isGatewayId, setGatewayEnabled, testGatewayConnection, updateE2Credentials, updateEPayCredentials, updatePagarCredentials } from "@/server/services/integrations";
+import { checkIntegration, isGatewayId, setGatewayEnabled, testGatewayConnection, updateE2Credentials, updateEPayCredentials, updatePagarCredentials, setPagarMode } from "@/server/services/integrations";
 import { reconcilePendingPayments } from "@/server/services/payment-flow";
 import { deleteMetaPixel, saveMetaPixel, setMetaPixelsEnabled } from "@/server/services/meta-capi";
 import { scopeOf } from "@/server/scope";
@@ -30,8 +30,8 @@ export async function setGatewayEnabledAction(provider: string, enabled: boolean
 
 export async function testGatewayConnectionAction(provider: string) {
   return guarded(async ({ user }) => {
-    if (provider !== "e2payments") return { ok: false, error: "Teste de ligação não disponível para este gateway." };
-    const r = await testGatewayConnection(user.id, "e2payments");
+    if (provider !== "e2payments" && provider !== "pagar") return { ok: false, error: "Teste de ligação não disponível para este gateway." };
+    const r = await testGatewayConnection(user.id, provider);
     revalidatePath("/integracoes", "layout");
     return r.ok ? { ok: true, message: r.message } : { ok: false, error: r.message };
   });
@@ -56,9 +56,20 @@ export async function savePagarCredentialsAction(fd: FormData) {
       const v = fd.get(k);
       return typeof v === "string" ? v.slice(0, 300) : undefined;
     };
-    const r = await updatePagarCredentials(user.id, { apiKey: get("apiKey"), signingSecret: get("signingSecret"), webhookSecret: get("webhookSecret") });
+    const r = await updatePagarCredentials(user.id, { mode: get("mode"), apiKey: get("apiKey"), signingSecret: get("signingSecret"), webhookSecret: get("webhookSecret") });
     revalidatePath("/integracoes", "layout");
     return r.ok ? { ok: true, message: r.message } : { ok: false, error: r.error, fieldErrors: "fieldErrors" in r ? r.fieldErrors : undefined };
+  });
+}
+
+/** Modo da Pagar DESTA conta: teste (simulado) ou real (dinheiro real; exige confirmação). */
+export async function setPagarModeAction(mode: string, confirmLive: boolean) {
+  return guarded(async ({ user }) => {
+    if (mode !== "test" && mode !== "live") return { ok: false, error: "Modo inválido." };
+    const r = await setPagarMode(user.id, mode, confirmLive === true);
+    revalidatePath("/integracoes", "layout");
+    revalidatePath("/checkout", "layout");
+    return r.ok ? { ok: true, message: r.message } : { ok: false, error: r.message };
   });
 }
 
