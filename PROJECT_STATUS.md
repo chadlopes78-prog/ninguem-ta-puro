@@ -45,6 +45,8 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 - Marcas M-Pesa (vermelho) e e-Mola (laranja) nas opções de pagamento e nos chips da EPay. Os logótipos oficiais nunca foram enviados para o projeto; podem substituir as marcas quando forem fornecidos.
 - Erro de teste reportado pelo proprietário («No sandbox use 860000001…»): a Pagar está em modo TESTE e só aceita os números de teste — comportamento esperado.
 
+**Verificação do domínio na Pagar (LIVE):** ficheiro público `public/.well-known/pagar-verification.txt` (prefixo `/.well-known/` liberto no middleware). Os tokens da Pagar são públicos por natureza (não são segredos). Frontend e backend usam o mesmo hostname com tokens diferentes: publica-se um de cada vez (primeiro o do Frontend, depois o do Backend).
+
 Testes: 354 unitários/integração (novo: modos de teste/real, confirmação, recusa da key LIVE, pagamento e webhook com as credenciais de produção). Sem migração.
 
 ## Pagar API (sessão 24)
