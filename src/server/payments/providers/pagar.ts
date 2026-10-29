@@ -293,6 +293,7 @@ export function createPagarProvider(
         } catch (e) {
           if (e instanceof PagarNetworkError) {
             ambiguous = true;
+            console.warn(`[pagar] POST /payments sem resposta conclusiva (tentativa ${attempt + 1}): ${e.message.slice(0, 160)}`);
             if (attempt < RETRY_DELAYS_MS.length) {
               await sleep(RETRY_DELAYS_MS[attempt]);
               continue;
@@ -301,6 +302,8 @@ export function createPagarProvider(
           }
           if (e instanceof PagarApiError) {
             const tag = `${e.code ?? "erro"}${e.requestId ? ` (requestId ${e.requestId})` : ""}`;
+            // diagnóstico nos registos do servidor: código, requestId e mensagem da Pagar (sem chaves nem telefones)
+            console.warn(`[pagar] POST /payments recusado: HTTP ${e.status} ${tag} — ${e.message.slice(0, 160)}`);
             // 409 = conflito de reference/idempotência/estado: consultar antes de decidir (estado incerto)
             if (e.status === 409 || ambiguous) return { kind: "error", reason: `Pagar ${e.status} ${tag}`.slice(0, 180), retryable: true };
             if (e.status === 401 || e.status === 403) {
@@ -308,8 +311,9 @@ export function createPagarProvider(
               return { kind: "not_created", reason: `Pagar ${e.status} ${tag}`, userMessage: "O pagamento não está disponível de momento. Nenhum valor foi cobrado." };
             }
             if (e.status === 429) return { kind: "not_created", reason: `Pagar 429 ${tag}`, userMessage: "Muitos pedidos neste momento. Aguarde um pouco e tente novamente. Nenhum valor foi cobrado." };
-            // 400 e restantes 4xx: dados recusados, nada foi criado
-            return { kind: "not_created", reason: `Pagar ${e.status} ${tag}`.slice(0, 180), userMessage: "O pagamento não foi iniciado. Verifique o número e o método escolhidos e tente novamente. Nenhum valor foi cobrado." };
+            // 400 e restantes 4xx: dados recusados, nada foi criado. A mensagem da Pagar explica o motivo ao comprador.
+            const why = e.message && e.message !== "Pedido rejeitado pela Pagar API" ? ` (${e.message.slice(0, 140)})` : "";
+            return { kind: "not_created", reason: `Pagar ${e.status} ${tag}: ${e.message}`.slice(0, 180), userMessage: `O pagamento não foi iniciado${why}. Verifique o número e o método escolhidos e tente novamente. Nenhum valor foi cobrado.` };
           }
           throw e;
         }
