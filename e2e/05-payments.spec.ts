@@ -1,7 +1,7 @@
 // Fluxo de pagamento real no navegador com o fornecedor de TESTE local (não é a EPay).
 import { createHmac } from "crypto";
 import { expect, test, type Page } from "@playwright/test";
-import { completeAndPublish, login, mzn, toast } from "./helpers";
+import { completeAndPublish, login, mzn, toast, toPaymentPage } from "./helpers";
 
 const SECRET = "segredo-e2e-apenas-testes";
 let checkoutPath = "";
@@ -12,6 +12,9 @@ async function buy(page: Page, phone: string) {
   await page.getByLabel("Email").fill("comprador@exemplo.co.mz");
   await page.getByLabel(/Número M-Pesa/).fill(phone);
   await page.getByRole("button", { name: "Pagar agora" }).click();
+  // o comprador fica no checkout com a janela de confirmação no telemóvel
+  await expect(page.getByTestId("payment-waiting")).toBeVisible();
+  await toPaymentPage(page);
   await expect(page).toHaveURL(/\/pagamento\/[A-Za-z0-9_-]+$/);
   return page.url();
 }

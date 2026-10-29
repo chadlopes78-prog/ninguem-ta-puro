@@ -158,8 +158,8 @@ export function ProductForm({
             ) : (
               <Field label="Estado" name="status" error={fe.status} hint="Para publicar basta ter a entrega do produto configurada (ficheiro ou link).">
                 {(p) => (
-                  <Select {...p} defaultValue={initial.status === "ARCHIVED" ? "DRAFT" : initial.status}>
-                    {(["DRAFT", "PUBLISHED", "UNPUBLISHED"] as const).map((s) => (
+                  <Select {...p} defaultValue={initial.status === "PUBLISHED" ? "PUBLISHED" : "DRAFT"}>
+                    {(["PUBLISHED", "DRAFT"] as const).map((s) => (
                       <option key={s} value={s}>
                         {PRODUCT_STATUS_LABELS[s]}
                       </option>

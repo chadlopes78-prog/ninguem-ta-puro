@@ -2,7 +2,7 @@
 // imagens, estilos, rascunho/publicação, telemóvel, compra de teste e isolamento.
 // Compras só com o fornecedor de TESTE local (nenhum pagamento real).
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { completeAndPublish, login, mzn, noHorizontalScroll, toast } from "./helpers";
+import { completeAndPublish, login, mzn, noHorizontalScroll, toast, toPaymentPage } from "./helpers";
 
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 let publicPath = "";
@@ -264,7 +264,8 @@ test.describe.serial("editor visual do checkout", () => {
     await page.getByRole("radio", { name: "M-Pesa (teste)" }).check();
     await page.getByLabel(/Número M-Pesa/).fill("84 111 2221"); // termina em 1 → a consulta oficial confirma
     await page.getByRole("button", { name: "Finalizar compra" }).click();
-    await expect(page).toHaveURL(/\/pagamento\/[A-Za-z0-9_-]+$/);
+    // confirmado pela consulta oficial: a janela do checkout avança sozinha
+    await toPaymentPage(page);
     // confirmado pela consulta oficial → página de obrigado do funil: WhatsApp acima do acesso ao produto
     await expect(page).toHaveURL(/\/obrigado\//, { timeout: 30_000 });
     await expect(page.getByTestId("thank-you")).toHaveAttribute("data-state", "confirmed");

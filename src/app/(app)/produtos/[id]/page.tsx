@@ -64,7 +64,7 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
               Duplicar
             </ActionButton>
             {product.status === "PUBLISHED" && (
-              <ActionButton variant="secondary" action={setProductStatusAction.bind(null, product.id, "UNPUBLISHED")}>Despublicar</ActionButton>
+              <ActionButton variant="secondary" action={setProductStatusAction.bind(null, product.id, "UNPUBLISHED")}>Passar a rascunho</ActionButton>
             )}
             {(product.status === "DRAFT" || product.status === "UNPUBLISHED") && (
               <ActionButton action={publishProductAction.bind(null, product.id)} data-testid="publish-product">
@@ -77,9 +77,11 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
               <ActionButton
                 variant="danger"
                 action={setProductStatusAction.bind(null, product.id, "ARCHIVED")}
-                confirm={{ title: "Arquivar produto", description: "Os checkouts deste produto deixam de estar disponíveis publicamente. Pode restaurá-lo mais tarde.", confirmLabel: "Arquivar", danger: true }}
+                redirectTo="/produtos"
+                successMessage="Produto eliminado."
+                confirm={{ title: "Eliminar produto", description: "O produto sai da lista e o link do checkout deixa de funcionar. As vendas já feitas continuam nos pedidos e relatórios.", confirmLabel: "Eliminar", danger: true }}
               >
-                Arquivar
+                Eliminar
               </ActionButton>
             )}
           </>
@@ -95,7 +97,7 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
           designLabel={DESIGN_STATUS_LABELS[designStatus(design)]}
           reason={
             archived
-              ? "O produto está arquivado: o checkout não aceita compras."
+              ? "O produto foi eliminado: o checkout não aceita compras."
               : product.status !== "PUBLISHED"
                 ? "O produto não está publicado: quem abrir o link vê uma página de indisponibilidade. Publique o produto para começar a vender."
                 : !primary.isActive

@@ -2,7 +2,7 @@
 // temas do checkout e do painel. Pagamentos pelo fornecedor de TESTE local (telefone terminado em 1 = pago na consulta).
 // Corre depois de 02/05/06 (produtos "Ebook Moçambique" e "Guia Digital Renomeado").
 import { expect, test, type Page } from "@playwright/test";
-import { login, mzn, noHorizontalScroll, toast } from "./helpers";
+import { login, mzn, noHorizontalScroll, toast, toPaymentPage } from "./helpers";
 
 let funnelUrl = "";
 
@@ -15,6 +15,7 @@ async function buyEbook(page: Page, phone: string) {
   await page.getByLabel("Email").fill("funil@exemplo.co.mz");
   await page.getByLabel(/Número M-Pesa/).fill(phone);
   await page.getByRole("button", { name: "Pagar agora" }).click();
+  await toPaymentPage(page);
 }
 
 test.describe.serial("funis: upsell e página de obrigado", () => {

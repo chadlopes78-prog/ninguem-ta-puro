@@ -38,8 +38,8 @@ export async function saveProductAction(id: string | null, fd: FormData) {
 
 const STATUS_MESSAGES: Record<ProductStatus, string> = {
   PUBLISHED: "Produto publicado.",
-  UNPUBLISHED: "Produto despublicado.",
-  ARCHIVED: "Produto arquivado.",
+  UNPUBLISHED: "Produto passou a rascunho.",
+  ARCHIVED: "Produto eliminado.",
   DRAFT: "Produto restaurado como rascunho.",
 };
 

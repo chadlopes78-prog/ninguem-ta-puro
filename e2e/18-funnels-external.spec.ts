@@ -3,7 +3,7 @@
 // (interceção de https://paginas.exemplo.test) com o código copiado do editor. Corre depois de 08 e 16
 // (funil do "Ebook Moçambique" com upsell + downsell). Pagamentos só pelo fornecedor de TESTE local.
 import { expect, test, type Page } from "@playwright/test";
-import { login, mzn, noHorizontalScroll, toast } from "./helpers";
+import { login, mzn, noHorizontalScroll, toast, toPaymentPage } from "./helpers";
 
 const EXT = "https://paginas.exemplo.test";
 let funnelUrl = "";
@@ -48,6 +48,7 @@ async function buyEbook(page: Page, phone: string) {
   await page.getByLabel("Email").fill("externo@exemplo.co.mz");
   await page.getByLabel(/Número M-Pesa/).fill(phone);
   await page.getByRole("button", { name: "Pagar agora" }).click();
+  await toPaymentPage(page);
 }
 
 test.describe.serial("funis com páginas externas", () => {

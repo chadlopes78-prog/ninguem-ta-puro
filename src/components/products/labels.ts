@@ -13,13 +13,13 @@ export const PRODUCT_TYPE_LABELS: Record<ProductType, string> = {
 export const PRODUCT_STATUS_LABELS: Record<ProductStatus, string> = {
   DRAFT: "Rascunho",
   PUBLISHED: "Publicado",
-  UNPUBLISHED: "Despublicado",
-  ARCHIVED: "Arquivado",
+  UNPUBLISHED: "Rascunho",
+  ARCHIVED: "Eliminado",
 };
 
 export const PRODUCT_STATUS_TONE: Record<ProductStatus, Tone> = {
   DRAFT: "neutral",
   PUBLISHED: "success",
-  UNPUBLISHED: "warning",
+  UNPUBLISHED: "neutral",
   ARCHIVED: "danger",
 };

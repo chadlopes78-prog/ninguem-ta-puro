@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Package, Plus } from "lucide-react";
-import type { ProductStatus, ProductType } from "@prisma/client";
+import type { ProductType } from "@prisma/client";
 import { requireUser } from "@/server/auth/session";
 import { getScope } from "@/server/services/settings";
 import { listProducts, type ProductListQuery } from "@/server/services/products";
@@ -18,17 +18,17 @@ import { RowMenu } from "@/components/ui/row-menu";
 import { CopyButton } from "@/components/ui/copy-button";
 import { checkoutPath } from "@/server/services/primary-checkout";
 import { ProductCover } from "@/components/products/cover";
-import { PRODUCT_STATUS_LABELS, PRODUCT_TYPE_LABELS } from "@/components/products/labels";
+import { PRODUCT_TYPE_LABELS } from "@/components/products/labels";
 import { duplicateProductAction, publishProductAction, setProductStatusAction } from "./actions";
 import { readinessMap } from "@/server/services/product-readiness";
 import { STAGE_LABELS, type ProductStage } from "@/lib/product-setup";
 
 const STAGE_TONE: Record<ProductStage, "neutral" | "success" | "warning" | "info" | "danger"> = {
   draft: "neutral",
-  incomplete: "warning",
-  ready: "info",
+  incomplete: "neutral",
+  ready: "neutral",
   published: "success",
-  published_incomplete: "warning",
+  published_incomplete: "success",
   unpublished: "neutral",
   archived: "neutral",
 };
@@ -39,7 +39,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
   await requireUser();
   const sp = await searchParams;
   const { isDemo, settings, scope } = await getScope();
-  const status = (["ALL", "ACTIVE", "DRAFT", "PUBLISHED", "UNPUBLISHED", "ARCHIVED"].includes(sp.status ?? "") ? sp.status : "ACTIVE") as ProductListQuery["status"];
+  const status = (["ACTIVE", "PUBLISHED", "DRAFTS"].includes(sp.status ?? "") ? sp.status : "ACTIVE") as ProductListQuery["status"];
   const type = Object.keys(PRODUCT_TYPE_LABELS).includes(sp.type ?? "") ? (sp.type as ProductType) : undefined;
   const sort = (["newest", "oldest", "name", "price_desc", "price_asc", "orders"].includes(sp.sort ?? "") ? sp.sort : "newest") as ProductListQuery["sort"];
   const products = await listProducts({ scope, q: sp.q?.slice(0, 100), status, type, sort });
@@ -77,9 +77,9 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                 name: "status",
                 label: "Estado",
                 options: [
-                  { value: "", label: "Ativos (sem arquivados)" },
-                  { value: "ALL", label: "Todos os estados" },
-                  ...(["DRAFT", "PUBLISHED", "UNPUBLISHED", "ARCHIVED"] as ProductStatus[]).map((s) => ({ value: s, label: PRODUCT_STATUS_LABELS[s] })),
+                  { value: "", label: "Todos" },
+                  { value: "PUBLISHED", label: "Publicado" },
+                  { value: "DRAFTS", label: "Rascunho" },
                 ],
               },
               { name: "type", label: "Tipo", options: [{ value: "", label: "Todos os tipos" }, ...Object.entries(PRODUCT_TYPE_LABELS).map(([value, label]) => ({ value, label }))] },
@@ -189,13 +189,15 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                     ...(p.primaryCheckout ? [{ kind: "link" as const, label: "Abrir checkout", href: checkoutPath(p.primaryCheckout) }] : []),
                     { kind: "action", label: "Duplicar", run: duplicateProductAction.bind(null, p.id) },
                     ...(p.status === "PUBLISHED"
-                      ? [{ kind: "action" as const, label: "Despublicar", run: setProductStatusAction.bind(null, p.id, "UNPUBLISHED") }]
-                      : p.status !== "ARCHIVED"
-                        ? [{ kind: "action" as const, label: "Publicar", run: publishProductAction.bind(null, p.id) }]
-                        : [{ kind: "action" as const, label: "Restaurar", run: setProductStatusAction.bind(null, p.id, "DRAFT") }]),
-                    ...(p.status !== "ARCHIVED"
-                      ? [{ kind: "action" as const, label: "Arquivar", danger: true, confirm: `Arquivar “${p.name}”? Os checkouts deste produto deixam de estar disponíveis. Pode restaurá-lo depois.`, run: setProductStatusAction.bind(null, p.id, "ARCHIVED") }]
-                      : []),
+                      ? [{ kind: "action" as const, label: "Passar a rascunho", run: setProductStatusAction.bind(null, p.id, "UNPUBLISHED") }]
+                      : [{ kind: "action" as const, label: "Publicar", run: publishProductAction.bind(null, p.id) }]),
+                    {
+                      kind: "action" as const,
+                      label: "Eliminar",
+                      danger: true,
+                      confirm: `Eliminar “${p.name}”? O produto sai da lista e o link do checkout deixa de funcionar. As vendas já feitas continuam nos pedidos e relatórios.`,
+                      run: setProductStatusAction.bind(null, p.id, "ARCHIVED"),
+                    },
                   ]}
                 />
               ),

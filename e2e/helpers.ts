@@ -59,3 +59,14 @@ export async function completeAndPublish(page: Page, productName: string, opts: 
   await toast(page, "Produto publicado");
   return url;
 }
+
+/**
+ * Pagamento por telemóvel: o checkout fica aberto com a janela "Confirme no seu telemóvel"; o link "Ver estado do
+ * pedido" leva à página de estado (se o pagamento já tiver sido confirmado, a própria janela já avançou).
+ */
+export async function toPaymentPage(page: Page, timeout = 45_000) {
+  const link = page.getByTestId("payment-status-link");
+  await page.waitForFunction(() => !!document.querySelector("[data-testid=payment-status-link]") || /\/(pagamento|obrigado|acesso|oferta|entrega)\//.test(location.pathname), null, { timeout });
+  if (await link.isVisible().catch(() => false)) await link.click().catch(() => undefined);
+  await page.waitForURL(/\/(pagamento|obrigado|acesso|oferta|entrega)\//, { timeout });
+}

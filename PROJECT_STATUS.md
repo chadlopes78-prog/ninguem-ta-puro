@@ -1,6 +1,6 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-29 · Sessão 25 (Pagar: modo de teste e modo real nas Integrações; checkout com +258 e marcas M-Pesa/e-Mola) · Sessão 24 (Pagar API: pagamentos C2B assinados, webhooks validados, confirmação por consulta autenticada) · Sessão 23 (novo design padrão do checkout: claro e proporcionado; cupão só com cupões ativos) · Sessão 22 (preparação para tráfego pago: carga, concorrência, telemóvel, imagens otimizadas, limites CGNAT) · Sessão 21 (página de obrigado personalizada; área Operações com abas; Dashboard com atividades de hoje e metas de faturamento; partilha das credenciais de pagamento do administrador; logótipos sem fundo) · Sessão 20 (modo simples: vender sem funil; logótipos nas Integrações) · Sessão 19 (entrega do produto PDF/link no produto, área «Os meus produtos», recuperação de acesso, Integrações em cartões) · Sessão 18 (funis: entrada única, várias ofertas, páginas externas com código de integração, obrigado externo) · Sessão 17 (Facebook Pixel / API de Conversões) · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
+Última atualização: 2026-10-29 · Sessão 26 (checkout: confirmação do PIN numa janela sem sair do checkout; ícones M-Pesa/e-Mola; produtos só Publicado/Rascunho e Eliminar) · Sessão 25 (Pagar: modo de teste e modo real nas Integrações; checkout com +258 e marcas M-Pesa/e-Mola) · Sessão 24 (Pagar API: pagamentos C2B assinados, webhooks validados, confirmação por consulta autenticada) · Sessão 23 (novo design padrão do checkout: claro e proporcionado; cupão só com cupões ativos) · Sessão 22 (preparação para tráfego pago: carga, concorrência, telemóvel, imagens otimizadas, limites CGNAT) · Sessão 21 (página de obrigado personalizada; área Operações com abas; Dashboard com atividades de hoje e metas de faturamento; partilha das credenciais de pagamento do administrador; logótipos sem fundo) · Sessão 20 (modo simples: vender sem funil; logótipos nas Integrações) · Sessão 19 (entrega do produto PDF/link no produto, área «Os meus produtos», recuperação de acesso, Integrações em cartões) · Sessão 18 (funis: entrada única, várias ofertas, páginas externas com código de integração, obrigado externo) · Sessão 17 (Facebook Pixel / API de Conversões) · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
 
 ## Estado geral
 
@@ -26,6 +26,22 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | 5 — Operação | ✅ Concluída | Pedidos (filtros, detalhe, transições), clientes, cupões (com testador), relatórios |
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
+
+## Checkout com janela de confirmação, ícones dos métodos e produtos simplificados (sessão 26)
+
+**Pagamento por telemóvel sem sair do checkout** (pedido do proprietário):
+- Ao carregar em pagar com M-Pesa/e-Mola, o comprador fica no checkout. Uma janela por cima diz «Confirme no seu telemóvel»: vai aparecer o pedido da operadora para introduzir o PIN.
+- A janela consulta `/api/public/pagamento/:token` (3 s, depois 10 s; até ~15 min). Com o pagamento **confirmado pelo servidor**, segue para `/pagamento/:token`, que continua a decidir o destino (funil, obrigado ou acesso). Recusado ou cancelado: mensagem na janela com «Tentar novamente» (nova chave de idempotência). Sem confirmação: «Ver estado do pedido».
+- A confirmação do pagamento (webhook + consulta autenticada, `confirm.ts`) não foi alterada; a janela só lê o estado.
+- Gateways com página alojada (EPay) continuam a redirecionar como antes.
+- E2E: novo helper `toPaymentPage` (clica em «Ver estado do pedido» ou espera o avanço automático).
+
+**Ícones dos métodos:** ícones em SVG desenhados a partir das imagens enviadas pelo proprietário. M-Pesa: fundo vermelho, telemóvel e nota verde. e-Mola: fundo laranja, telemóvel e nota branca com $. Aparecem nas opções de pagamento e nos chips da EPay.
+
+**Produtos:**
+- Só dois estados visíveis: **Publicado** e **Rascunho**. «Despublicado», «Incompleto» e «Pronto para publicar» aparecem como Rascunho; o atalho para o que falta configurar continua por baixo.
+- Filtro com «Todos / Publicado / Rascunho». «Despublicar» passou a «Passar a rascunho».
+- «Arquivar» passou a **Eliminar**: o produto sai da lista e o checkout deixa de funcionar. Internamente continua a ser `ARCHIVED`, para não apagar pedidos, pagamentos e relatórios (o histórico financeiro é preservado). Sem migração.
 
 ## Pagar: modo de teste / modo real; telefone +258 e marcas dos métodos (sessão 25)
 
@@ -1308,6 +1324,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 26 (2026-10-29)**: checkout mantém o comprador na página com uma janela «Confirme no seu telemóvel» até o servidor confirmar o pagamento; ícones M-Pesa/e-Mola; produtos só com Publicado/Rascunho e «Eliminar» (sem apagar histórico). Sem migração.
 - **Sessão 25 (2026-10-29)**: Pagar com modo de teste e modo real nas Integrações (credenciais separadas cifradas, mudança só com confirmação e com a key LIVE aceite pela Pagar); checkout com indicativo +258 e bandeira de Moçambique, marcas M-Pesa/e-Mola. Sem migração. 354 testes unitários/integração.
 - **Sessão 24 (2026-10-29)**: integração da Pagar API seguindo só o guia oficial (POST /payments assinado com HMAC e Idempotency-Key, título/valor da BD, repetições seguras, recuperação por reference, webhook com Pagar-Signature e Pagar-Event-Id único, entrega só com PAID por consulta autenticada); credenciais em variáveis do servidor (conta proprietária) ou cifradas por conta no painel; sem top-ups nem payouts. Sem migração. 353 testes unitários/integração e 151 E2E a passar.
 - **Sessão 23 (2026-10-19)**: novo design padrão do checkout (tema claro, título/preço proporcionados, imagem com cantos suaves, botão verde; cores próprias do vendedor respeitadas; checkouts publicados inalterados); campo de cupão só quando a conta tem cupões ativos. A análise do checkout da RatixPay não foi possível (domínio bloqueado neste ambiente). Sem migração. 342 testes unitários/integração a passar; E2E 150 (1 falha intermitente conhecida de hidratação React #418 na lista de Produtos, que passou ao repetir).

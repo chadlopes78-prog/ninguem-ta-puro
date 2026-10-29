@@ -94,11 +94,12 @@ export const REQUIREMENT_LABELS: Record<RequirementKey, string> = {
 export type ProductStage = "draft" | "incomplete" | "ready" | "published" | "published_incomplete" | "unpublished" | "archived";
 
 export const STAGE_LABELS: Record<ProductStage, string> = {
+  // só dois estados visíveis para o vendedor: Publicado e Rascunho (o que falta configurar aparece à parte)
   draft: "Rascunho",
-  incomplete: "Incompleto",
-  ready: "Pronto para publicar",
+  incomplete: "Rascunho",
+  ready: "Rascunho",
   published: "Publicado",
-  published_incomplete: "Publicado · configuração em falta",
-  unpublished: "Despublicado",
-  archived: "Arquivado",
+  published_incomplete: "Publicado",
+  unpublished: "Rascunho",
+  archived: "Eliminado",
 };

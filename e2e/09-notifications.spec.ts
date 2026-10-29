@@ -2,7 +2,7 @@
 // O push real depende do serviço de push do navegador (Google/Apple), inacessível neste ambiente: aqui testa-se
 // a instalação (manifest/service worker), o fluxo de autorização e os estados de iPhone/Android/recusa.
 import { expect, test, type Page } from "@playwright/test";
-import { login, mzn, noHorizontalScroll, toast } from "./helpers";
+import { login, mzn, noHorizontalScroll, toast, toPaymentPage } from "./helpers";
 
 let ip = 0;
 async function buy(page: Page, phone: string) {
@@ -12,6 +12,7 @@ async function buy(page: Page, phone: string) {
   await page.getByLabel("Email").fill("alertas@exemplo.co.mz");
   await page.getByLabel(/Número M-Pesa/).fill(phone);
   await page.getByRole("button", { name: "Pagar agora" }).click();
+  await toPaymentPage(page);
 }
 
 test.describe.serial("notificações e relatórios", () => {

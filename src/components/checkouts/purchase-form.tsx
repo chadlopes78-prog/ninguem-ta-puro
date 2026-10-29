@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ShieldCheck, Tag, TriangleAlert, X } from "lucide-react";
+import { Loader2, ShieldCheck, Smartphone, Tag, TriangleAlert, X, XCircle } from "lucide-react";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import type { PurchaseOutcome } from "@/server/services/purchase";
@@ -52,10 +52,7 @@ function MozambiqueFlag() {
   );
 }
 
-const METHOD_MARKS: Record<string, { bg: string; text: string; name: string }> = {
-  mpesa: { bg: "#E60000", text: "M", name: "M-Pesa" },
-  emola: { bg: "#F58220", text: "e", name: "e-Mola" },
-};
+const METHOD_MARKS: Record<string, { name: string }> = { mpesa: { name: "M-Pesa" }, emola: { name: "e-Mola" } };
 
 /** "M-Pesa (teste)" → "mpesa"; null para métodos sem marca. */
 function markKey(label: string): string | null {
@@ -63,19 +60,32 @@ function markKey(label: string): string | null {
   return METHOD_MARKS[k] ? k : null;
 }
 
-/** Marca do método (cores das marcas; substituível pelos logótipos oficiais em /public/methods/). */
+/** Ícones do M-Pesa (vermelho, telemóvel e nota verde) e do e-Mola (laranja, telemóvel e nota branca). */
 function MethodMark({ method, small }: { method: string; small?: boolean }) {
-  const mark = METHOD_MARKS[method];
-  if (!mark) return null;
-  return (
-    <span
-      className={cn("flex shrink-0 items-center justify-center rounded-md font-extrabold leading-none text-white", small ? "h-5 w-5 text-[11px]" : "h-7 w-7 text-[14px]")}
-      style={{ background: mark.bg }}
-      aria-hidden="true"
-      data-testid={`method-mark-${method}`}
-    >
-      {mark.text}
-    </span>
+  if (!METHOD_MARKS[method]) return null;
+  const size = small ? "h-6 w-6" : "h-9 w-9";
+  return method === "mpesa" ? (
+    <svg viewBox="0 0 40 40" className={cn("shrink-0 rounded-lg", size)} role="img" aria-label="M-Pesa" data-testid="method-mark-mpesa">
+      <rect width="40" height="40" rx="8" fill="#E4161D" />
+      <rect x="13" y="6" width="14" height="25" rx="2.5" fill="none" stroke="#fff" strokeWidth="2.4" />
+      <path d="M8 16.5 C14 12.5 22 11.5 31 13 L29 18 C22 16.5 15 17 8 16.5 Z" fill="#5DAA34" />
+      <path d="M8 16.5 C15 17 22 16.5 29 18 L28 19.5 C21 18.5 14 18.5 8 16.5 Z" fill="#3E7F22" />
+      <circle cx="17.5" cy="27.2" r="1.1" fill="#fff" />
+      <circle cx="20" cy="27.2" r="1.1" fill="#fff" />
+      <circle cx="22.5" cy="27.2" r="1.1" fill="#fff" />
+    </svg>
+  ) : (
+    <svg viewBox="0 0 40 40" className={cn("shrink-0 rounded-lg", size)} role="img" aria-label="e-Mola" data-testid="method-mark-emola">
+      <rect width="40" height="40" rx="8" fill="#F37321" />
+      <rect x="8" y="10" width="14" height="23" rx="2.5" fill="#fff" />
+      <rect x="10.5" y="12.5" width="9" height="7" rx="1" fill="#F37321" />
+      <path d="M11 6.5 v4" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" />
+      {[0, 1, 2].flatMap((r) => [0, 1, 2].map((c) => <rect key={`${r}${c}`} x={10.6 + c * 3.2} y={22 + r * 3.3} width="2.4" height="2.3" rx="0.5" fill="#F37321" />))}
+      <g transform="rotate(-28 27 22)">
+        <rect x="19.5" y="15" width="15" height="14" rx="1.5" fill="#fff" stroke="#F37321" strokeWidth="1.2" />
+        <text x="27" y="25.6" textAnchor="middle" fontSize="9" fontWeight="800" fill="#F37321" fontFamily="Arial, sans-serif">$</text>
+      </g>
+    </svg>
   );
 }
 
@@ -152,6 +162,45 @@ export function PurchaseForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // Aviso quando o servidor/gateway demora (rede lenta): o pedido continua e não há cobrança em duplicado
+  // Pagamento por telemóvel (M-Pesa/e-Mola): o comprador fica no checkout com uma janela por cima a pedir o PIN.
+  // A janela consulta o estado no servidor; só o servidor decide o destino (página de pagamento → obrigado/acesso).
+  const [waiting, setWaiting] = useState<{ token: string; phone: string; label: string; state: "pending" | "failed" | "timeout" } | null>(null);
+  useEffect(() => {
+    if (!waiting || waiting.state !== "pending") return;
+    let stop = false;
+    let tries = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = async () => {
+      if (stop) return;
+      tries++;
+      try {
+        const r = await fetch(`/api/public/pagamento/${waiting.token}`, { cache: "no-store" });
+        if (r.ok) {
+          const j = (await r.json()) as { state: string };
+          if (j.state === "paid") {
+            stop = true;
+            router.push(`/pagamento/${waiting.token}`);
+            return;
+          }
+          if (j.state === "failed" || j.state === "canceled") {
+            setWaiting((w) => (w ? { ...w, state: "failed" } : w));
+            return;
+          }
+        }
+      } catch {
+        // erro de rede: tenta novamente no próximo ciclo
+      }
+      // ~15 minutos no máximo; depois mostra o estado do pedido
+      if (tries >= 120) return setWaiting((w) => (w ? { ...w, state: "timeout" } : w));
+      timer = setTimeout(tick, tries < 30 ? 3000 : 10000);
+    };
+    timer = setTimeout(tick, 2500);
+    return () => {
+      stop = true;
+      clearTimeout(timer);
+    };
+  }, [waiting, router]);
+
   const [slow, setSlow] = useState(false);
   useEffect(() => {
     if (!pending) return setSlow(false);
@@ -250,7 +299,11 @@ export function PurchaseForm({
           setNotice({ tone: "error", text: r.message });
         } else if (r.kind === "payment_started") {
           if (r.redirectUrl && /^https:\/\//.test(r.redirectUrl)) window.location.assign(r.redirectUrl);
-          else router.push(`/pagamento/${r.token}`);
+          else if (selectedMethod?.requiresPhone) {
+            // continua no checkout: a janela pede a confirmação com o PIN no telemóvel
+            newIdempotencyKey();
+            setWaiting({ token: r.token, phone: maskPhone(input.phone ?? ""), label: selectedMethod.label, state: "pending" });
+          } else router.push(`/pagamento/${r.token}`);
         } else if (r.kind === "demo_approved") {
           router.push(r.runId ? `/oferta/${r.runId}` : `/checkout/${data.publicId}/sucesso?pedido=${encodeURIComponent(r.orderCode)}`);
         }
@@ -472,6 +525,80 @@ export function PurchaseForm({
         </p>
       )}
       {data.isDemo && <p className={cn("text-center text-[12px]", muted)}>Compra simulada: será criado apenas um pedido de demonstração.</p>}
+      {(waiting || (pending && selectedMethod?.requiresPhone)) && (
+        <PhoneConfirmDialog
+          p={p}
+          state={waiting?.state ?? "sending"}
+          label={waiting?.label ?? selectedMethod?.label ?? ""}
+          phone={waiting?.phone ?? ""}
+          statusHref={waiting ? `/pagamento/${waiting.token}` : null}
+          onClose={() => setWaiting(null)}
+        />
+      )}
     </form>
+  );
+}
+
+/** "84 123 4567" → "84•••••67" (só para mostrar ao comprador para onde foi o pedido). */
+function maskPhone(raw: string): string {
+  const d = raw.replace(/\D/g, "").replace(/^258(?=\d{9}$)/, "");
+  return d.length >= 4 ? `${d.slice(0, 2)}•••••${d.slice(-2)}` : "";
+}
+
+/** Janela por cima do checkout enquanto o comprador confirma o pagamento com o PIN no telemóvel. */
+function PhoneConfirmDialog({
+  p,
+  state,
+  label,
+  phone,
+  statusHref,
+  onClose,
+}: {
+  p: Palette;
+  state: "sending" | "pending" | "failed" | "timeout";
+  label: string;
+  phone: string;
+  statusHref: string | null;
+  onClose: () => void;
+}) {
+  const failed = state === "failed";
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-3 backdrop-blur-[2px] sm:items-center" role="dialog" aria-modal="true" aria-labelledby="pay-dialog-title" data-testid="payment-waiting" data-state={state}>
+      <div className={cn("w-full max-w-sm rounded-2xl border p-6 text-center shadow-2xl", p.dark ? "border-white/10 bg-[#16181c] text-white" : "border-black/10 bg-white text-black")}>
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full" style={{ background: failed ? "#fee2e2" : `${p.primary}22` }}>
+          {failed ? <XCircle className="h-7 w-7 text-red-500" aria-hidden="true" /> : <Smartphone className="h-7 w-7" style={{ color: p.primary }} aria-hidden="true" />}
+        </div>
+        <h2 id="pay-dialog-title" className="mt-4 text-lg font-semibold">
+          {failed ? "Pagamento não concluído" : state === "timeout" ? "Ainda sem confirmação" : `Confirme no seu telemóvel`}
+        </h2>
+        <p className={cn("mt-2 text-[14px] leading-relaxed", p.muted)} aria-live="polite">
+          {failed
+            ? "O pagamento foi recusado ou cancelado. Nenhum valor foi cobrado. Pode tentar novamente."
+            : state === "timeout"
+              ? "Não recebemos a confirmação. Se já introduziu o PIN, veja o estado do pedido; não pague outra vez."
+              : state === "sending"
+                ? `A enviar o pedido de pagamento ${label}…`
+                : `Vai aparecer no seu telemóvel${phone ? ` (${phone})` : ""} um pedido ${label}. Introduza o seu PIN para finalizar a compra.`}
+        </p>
+        {(state === "sending" || state === "pending") && (
+          <p className="mt-4 flex items-center justify-center gap-2 text-[13px] font-medium">
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> {state === "sending" ? "A contactar a operadora…" : "A aguardar a confirmação…"}
+          </p>
+        )}
+        {state === "pending" && <p className={cn("mt-3 text-[12px]", p.muted)}>Não feche esta página. Assim que confirmar, segue automaticamente para o seu produto.</p>}
+        <div className="mt-5 flex flex-col gap-2">
+          {failed && (
+            <button type="button" onClick={onClose} className="h-11 rounded-xl text-[14px] font-semibold" style={{ background: p.button, color: p.onButton }} data-testid="payment-retry">
+              Tentar novamente
+            </button>
+          )}
+          {statusHref && (
+            <a href={statusHref} className={cn("text-[12.5px] underline underline-offset-2", p.muted)} data-testid="payment-status-link">
+              Ver estado do pedido
+            </a>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

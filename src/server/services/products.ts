@@ -16,7 +16,7 @@ export class DomainError extends Error {}
 export interface ProductListQuery {
   scope: Scope;
   q?: string;
-  status?: ProductStatus | "ALL" | "ACTIVE";
+  status?: ProductStatus | "ALL" | "ACTIVE" | "DRAFTS";
   type?: ProductType;
   sort?: "newest" | "oldest" | "name" | "price_desc" | "price_asc" | "orders";
 }
@@ -25,6 +25,7 @@ export async function listProducts(query: ProductListQuery) {
   const where: Prisma.ProductWhereInput = { ...own(query.scope) };
   if (query.q) where.OR = [{ name: { contains: query.q, mode: "insensitive" } }, { category: { contains: query.q, mode: "insensitive" } }];
   if (!query.status || query.status === "ACTIVE") where.status = { not: "ARCHIVED" };
+  else if (query.status === "DRAFTS") where.status = { in: ["DRAFT", "UNPUBLISHED"] };
   else if (query.status !== "ALL") where.status = query.status;
   if (query.type) where.type = query.type;
 

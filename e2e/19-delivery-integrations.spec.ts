@@ -2,7 +2,7 @@
 // recuperação do acesso e aba Integrações organizada (configurações existentes preservadas).
 // Corre no fim (depois de 07 e 17: credenciais E2Payments e Pixel já guardados). Pagamentos pelo fornecedor de TESTE.
 import { expect, test, type Page } from "@playwright/test";
-import { login, noHorizontalScroll, toast } from "./helpers";
+import { login, noHorizontalScroll, toast, toPaymentPage } from "./helpers";
 
 const PDF = Buffer.from("%PDF-1.4\n% guia e2e\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF");
 let pdfProductUrl = "";
@@ -18,6 +18,7 @@ async function buy(page: Page, path: string, phone: string, email = "entrega@exe
   await page.getByLabel("Email").fill(email);
   await page.getByLabel(/Número M-Pesa/).fill(phone);
   await page.getByRole("button", { name: /Pagar agora|Finalizar compra/ }).click();
+  await toPaymentPage(page);
 }
 
 test.describe.serial("entrega do produto e integrações", () => {
@@ -107,7 +108,7 @@ test.describe.serial("entrega do produto e integrações", () => {
     await login(page);
     await page.goto(pdfProductUrl);
     // sem funil, sem página de obrigado e sem WhatsApp: pronto a publicar
-    await expect(page.getByTestId("product-requirements")).toContainText("Pronto para publicar");
+    await expect(page.getByTestId("product-requirements")).toContainText("Publique o produto para começar a vender");
     await expect(page.getByText("Completar configuração")).toHaveCount(0);
     await expect(page.getByTestId("product-funnel-optional")).toContainText("sem funil");
     await page.getByTestId("publish-product").click();

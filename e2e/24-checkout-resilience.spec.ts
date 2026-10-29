@@ -2,7 +2,7 @@
 // enquanto o comprador confirma no telemóvel) e rede lenta. Fornecedor de pagamentos de TESTE.
 // Corre depois de 19 ("Guia PDF E2E" publicado).
 import { expect, test, type Page } from "@playwright/test";
-import { login, noHorizontalScroll } from "./helpers";
+import { login, noHorizontalScroll, toPaymentPage } from "./helpers";
 
 const FB_UA = "Mozilla/5.0 (Linux; Android 12; SM-A125F Build/SP1A.210812.016; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/119.0.6045.163 Mobile Safari/537.36 [FB_IAB/FB4A;FBAV/442.0.0.33.113;]";
 let checkoutPath = "";
@@ -33,7 +33,7 @@ test.describe.serial("checkout com tráfego de anúncios", () => {
     await noHorizontalScroll(page);
     await fill(page, "84 777 1113");
     await page.getByRole("button", { name: /Pagar agora|Finalizar compra/ }).tap();
-    await expect(page).toHaveURL(/\/pagamento\//, { timeout: 45_000 });
+    await toPaymentPage(page);
     await ctx.close();
   });
 
@@ -61,7 +61,7 @@ test.describe.serial("checkout com tráfego de anúncios", () => {
     await page.reload();
     await fill(page, "84 777 2223");
     await page.getByRole("button", { name: /Pagar agora|Finalizar compra/ }).tap();
-    await expect(page).toHaveURL(/\/pagamento\//, { timeout: 45_000 });
+    await toPaymentPage(page);
     expect(keys).toHaveLength(2);
     expect(keys[1]).toBe(keys[0]);
     // depois da resposta, a tentativa deixa de estar guardada (uma compra nova usa uma chave nova)
@@ -86,7 +86,7 @@ test.describe.serial("checkout com tráfego de anúncios", () => {
     await expect(btn).toBeDisabled();
     await btn.tap({ force: true }).catch(() => undefined);
     await expect(page.getByTestId("awaiting-phone").or(page.getByTestId("slow-connection")).first()).toBeVisible({ timeout: 15_000 });
-    await expect(page).toHaveURL(/\/pagamento\//, { timeout: 45_000 });
+    await toPaymentPage(page);
     expect(posts).toBe(1);
     await ctx.close();
   });
