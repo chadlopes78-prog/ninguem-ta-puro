@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { assertId, guarded } from "@/server/actions";
-import { checkIntegration, isGatewayId, setGatewayEnabled, testGatewayConnection, updateE2Credentials, updateEPayCredentials } from "@/server/services/integrations";
+import { checkIntegration, isGatewayId, setGatewayEnabled, testGatewayConnection, updateE2Credentials, updateEPayCredentials, updatePagarCredentials } from "@/server/services/integrations";
 import { reconcilePendingPayments } from "@/server/services/payment-flow";
 import { deleteMetaPixel, saveMetaPixel, setMetaPixelsEnabled } from "@/server/services/meta-capi";
 import { scopeOf } from "@/server/scope";
@@ -44,6 +44,19 @@ export async function saveE2CredentialsAction(fd: FormData) {
       return typeof v === "string" ? v.slice(0, 300) : undefined;
     };
     const r = await updateE2Credentials(user.id, { clientId: get("clientId"), clientSecret: get("clientSecret"), mpesaWalletId: get("mpesaWalletId"), emolaWalletId: get("emolaWalletId") });
+    revalidatePath("/integracoes", "layout");
+    return r.ok ? { ok: true, message: r.message } : { ok: false, error: r.error, fieldErrors: "fieldErrors" in r ? r.fieldErrors : undefined };
+  });
+}
+
+/** Credenciais da Pagar DESTA conta (cifradas no servidor; campos em branco mantêm o valor guardado). */
+export async function savePagarCredentialsAction(fd: FormData) {
+  return guarded(async ({ user }) => {
+    const get = (k: string) => {
+      const v = fd.get(k);
+      return typeof v === "string" ? v.slice(0, 300) : undefined;
+    };
+    const r = await updatePagarCredentials(user.id, { apiKey: get("apiKey"), signingSecret: get("signingSecret"), webhookSecret: get("webhookSecret") });
     revalidatePath("/integracoes", "layout");
     return r.ok ? { ok: true, message: r.message } : { ok: false, error: r.error, fieldErrors: "fieldErrors" in r ? r.fieldErrors : undefined };
   });

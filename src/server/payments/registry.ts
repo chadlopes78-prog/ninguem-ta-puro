@@ -35,13 +35,13 @@ async function sharedProviderFor(id: GatewayId, granteeId: string): Promise<Paym
  * Gateways da conta `ownerId` que aceitam NOVOS pagamentos (ativados, configurados e, na E2Payments, verificados).
  * Usa as credenciais dessa conta; só quando a conta não tem esse gateway ativo e o administrador lhe deu uma
  * autorização ativa para ele, usa as credenciais do administrador (ver credentialOwnerOf). Nunca as de outra conta.
- * Ordem estável: EPay primeiro (comportamento anterior), depois E2Payments.
+ * Ordem estável: EPay primeiro (comportamento anterior), depois E2Payments e Pagar.
  */
 export async function getActivePaymentProviders(ownerId: string): Promise<PaymentProvider[]> {
   if (testProviderAllowed() && testLocalProvider.isConfigured()) return [testLocalProvider];
   const ctx = await gatewayContext(ownerId);
   const out: PaymentProvider[] = [];
-  for (const id of ["epay", "e2payments"] as const) {
+  for (const id of ["epay", "e2payments", "pagar"] as const) {
     const p = providerFor(id, ctx);
     if (acceptsNewPayments(id, p, ctx)) out.push(p);
     else {
@@ -58,7 +58,7 @@ export async function getActivePaymentProviders(ownerId: string): Promise<Paymen
  */
 export async function getProvider(id: string, ownerId: string): Promise<PaymentProvider | null> {
   if (id === testLocalProvider.id) return testProviderAllowed() ? testLocalProvider : null;
-  if (id !== "epay" && id !== "e2payments") return null;
+  if (id !== "epay" && id !== "e2payments" && id !== "pagar") return null;
   return providerFor(id, await gatewayContext(ownerId));
 }
 

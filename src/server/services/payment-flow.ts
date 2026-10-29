@@ -273,6 +273,10 @@ export async function chargeWithProvider(
 export type PublicPaymentState = "processing" | "pending" | "paid" | "failed" | "canceled" | "refunded";
 
 const STATUS_CHECK_INTERVAL_MS = 8_000;
+/** Intervalo mínimo entre consultas por fornecedor. Pagar: 10–15 s com jitter (guia oficial: nunca por segundo). */
+function statusInterval(provider: string): number {
+  return provider === "pagar" ? 10_000 + Math.floor(Math.random() * 5_000) : STATUS_CHECK_INTERVAL_MS;
+}
 
 /** Atualiza o estado através da consulta oficial do fornecedor, no máximo uma vez a cada 8 segundos. */
 export async function refreshPaymentStatus(orderId: string): Promise<void> {
@@ -282,7 +286,8 @@ export async function refreshPaymentStatus(orderId: string): Promise<void> {
 async function refreshOne(orderId: string): Promise<void> {
   const payment = await prisma.payment.findFirst({ where: { orderId, status: { in: ["CREATED", "PENDING"] } }, orderBy: { createdAt: "desc" }, include: { order: { select: { ownerId: true } } } });
   if (!payment) return;
-  if (payment.lastCheckedAt && Date.now() - payment.lastCheckedAt.getTime() < STATUS_CHECK_INTERVAL_MS) return;
+  const interval = statusInterval(payment.provider);
+  if (payment.lastCheckedAt && Date.now() - payment.lastCheckedAt.getTime() < interval) return;
   // Consulta com as credenciais gravadas no pagamento (partilha do administrador) ou da conta dona da encomenda
   const ownerId = payment.order.ownerId;
   const provider = await getProviderForPayment(payment, ownerId);
@@ -290,7 +295,7 @@ async function refreshOne(orderId: string): Promise<void> {
   if (!provider || !provider.isConfigured() || !provider.getStatus) return;
   // marca a verificação antes da chamada para limitar pedidos concorrentes
   const claimed = await prisma.payment.updateMany({
-    where: { id: payment.id, OR: [{ lastCheckedAt: null }, { lastCheckedAt: { lt: new Date(Date.now() - STATUS_CHECK_INTERVAL_MS) } }] },
+    where: { id: payment.id, OR: [{ lastCheckedAt: null }, { lastCheckedAt: { lt: new Date(Date.now() - interval) } }] },
     data: { lastCheckedAt: new Date() },
   });
   if (claimed.count !== 1) return;

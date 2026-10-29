@@ -16,7 +16,7 @@ import { notifyUsers } from "@/server/notifications/events";
 import { DomainError, NotFoundError } from "./products";
 
 const GATEWAY_IDS = PROVIDER_CATALOG.map((p) => p.id) as GatewayId[];
-export const GATEWAY_NAMES: Record<GatewayId, string> = { epay: "EPay", e2payments: "E2Payments" };
+export const GATEWAY_NAMES: Record<GatewayId, string> = { epay: "EPay", e2payments: "E2Payments", pagar: "Pagar" };
 
 function assertAdmin(actor: PolicyUser & { id: string }) {
   // mesma resposta que um recurso inexistente: não revela a funcionalidade a outras contas

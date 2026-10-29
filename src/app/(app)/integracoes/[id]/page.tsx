@@ -13,6 +13,9 @@ import { Badge } from "@/components/ui/badge";
 import { ActionButton } from "@/components/ui/action-button";
 import { E2PaymentsForm } from "@/components/integrations/e2payments-form";
 import { EPayForm } from "@/components/integrations/epay-form";
+import { PagarForm } from "@/components/integrations/pagar-form";
+import { resolveAppBaseUrl } from "@/server/app-url";
+import { CopyButton } from "@/components/ui/copy-button";
 import { MetaPixelForm } from "@/components/integrations/meta-pixel-form";
 import { Checks, Details, Info, IntegrationLogo, KeySetup, STATUS_TONE } from "../integration-parts";
 import {
@@ -21,6 +24,7 @@ import {
   reconcileAction,
   saveE2CredentialsAction,
   saveEPayCredentialsAction,
+  savePagarCredentialsAction,
   saveMetaPixelAction,
   setGatewayEnabledAction,
   setMetaEnabledAction,
@@ -32,7 +36,7 @@ export const metadata: Metadata = { title: "Configurar integração" };
 
 const crumbs = (name: string) => [{ label: "Integrações", href: "/integracoes" }, { label: name }];
 
-function GatewayConfig({ g, tz }: { g: GatewayView; tz: string }) {
+function GatewayConfig({ g, tz, webhookUrl }: { g: GatewayView; tz: string; webhookUrl: string | null }) {
   const ready = g.configured && g.status !== "config_error";
   return (
     <>
@@ -48,9 +52,30 @@ function GatewayConfig({ g, tz }: { g: GatewayView; tz: string }) {
       />
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_320px]" data-testid={`gateway-${g.id}`}>
         <Card className="min-w-0">
-          <CardHeader title="Credenciais" description={g.id === "epay" ? "Chave secreta da sua conta EPay." : "Dados da sua conta E2Payments."} />
+          <CardHeader title="Credenciais" description={g.id === "epay" ? "Chave secreta da sua conta EPay." : g.id === "pagar" ? "API key, signing secret e webhook secret da sua app na Pagar." : "Dados da sua conta E2Payments."} />
           <CardBody className="flex flex-col gap-4">
-            {g.id === "epay" ? (
+            {g.id === "pagar" ? (
+              <>
+                {g.pagar?.fromEnv ? (
+                  <p className="text-[13px] text-muted">
+                    Credenciais definidas nas variáveis do servidor (<code className="text-fg">PAGAR_*</code>) e nunca mostradas. Para as alterar, edite-as no alojamento.
+                  </p>
+                ) : g.pagar?.storageAvailable ? (
+                  <PagarForm key={`${g.pagar.apiKeyMasked}-${g.pagar.hasSigningSecret}-${g.pagar.hasWebhookSecret}`} action={savePagarCredentialsAction} initial={g.pagar} />
+                ) : (
+                  <KeySetup />
+                )}
+                {webhookUrl && (
+                  <div className="rounded-[var(--radius-md)] border border-line bg-surface-2 p-3 text-[12.5px]" data-testid="pagar-webhook-url">
+                    <p className="font-medium text-fg">Endereço do webhook (adicione-o na sua app da Pagar)</p>
+                    <div className="mt-1.5 flex items-center gap-2">
+                      <code className="min-w-0 flex-1 truncate text-muted">{webhookUrl}</code>
+                      <CopyButton value={webhookUrl} label="Copiar" />
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : g.id === "epay" ? (
               g.epay?.fromEnv ? (
                 <p className="text-[13px] text-muted">
                   Chave definida no servidor (<code className="text-fg">EPAY_SECRET_KEY</code>) e nunca mostrada. Para a alterar, edite a variável no alojamento.
@@ -284,5 +309,6 @@ export default async function IntegrationConfigPage({ params }: { params: Promis
   if (!isGatewayId(id)) notFound();
   const g = (await listGateways(user.id)).find((x) => x.id === id);
   if (!g) notFound();
-  return <GatewayConfig g={g} tz={settings.timezone} />;
+  const webhookUrl = id === "pagar" ? `${await resolveAppBaseUrl()}/api/webhooks/pagar` : null;
+  return <GatewayConfig g={g} tz={settings.timezone} webhookUrl={webhookUrl} />;
 }

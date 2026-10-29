@@ -105,5 +105,6 @@ export interface PaymentProvider {
 export const PROVIDER_CATALOG = [
   { id: "epay", name: "EPay", description: "Processamento de pagamentos através da EPay.", regions: "Moçambique · MZN", methods: "M-Pesa, e-Mola e IZI (página de pagamento da EPay)" },
   { id: "e2payments", name: "E2Payments", description: "Processamento de pagamentos através da E2Payments.", regions: "Moçambique · MZN", methods: "M-Pesa e e-Mola (confirmação no telemóvel do comprador)" },
+  { id: "pagar", name: "Pagar", description: "Processamento de pagamentos através da Pagar API (pagar.co.mz).", regions: "Moçambique · MZN", methods: "M-Pesa e e-Mola (confirmação no telemóvel do comprador)" },
 ] as const;
 export type GatewayId = (typeof PROVIDER_CATALOG)[number]["id"];

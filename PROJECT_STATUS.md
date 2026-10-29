@@ -1,6 +1,6 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-19 · Sessão 23 (novo design padrão do checkout: claro e proporcionado; cupão só com cupões ativos) · Sessão 22 (preparação para tráfego pago: carga, concorrência, telemóvel, imagens otimizadas, limites CGNAT) · Sessão 21 (página de obrigado personalizada; área Operações com abas; Dashboard com atividades de hoje e metas de faturamento; partilha das credenciais de pagamento do administrador; logótipos sem fundo) · Sessão 20 (modo simples: vender sem funil; logótipos nas Integrações) · Sessão 19 (entrega do produto PDF/link no produto, área «Os meus produtos», recuperação de acesso, Integrações em cartões) · Sessão 18 (funis: entrada única, várias ofertas, páginas externas com código de integração, obrigado externo) · Sessão 17 (Facebook Pixel / API de Conversões) · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
+Última atualização: 2026-10-29 · Sessão 24 (Pagar API: pagamentos C2B assinados, webhooks validados, confirmação por consulta autenticada) · Sessão 23 (novo design padrão do checkout: claro e proporcionado; cupão só com cupões ativos) · Sessão 22 (preparação para tráfego pago: carga, concorrência, telemóvel, imagens otimizadas, limites CGNAT) · Sessão 21 (página de obrigado personalizada; área Operações com abas; Dashboard com atividades de hoje e metas de faturamento; partilha das credenciais de pagamento do administrador; logótipos sem fundo) · Sessão 20 (modo simples: vender sem funil; logótipos nas Integrações) · Sessão 19 (entrega do produto PDF/link no produto, área «Os meus produtos», recuperação de acesso, Integrações em cartões) · Sessão 18 (funis: entrada única, várias ofertas, páginas externas com código de integração, obrigado externo) · Sessão 17 (Facebook Pixel / API de Conversões) · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
 
 ## Estado geral
 
@@ -26,6 +26,70 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | 5 — Operação | ✅ Concluída | Pedidos (filtros, detalhe, transições), clientes, cupões (com testador), relatórios |
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
+
+## Pagar API (sessão 24)
+
+Implementada **só a partir do guia oficial**, `https://pagar.co.mz/docs/ai-integration.md`. O domínio está bloqueado neste ambiente, por isso o guia foi colado pelo proprietário; a cópia de referência está em `docs/pagar-api.md`. A Pagar é um terceiro gateway, ao lado da EPay e da E2Payments, sem alterar estas duas.
+
+**Análise prévia**
+- **Backend:** Next.js (server actions e rotas `route.ts`) na Vercel.
+- **Base de dados:** PostgreSQL com Prisma.
+- **Pedidos:** `Order`, `OrderItem` e um `Payment` por tentativa.
+  - O preço vem de `Offer.priceCents` e a referência é `Payment.idempotencyKey`, única por tentativa.
+  - O dono da venda é `Order.ownerId`.
+- **Webhooks:** entram em `POST /api/webhooks/[provider]`, com o registo único em `PaymentEvent` e a confirmação em `confirm.ts`.
+
+**Como funciona**
+- **Fornecedor** `src/server/payments/providers/pagar.ts`, com o cliente do guia:
+  - GET com `Authorization: Bearer <API key>`;
+  - POST com `X-Pagar-Timestamp`, `X-Pagar-Nonce`, `X-Pagar-Signature: v1=HMAC-SHA256(signing secret, "timestamp\nnonce\nPOST\n<pathname>\nsha256(body)")` e `Idempotency-Key`.
+- **Pagamento** `POST /payments`:
+  - `reference` é a referência interna da tentativa;
+  - `title` é «produto — oferta» e `description` é «Pedido NTP-…», ambos da BD;
+  - `amountMzn` é o preço da oferta, inteiro entre 20 e 40 000;
+  - `method` é MPESA ou EMOLA e `payerPhone` o número normalizado;
+  - a idempotency key é `payment:<reference>`.
+- **Falhas de rede e 5xx:** até 2 repetições com a mesma key e o mesmo body, gerando só timestamp e nonce novos. Se continuar sem resposta, fica «estado incerto» e recupera-se com `GET /payments/by-reference/:reference`, sem nova cobrança.
+- **Restantes respostas:**
+  - 400 e outros 4xx: «não iniciado», nada cobrado;
+  - 401/403: erro de configuração, e o gateway deixa de aceitar novos pagamentos;
+  - 409: estado incerto, consulta antes de decidir;
+  - 429: não iniciado.
+- **Nunca se liberta o produto com a resposta inicial (202).** Mesmo um «PAID» inicial é tratado como pendente. A entrega só acontece com PAID obtido por consulta autenticada (`GET /payments/:id`, a cada 10–15 s com jitter enquanto a página de estado está aberta) ou por webhook validado.
+- **Estados:**
+  - `RECONCILIATION_REQUIRED`, `PENDING` e `PROCESSING` ficam pendentes;
+  - `FAILED` e `CANCELLED` encerram a encomenda sem entrega.
+- **Webhook** `POST /api/webhooks/pagar` (`src/server/payments/pagar-webhook.ts`):
+  - `Pagar-Event-Id` é obrigatório (400 se faltar);
+  - `Pagar-Signature: t=…,v1=…` é validado com HMAC-SHA256 do webhook secret sobre `t.rawBody`, em tempo constante e com ±300 s (401 se falhar);
+  - a conta é encontrada tentando o webhook secret de cada conta configurada, sem confiar no corpo;
+  - o evento é registado uma única vez (`PaymentEvent` único por fornecedor e `Pagar-Event-Id`);
+  - o estado **não** vem do corpo (o guia não descreve o seu formato): o servidor consulta a Pagar com a API key da conta e só PAID dessa consulta aprova, pela confirmação existente.
+  - Eventos sem pagamento (carteira, payouts, `webhook.test`) são ignorados com 200.
+- **Credenciais (nunca no Git):**
+  - **conta proprietária:** variáveis `PAGAR_API_KEY`, `PAGAR_SIGNING_SECRET`, `PAGAR_WEBHOOK_SECRET` (e opcional `PAGAR_API_BASE_URL`), que só valem para essa conta;
+  - **outras contas:** Integrações → Pagar, guardadas cifradas e nunca devolvidas (só um fragmento da API key).
+  - Guardar faz o teste de ligação `GET /wallet` e só depois a Pagar pode ser ativada.
+  - A página mostra o endereço do webhook a registar na app da Pagar.
+- A partilha de credenciais do administrador (sessão 21) também funciona com a Pagar.
+- **Não implementado de propósito:** top-ups e payouts, porque a plataforma não tem levantamentos.
+
+**Testes**
+- `tests/integration/pagar.test.ts` (11 testes), com a API simulada no formato do guia e credenciais fictícias:
+  - assinatura e cabeçalhos do POST;
+  - título e valor da BD;
+  - PAID inicial não entrega;
+  - limites 19, 20, 40 000 e 40 001 MZN e valor decimal;
+  - repetições com a mesma key e o mesmo body, seguidas de recuperação por reference;
+  - respostas 400, 409 e 401;
+  - webhook válido aprova uma única vez e o mesmo `Pagar-Event-Id` não repete;
+  - o estado vem da consulta e não do corpo;
+  - assinatura errada, segredo errado, fora do prazo ou sem event id;
+  - FAILED/CANCELLED e eventos ignorados;
+  - credenciais cifradas e nunca devolvidas;
+  - variáveis só para a conta proprietária.
+- E2E `07-integrations`: cartão, formulário só com campos protegidos, endereço do webhook e validação no servidor.
+- **Não testado contra a API real:** `api.pagar.co.mz` não é acessível neste ambiente. Antes de vender, fazer um pagamento TEST com os números do guia (840000001 sucesso, 840000002 falha, 840000003 processamento) e confirmar o webhook.
 
 ## Novo design padrão do checkout (sessão 23)
 
@@ -1222,6 +1286,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 24 (2026-10-29)**: integração da Pagar API seguindo só o guia oficial (POST /payments assinado com HMAC e Idempotency-Key, título/valor da BD, repetições seguras, recuperação por reference, webhook com Pagar-Signature e Pagar-Event-Id único, entrega só com PAID por consulta autenticada); credenciais em variáveis do servidor (conta proprietária) ou cifradas por conta no painel; sem top-ups nem payouts. Sem migração. 353 testes unitários/integração e 151 E2E a passar.
 - **Sessão 23 (2026-10-19)**: novo design padrão do checkout (tema claro, título/preço proporcionados, imagem com cantos suaves, botão verde; cores próprias do vendedor respeitadas; checkouts publicados inalterados); campo de cupão só quando a conta tem cupões ativos. A análise do checkout da RatixPay não foi possível (domínio bloqueado neste ambiente). Sem migração. 342 testes unitários/integração a passar; E2E 150 (1 falha intermitente conhecida de hidratação React #418 na lista de Produtos, que passou ao repetir).
 - **Sessão 22 (2026-10-16)**: auditoria para tráfego pago com testes de carga reais (10–250 clientes, 1 processo), concorrência de pagamentos e telemóvel emulado; correções: limites anti-abuso por comprador (CGNAT), imagens redimensionadas em WebP com cache na CDN, tentativa de compra preservada quando a WebView recarrega, aviso de ligação lenta, menos consultas no checkout. Lógica de pagamento e APIs EPay/E2Payments inalteradas. Sem migração. 341 testes unitários/integração e 150 E2E a passar.
 - **Sessão 21 (2026-10-16)**: página de obrigado personalizada em Personalizar Checkout (rascunho, pré-visualização, publicação e restauro; botão ligado à entrega real; com e sem funil); área **Operações** com uma única entrada no menu e abas Pedidos/Clientes/Relatórios/Notificações (rotas antigas preservadas); logótipos das Integrações sem fundo; **Dashboard**: atividades recentes só do dia atual no fuso da conta (data real de cada evento) e barra de meta de faturamento (10 mil → 1 milhão MZN) com celebrações únicas guardadas por utilizador. **Partilha das credenciais de pagamento do administrador** por utilizador e método (EPay/E2Payments), sem expor credenciais, com venda e faturamento no vendedor, revogação só para novos pagamentos e pedidos de remoção. Migrações aditivas `CheckoutThankYou`, `RevenueMilestone` e `PaymentCredentialGrant` (+ `Payment.credentialOwnerId`). 334 testes unitários/integração e 147 E2E a passar.

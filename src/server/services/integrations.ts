@@ -17,8 +17,12 @@ import {
   secretUnreadable,
   swapStoredE2Credentials,
   GATEWAY_STATUS_LABELS,
+  pagarCredentials,
+  pagarFromEnv,
+  savePagarCredentials,
   type GatewayContext,
 } from "@/server/payments/gateways";
+import { createPagarProvider, pagarKeyEnvironment } from "@/server/payments/providers/pagar";
 import { createE2PaymentsProvider, e2HostLabel } from "@/server/payments/providers/e2payments";
 import { epayKeyEnvironment } from "@/server/payments/providers/epay";
 import { secretStorageAvailable, maskSecret } from "@/server/secret-box";
@@ -37,7 +41,8 @@ export async function listGateways(ownerId: string) {
     const row = ctx.rows.get(p.id);
     const provider = providerFor(p.id, ctx);
     const status = gatewayStatus(p.id, provider, ctx);
-    const fromEnv = p.id === "epay" ? epayFromEnv(ctx) : e2FromEnv(ctx);
+    const fromEnv = p.id === "epay" ? epayFromEnv(ctx) : p.id === "pagar" ? pagarFromEnv(ctx) : e2FromEnv(ctx);
+    const pagar = p.id === "pagar" ? pagarCredentials(ctx) : null;
     const e2 = p.id === "e2payments" ? e2Credentials(ctx) : null;
     const epayKey = p.id === "epay" ? epayKeyForDisplay(ctx) : null;
     return {
@@ -49,7 +54,7 @@ export async function listGateways(ownerId: string) {
       checks: provider.configChecks(),
       environment: provider.environment(),
       methods: provider.methods().map((m) => m.label),
-      supportsConnectionTest: p.id === "e2payments",
+      supportsConnectionTest: p.id === "e2payments" || p.id === "pagar",
       verifiedAt: row?.verifiedAt ?? null,
       lastCheckedAt: row?.lastCheckedAt ?? null,
       lastError: row?.lastError ?? (!fromEnv && secretUnreadable(row) ? UNREADABLE : null),
@@ -63,6 +68,18 @@ export async function listGateways(ownerId: string) {
               mpesaWalletId: e2?.mpesaWalletId ?? "",
               emolaWalletId: e2?.emolaWalletId ?? "",
               apiHost: e2?.apiHost ? e2HostLabel(e2.apiHost) : null,
+            }
+          : null,
+      // Pagar: só indicações (fragmento da API key e presença dos secrets); nunca os valores
+      pagar:
+        p.id === "pagar"
+          ? {
+              fromEnv,
+              storageAvailable: secretStorageAvailable(),
+              apiKeyMasked: maskSecret(pagar?.apiKey),
+              keyEnvironment: pagarKeyEnvironment(pagar?.apiKey),
+              hasSigningSecret: Boolean(pagar?.signingSecret),
+              hasWebhookSecret: Boolean(pagar?.webhookSecret),
             }
           : null,
       epay:
@@ -93,6 +110,7 @@ async function upsertRow(ctx: GatewayContext, id: GatewayId, create: Record<stri
 
 /** Teste de ligação da E2Payments desta conta (pedido de token documentado). Atualiza o estado verificado/erro. */
 export async function testGatewayConnection(ownerId: string, id: GatewayId): Promise<{ ok: boolean; message: string }> {
+  if (id === "pagar") return testPagarConnection(ownerId);
   if (id !== "e2payments") throw new DomainError("A API da EPay não documenta um teste de ligação. Use “Verificar configuração”.");
   const ctx = await gatewayContext(ownerId);
   // instância sem o gancho de erro: o resultado é tratado aqui
@@ -116,6 +134,20 @@ export async function testGatewayConnection(ownerId: string, id: GatewayId): Pro
   return r;
 }
 
+/** Teste de ligação da Pagar desta conta: GET /wallet com a API key (documentado). Não guarda nem mostra saldos. */
+async function testPagarConnection(ownerId: string): Promise<{ ok: boolean; message: string }> {
+  const ctx = await gatewayContext(ownerId);
+  const r = await createPagarProvider(pagarCredentials(ctx)).verifyCredentials();
+  await upsertRow(
+    ctx,
+    "pagar",
+    { enabled: false, status: r.ok ? "CONFIGURED" : "ERROR", verifiedAt: r.ok ? new Date() : null, lastError: r.ok ? null : r.message, lastCheckedAt: new Date() },
+    { status: r.ok ? "CONFIGURED" : "ERROR", ...(r.ok ? { verifiedAt: new Date(), lastError: null } : { verifiedAt: null, lastError: r.message }), lastCheckedAt: new Date() },
+  );
+  await log(ownerId, "pagar", r.ok ? "info" : "warn", `Teste de ligação: ${r.message}`);
+  return r;
+}
+
 /**
  * Ativa/desativa um gateway DESTA conta para NOVOS pagamentos. Nunca apaga credenciais, configurações nem histórico,
  * pagamentos já iniciados continuam a ser confirmados e as outras contas não são afetadas.
@@ -125,16 +157,16 @@ export async function setGatewayEnabled(ownerId: string, id: GatewayId, enabled:
   const provider = providerFor(id, ctx);
   if (enabled) {
     if (!provider.isConfigured()) {
-      return { ok: false, message: id === "epay" ? "Configure primeiro a chave secreta da EPay." : "Configure primeiro as credenciais da E2Payments." };
+      return { ok: false, message: id === "epay" ? "Configure primeiro a chave secreta da EPay." : id === "pagar" ? "Configure primeiro as credenciais da Pagar." : "Configure primeiro as credenciais da E2Payments." };
     }
-    if (id === "e2payments") {
-      // Não basta carregar no botão: só fica ativo depois de a E2Payments aceitar as credenciais.
-      const t = await testGatewayConnection(ownerId, "e2payments");
+    if (id === "e2payments" || id === "pagar") {
+      // Não basta carregar no botão: só fica ativo depois de o fornecedor aceitar as credenciais.
+      const t = await testGatewayConnection(ownerId, id);
       if (!t.ok) return { ok: false, message: `Não foi ativado: ${t.message}` };
     }
   }
   await upsertRow(ctx, id, { enabled, status: provider.isConfigured() ? "CONFIGURED" : "NOT_CONFIGURED" }, { enabled });
-  const name = id === "epay" ? "EPay" : "E2Payments";
+  const name = id === "epay" ? "EPay" : id === "pagar" ? "Pagar" : "E2Payments";
   await log(ownerId, id, "info", enabled ? `${name} ativada para novos pagamentos.` : `${name} desativada para novos pagamentos (credenciais e histórico mantidos).`);
   return { ok: true, message: enabled ? `${name} ativa: passa a aparecer nos seus checkouts.` : `${name} desativada. As credenciais e o histórico foram mantidos.` };
 }
@@ -145,6 +177,14 @@ export async function updateE2Credentials(ownerId: string, input: { clientId?: s
   if (!saved.ok) return saved;
   const t = await testGatewayConnection(ownerId, "e2payments");
   return { ok: true as const, message: t.ok ? "Credenciais guardadas e ligação verificada." : `Credenciais guardadas, mas o teste de ligação falhou: ${t.message}` };
+}
+
+/** Guarda as credenciais da Pagar desta conta (cifradas) e testa a ligação de imediato. Não altera os outros gateways. */
+export async function updatePagarCredentials(ownerId: string, input: { apiKey?: string; signingSecret?: string; webhookSecret?: string }) {
+  const saved = await savePagarCredentials(await gatewayContext(ownerId), input);
+  if (!saved.ok) return saved;
+  const t = await testPagarConnection(ownerId);
+  return { ok: true as const, message: t.ok ? "Credenciais guardadas (cifradas) e ligação verificada. Ative a Pagar para a usar nos seus checkouts." : `Credenciais guardadas, mas o teste de ligação falhou: ${t.message}` };
 }
 
 /**

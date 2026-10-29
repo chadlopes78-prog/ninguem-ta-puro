@@ -83,6 +83,8 @@ export async function handleProviderWebhook(providerId: string, rawBody: string,
     if (!testProviderAllowed() || !testLocalProvider.isConfigured()) return { status: 404, body: { error: "provider not configured" }, result: "not_configured" };
     return handleWebhook(testLocalProvider, rawBody, headers);
   }
+  // Pagar: validação e confirmação próprias (guia oficial), ver pagar-webhook.ts. A EPay não muda.
+  if (providerId === "pagar") return (await import("./pagar-webhook")).handlePagarWebhook(rawBody, headers);
   if (providerId !== "epay") return { status: 404, body: { error: "provider not configured" }, result: "not_configured" };
   const { epayUnverifiedPaymentId } = await import("./providers/epay");
   const externalId = epayUnverifiedPaymentId(rawBody);

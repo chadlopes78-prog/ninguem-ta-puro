@@ -11,10 +11,11 @@ import { decryptSecret, encryptSecret, secretStorageAvailable } from "@/server/s
 import { staticAppBaseUrl } from "@/server/app-url";
 import { createEPayProvider, epayKeyEnvironment } from "./providers/epay";
 import { createE2PaymentsProvider, isE2Host, sanitizeCredential, WALLET_ID_RE, type E2Credentials, type E2Host } from "./providers/e2payments";
+import { createPagarProvider, pagarBaseUrl, pagarEnvCredentials, pagarKeyEnvironment, validPagarSecret, type PagarCredentials } from "./providers/pagar";
 import type { GatewayId, PaymentProvider } from "./types";
 
 /** Estado inicial quando a conta ainda não tem registo: a EPay mantém o comportamento anterior (ativa se configurada). */
-const DEFAULT_ENABLED: Record<GatewayId, boolean> = { epay: true, e2payments: false };
+const DEFAULT_ENABLED: Record<GatewayId, boolean> = { epay: true, e2payments: false, pagar: false };
 
 export type GatewayStatus = "active" | "inactive" | "credentials_missing" | "config_error" | "unverified";
 export const GATEWAY_STATUS_LABELS: Record<GatewayStatus, string> = {
@@ -35,7 +36,7 @@ export interface GatewayContext {
 export async function gatewayContext(ownerId: string): Promise<GatewayContext> {
   const [user, rows] = await Promise.all([
     prisma.user.findUnique({ where: { id: ownerId }, select: { role: true } }),
-    prisma.integrationConfig.findMany({ where: { ownerId, provider: { in: ["epay", "e2payments"] } } }),
+    prisma.integrationConfig.findMany({ where: { ownerId, provider: { in: ["epay", "e2payments", "pagar"] } } }),
   ]);
   return { ownerId, isPlatformOwner: user?.role === "OWNER", rows: new Map(rows.map((r) => [r.provider, r])) };
 }
@@ -227,20 +228,81 @@ export async function rememberE2Host(ctx: GatewayContext, host: E2Host | null): 
   });
 }
 
+// ───────────── Pagar ─────────────
+
+interface PagarSecretConfig {
+  apiKey: string;
+  signingSecret: string;
+  webhookSecret: string;
+}
+
+function readPagarSecret(row: IntegrationConfig | undefined): PagarSecretConfig | null {
+  return readSecretJson(row, (j) =>
+    typeof j.apiKey === "string" && typeof j.signingSecret === "string" && typeof j.webhookSecret === "string" ? { apiKey: j.apiKey, signingSecret: j.signingSecret, webhookSecret: j.webhookSecret } : null,
+  );
+}
+
+/** As credenciais da Pagar desta conta vêm das variáveis PAGAR_* (só possível na conta proprietária). */
+export function pagarFromEnv(ctx: GatewayContext): boolean {
+  return ctx.isPlatformOwner && pagarEnvCredentials() !== null;
+}
+
+/** Credenciais da Pagar DESTA conta (variáveis do servidor na conta proprietária, ou guardadas cifradas no painel). */
+export function pagarCredentials(ctx: GatewayContext): PagarCredentials | null {
+  if (pagarFromEnv(ctx)) return pagarEnvCredentials();
+  const secret = readPagarSecret(ctx.rows.get("pagar"));
+  return secret ? { ...secret, baseUrl: pagarBaseUrl(), source: "panel" } : null;
+}
+
+export function buildPagarProvider(ctx: GatewayContext) {
+  return createPagarProvider(pagarCredentials(ctx), {
+    onConfigError: (reason) => markConfigError(ctx.ownerId, "pagar", reason),
+  });
+}
+
+/**
+ * Guarda as credenciais da Pagar DESTA conta (cifradas). Um campo deixado em branco mantém o valor guardado; nenhum
+ * valor é devolvido ao browser. Não toca na EPay, na E2Payments nem noutras contas.
+ */
+export async function savePagarCredentials(ctx: GatewayContext, input: { apiKey?: string; signingSecret?: string; webhookSecret?: string }): Promise<{ ok: true } | { ok: false; error: string; fieldErrors?: Record<string, string> }> {
+  if (pagarFromEnv(ctx)) return { ok: false, error: "As credenciais da Pagar desta conta estão definidas nas variáveis PAGAR_* do servidor; altere-as lá." };
+  if (!secretStorageAvailable()) return { ok: false, error: "O servidor não tem chave de cifra disponível; as credenciais não foram guardadas." };
+  const current = readPagarSecret(ctx.rows.get("pagar"));
+  const clean = (v: string | undefined) => sanitizeCredential(v);
+  const apiKey = clean(input.apiKey) || current?.apiKey || "";
+  const signingSecret = clean(input.signingSecret) || current?.signingSecret || "";
+  const webhookSecret = clean(input.webhookSecret) || current?.webhookSecret || "";
+  const fieldErrors: Record<string, string> = {};
+  if (!validPagarSecret(apiKey) || !pagarKeyEnvironment(apiKey)) fieldErrors.apiKey = "A API key da Pagar começa por sk_test_ ou sk_live_";
+  if (!validPagarSecret(signingSecret)) fieldErrors.signingSecret = "Introduza o signing secret";
+  if (!validPagarSecret(webhookSecret)) fieldErrors.webhookSecret = "Introduza o webhook secret";
+  if (Object.keys(fieldErrors).length) return { ok: false, error: "Corrija os campos assinalados.", fieldErrors };
+  const secretConfig = encryptSecret(JSON.stringify({ apiKey, signingSecret, webhookSecret } satisfies PagarSecretConfig));
+  // Credenciais novas exigem nova verificação antes de serem usadas no checkout.
+  await prisma.integrationConfig.upsert({
+    where: { ownerId_provider: { ownerId: ctx.ownerId, provider: "pagar" } },
+    create: { ownerId: ctx.ownerId, provider: "pagar", enabled: false, secretConfig, status: "CONFIGURED", verifiedAt: null, lastError: null },
+    update: { secretConfig, status: "CONFIGURED", verifiedAt: null, lastError: null },
+  });
+  await log(ctx.ownerId, "pagar", "info", "Credenciais da Pagar atualizadas na aba Integrações (valores não registados).");
+  return { ok: true };
+}
+
 // ───────────── Estado apresentado ─────────────
 
 export function gatewayStatus(id: GatewayId, provider: PaymentProvider, ctx: GatewayContext): GatewayStatus {
   const row = ctx.rows.get(id);
-  const fromEnv = id === "epay" ? epayFromEnv(ctx) : e2FromEnv(ctx);
+  const fromEnv = id === "epay" ? epayFromEnv(ctx) : id === "pagar" ? pagarFromEnv(ctx) : e2FromEnv(ctx);
   if (!fromEnv && secretUnreadable(row)) return "config_error";
   if (!provider.isConfigured()) {
     // EPay: chave presente mas inválida conta como erro de configuração
     if (id === "epay" && epayKeyForDisplay(ctx)) return "config_error";
     return "credentials_missing";
   }
-  if (id === "e2payments" && row?.lastError) return "config_error";
+  if ((id === "e2payments" || id === "pagar") && row?.lastError) return "config_error";
   if (!isEnabled(id, row)) return "inactive";
-  if (id === "e2payments" && !row?.verifiedAt) return "unverified";
+  // E2Payments e Pagar: só aceitam pagamentos depois de o fornecedor aceitar as credenciais (teste de ligação)
+  if ((id === "e2payments" || id === "pagar") && !row?.verifiedAt) return "unverified";
   return "active";
 }
 
@@ -250,5 +312,5 @@ export function acceptsNewPayments(id: GatewayId, provider: PaymentProvider, ctx
 }
 
 export function providerFor(id: GatewayId, ctx: GatewayContext): PaymentProvider {
-  return id === "epay" ? buildEPayProvider(ctx) : buildE2Provider(ctx);
+  return id === "epay" ? buildEPayProvider(ctx) : id === "pagar" ? buildPagarProvider(ctx) : buildE2Provider(ctx);
 }

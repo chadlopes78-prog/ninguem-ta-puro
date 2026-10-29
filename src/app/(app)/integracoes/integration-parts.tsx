@@ -17,8 +17,18 @@ export const INTEGRATION_LOGO: Record<string, { src: string; alt: string }> = {
   meta: { src: "/integrations/facebook.png", alt: "Facebook" },
 };
 
+/** Integrações sem logótipo oficial no projeto: mostra-se o nome (nunca o logótipo de outra marca). */
+const TEXT_LOGO: Record<string, string> = { pagar: "Pagar" };
+
 export function IntegrationLogo({ id, className }: { id: string; className?: string }) {
-  const logo = INTEGRATION_LOGO[id] ?? INTEGRATION_LOGO.epay;
+  const logo = INTEGRATION_LOGO[id];
+  if (!logo) {
+    return (
+      <span className={cn("grid h-12 w-16 shrink-0 place-items-center rounded-[var(--radius-md)] border border-line bg-surface-2 font-display text-[13px] font-semibold text-fg", className)} data-testid={`logo-${id}`}>
+        {TEXT_LOGO[id] ?? id}
+      </span>
+    );
+  }
   return (
     <span className={cn("grid h-12 w-16 shrink-0 place-items-center", className)} data-testid={`logo-${id}`}>
       {/* eslint-disable-next-line @next/next/no-img-element */}

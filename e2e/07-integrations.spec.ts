@@ -75,4 +75,25 @@ test.describe.serial("gateways de pagamento", () => {
     await expect(page.getByTestId("gateway-e2payments")).toBeVisible();
     await noHorizontalScroll(page);
   });
+
+  test("Pagar: cartão próprio, credenciais só em campos protegidos e endereço do webhook para a app da Pagar", async ({ page }) => {
+    await login(page);
+    await page.goto("/integracoes");
+    const card = page.getByTestId("integration-pagar");
+    await expect(card).toContainText("Pagar API");
+    await card.getByTestId("configure-pagar").click();
+    await expect(page).toHaveURL(/\/integracoes\/pagar$/);
+    const form = page.getByTestId("pagar-form");
+    await expect(form.locator("input")).toHaveCount(3);
+    for (const name of ["apiKey", "signingSecret", "webhookSecret"]) await expect(form.locator(`input[name=${name}]`)).toHaveAttribute("type", "password");
+    await expect(page.getByTestId("pagar-webhook-url")).toContainText("/api/webhooks/pagar");
+    // formato inválido: recusado no servidor, nada é guardado nem mostrado
+    await form.locator("input[name=apiKey]").fill("chave-sem-prefixo-123");
+    await form.locator("input[name=signingSecret]").fill("sig_test_e2e_apenas_teste_000");
+    await form.locator("input[name=webhookSecret]").fill("whsec_test_e2e_apenas_teste_000");
+    await page.getByTestId("pagar-save").click();
+    await expect(page.getByText("A API key da Pagar começa por sk_test_ ou sk_live_")).toBeVisible();
+    expect(await page.content()).not.toContain("sig_test_e2e_apenas_teste_000");
+    await noHorizontalScroll(page);
+  });
 });
