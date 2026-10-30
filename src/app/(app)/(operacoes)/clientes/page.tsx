@@ -1,3 +1,4 @@
+import { displayEmail } from "@/lib/buyer-email";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Users } from "lucide-react";
@@ -31,7 +32,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
           rows={rows}
           rowKey={(c) => c.id}
           columns={[
-            { key: "name", header: "Cliente", mobile: "title", cell: (c) => <Link href={`/clientes/${c.id}`} className="block min-w-0 hover:text-accent"><span className="block truncate font-medium">{c.name}</span><span className="block truncate text-[12px] text-subtle">{c.email}</span></Link> },
+            { key: "name", header: "Cliente", mobile: "title", cell: (c) => <Link href={`/clientes/${c.id}`} className="block min-w-0 hover:text-accent"><span className="block truncate font-medium">{c.name}</span><span className="block truncate text-[12px] text-subtle">{displayEmail(c.email)}</span></Link> },
             { key: "phone", header: "Telefone", mobile: "hide", className: "hidden xl:table-cell", cell: (c) => <span className="text-muted">{c.phone ?? "—"}</span> },
             { key: "first", header: "Primeiro pedido", cell: (c) => <span className="text-muted tabular">{c.firstOrderAt ? formatDate(c.firstOrderAt, settings.timezone) : "—"}</span> },
             { key: "orders", header: "Pedidos", align: "right", cell: (c) => <span className="tabular text-muted">{c.ordersCount}</span> },

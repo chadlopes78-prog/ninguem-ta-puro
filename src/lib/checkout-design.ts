@@ -530,7 +530,7 @@ export function classicDesign(theme: { primaryColor: string; backgroundColor: st
   main.columns = [
     [
       { id: "product-name", type: "heading", style: { fontSize: 28, fontSizeMobile: 22 }, source: "productName", text: "", level: "h1" },
-      { id: "product-image", type: "image", style: {}, source: "product", src: "", alt: "", caption: "", widthPct: 100, mobileWidthPct: 100, maxWidthPx: 0, aspect: "16/9", heightPx: 0, fit: "cover", focusX: 50, focusY: 50, imgRadius: 14, imgAlign: "center" },
+      { id: "product-image", type: "image", style: {}, source: "product", src: "", alt: "", caption: "", widthPct: 100, mobileWidthPct: 100, maxWidthPx: 0, aspect: "auto", heightPx: 0, fit: "cover", focusX: 50, focusY: 50, imgRadius: 14, imgAlign: "center" },
       { id: "product-price", type: "price", style: { fontSize: 26, fontSizeMobile: 24 }, label: "", showCompareAt: true },
       { id: "checkout", type: "checkout", style: { marginTop: 4 }, title: "Os seus dados", subtitle: "", stickyDesktop: false, variant: "classic", phoneTitle: "", phoneHint: "", phoneNote: "", securityItems: [], consentText: "" },
     ],

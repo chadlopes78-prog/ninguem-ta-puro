@@ -39,7 +39,7 @@ export default async function DesignPreviewPage({ params, searchParams }: { para
           </LinkButton>
         </div>
       </div>
-      <CheckoutView mode="preview" data={{ ...checkoutViewData(full, settings), paymentOptions }} design={showPublished ? publicDesign(full) : state.draft} />
+      <CheckoutView mode="preview" data={{ ...(await checkoutViewData(full, settings)), paymentOptions }} design={showPublished ? publicDesign(full) : state.draft} />
     </div>
   );
 }

@@ -31,6 +31,8 @@ export interface ProductFormValues {
   upsellUrl?: string;
   /** Banner promocional (independente da imagem principal) */
   bannerUrl?: string;
+  /** Pedir o email do comprador no checkout */
+  collectEmail?: boolean;
 }
 
 /**
@@ -178,6 +180,8 @@ export function ProductForm({
           </CardBody>
         </Card>
 
+        <CollectEmailCard initial={initial.collectEmail !== false} />
+
         <Card>
           <CardHeader title="Redireccionamento após a compra" description="Para onde o cliente vai depois de o pagamento ser confirmado pelo processador." />
           <CardBody className="grid gap-3">
@@ -265,5 +269,35 @@ export function ProductForm({
         </Card>
       </fieldset>
     </form>
+  );
+}
+
+/** Interruptor «Pedir email no checkout». Desativado: o checkout só pede nome e número (o telefone identifica o comprador). */
+function CollectEmailCard({ initial }: { initial: boolean }) {
+  const [on, setOn] = useState(initial);
+  return (
+    <Card>
+      <CardHeader title="Dados do comprador" description="Escolha se o checkout deste produto pede o email do cliente." />
+      <CardBody className="grid gap-2">
+        <input type="hidden" name="collectEmail" value={on ? "true" : "false"} />
+        <button
+          type="button"
+          role="switch"
+          aria-checked={on}
+          onClick={() => setOn((v) => !v)}
+          data-testid="collect-email-toggle"
+          className="flex w-full items-center justify-between gap-4 rounded-lg border border-line bg-surface-2 px-4 py-3 text-left"
+        >
+          <span>
+            <span className="block text-sm font-medium">Pedir email no checkout</span>
+            <span className="block text-[12.5px] text-muted">{on ? "Ativado — o cliente indica nome, email e número." : "Desativado — o cliente indica só nome e número."}</span>
+          </span>
+          <span className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${on ? "bg-accent" : "bg-line"}`} aria-hidden="true">
+            <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${on ? "translate-x-5" : "translate-x-0.5"}`} />
+          </span>
+        </button>
+        {!on && <p className="text-[12px] text-subtle">Sem email, o cliente não pode recuperar o acesso por email: recebe-o logo a seguir ao pagamento confirmado.</p>}
+      </CardBody>
+    </Card>
   );
 }

@@ -33,6 +33,11 @@ export const productSchema = z.object({
   imageUrl: productImage,
   /** Banner promocional (imagem larga do checkout); independente da imagem principal */
   bannerUrl: productImage,
+  /** Pedir o email no checkout (interruptor do formulário: "true"/"false"; omitido = mantém/ativo) */
+  collectEmail: z
+    .union([z.boolean(), z.string()])
+    .optional()
+    .transform((v) => (v === undefined || v === "" ? undefined : v === true || v === "true" || v === "on")),
   type: z.enum(PRODUCT_TYPES, { errorMap: () => ({ message: "Selecione um tipo" }) }),
   category: optionalString(80),
   priceCents: moneyInput({ min: 100, label: "Preço" }),
@@ -223,10 +228,19 @@ export const accountSettingsSchema = z.object({
 });
 export type AccountSettingsInput = z.infer<typeof accountSettingsSchema>;
 
-export const publicCheckoutSchema = (opts: { requirePhone: boolean; requireDocument: boolean }) =>
+export const publicCheckoutSchema = (opts: { requirePhone: boolean; requireDocument: boolean; requireEmail?: boolean }) =>
   z.object({
     name: z.string().trim().min(3, "Introduza o seu nome completo").max(120),
-    email: z.string().trim().toLowerCase().email("Introduza um email válido").max(254),
+    email:
+      opts.requireEmail === false
+        ? z
+            .string()
+            .trim()
+            .toLowerCase()
+            .max(254)
+            .optional()
+            .refine((v) => !v || z.string().email().safeParse(v).success, "Introduza um email válido")
+        : z.string().trim().toLowerCase().email("Introduza um email válido").max(254),
     phone: opts.requirePhone
       ? z.string().trim().regex(/^[+\d][\d\s()-]{7,19}$/, "Telefone inválido")
       : z

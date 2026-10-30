@@ -486,7 +486,7 @@ export function PurchaseForm({
           </div>
         )}
         {cardField("name", "Nome completo", { autoComplete: "name" }, true)}
-        {cardField("email", "Email", { type: "email", autoComplete: "email", placeholder: "voce@exemplo.com", inputMode: "email" }, true)}
+        {data.collectEmail !== false && cardField("email", "Email", { type: "email", autoComplete: "email", placeholder: "voce@exemplo.com", inputMode: "email" }, true)}
         {data.collectDocument && cardField("document", "Documento (NUIT/BI)", { autoComplete: "off" }, data.requireDocument)}
 
         {phoneNeeded && (
@@ -684,7 +684,7 @@ export function PurchaseForm({
         </div>
       )}
       {field("name", "Nome completo", { autoComplete: "name", placeholder: "O seu nome" }, true)}
-      {field("email", "Email", { type: "email", autoComplete: "email", placeholder: "voce@exemplo.com", inputMode: "email" }, true)}
+      {data.collectEmail !== false && field("email", "Email", { type: "email", autoComplete: "email", placeholder: "voce@exemplo.com", inputMode: "email" }, true)}
       {data.collectPhone && !selectedMethod?.requiresPhone && phoneField("Telefone", data.requirePhone)}
       {data.collectDocument && field("document", "Documento (CPF/NIF)", { autoComplete: "off" }, data.requireDocument)}
 

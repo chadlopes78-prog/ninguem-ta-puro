@@ -27,6 +27,10 @@ export interface CheckoutViewData {
   imageUrl: string | null;
   /** Banner promocional do produto (cartão do produto no checkout); sem banner usa-se a imagem principal */
   bannerUrl?: string | null;
+  /** Tamanho real (px) da imagem do cartão do produto: mostrada inteira, sem cortes nem ampliação */
+  cardImageSize?: { width: number; height: number } | null;
+  /** false: o checkout não pede email (o produto identifica o comprador pelo telefone) */
+  collectEmail?: boolean;
   buttonText: string;
   primaryColor: string;
   backgroundColor: string;

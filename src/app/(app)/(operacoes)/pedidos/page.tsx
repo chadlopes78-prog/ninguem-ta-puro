@@ -1,3 +1,4 @@
+import { displayEmail } from "@/lib/buyer-email";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Receipt } from "lucide-react";
@@ -75,7 +76,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
                 </Link>
               ),
             },
-            { key: "customer", header: "Cliente", cell: (o) => <span className="block max-w-[160px] truncate text-muted">{o.customer.name}<span className="block truncate text-[12px] text-subtle">{o.customer.email}</span></span> },
+            { key: "customer", header: "Cliente", cell: (o) => <span className="block max-w-[160px] truncate text-muted">{o.customer.name}<span className="block truncate text-[12px] text-subtle">{displayEmail(o.customer.email)}</span></span> },
             { key: "product", header: "Produto", className: "hidden xl:table-cell", cell: (o) => <span className="block max-w-[220px] truncate text-muted">{o.items[0]?.product.name}{o.items.length > 1 && <span className="text-subtle"> +{o.items.length - 1}</span>}</span> },
             { key: "date", header: "Data", cell: (o) => <span className="text-muted tabular">{formatDate(o.createdAt, settings.timezone, true)}</span> },
             { key: "total", header: "Valor", align: "right", mobile: "end", cell: (o) => <span className="font-medium tabular">{formatMoney(o.totalCents, o.currency)}</span> },

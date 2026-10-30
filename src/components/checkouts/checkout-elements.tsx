@@ -206,22 +206,37 @@ function ProductCard({ el, ctx }: { el: Extract<DesignElement, { type: "productC
   const { data, p } = ctx;
   // «Do produto»: o banner promocional, ou a imagem principal quando não há banner
   const src = el.imageSource === "product" ? (data.bannerUrl ?? data.imageUrl) : el.src;
+  const size = el.imageSource === "product" ? data.cardImageSize : null;
   const overlay = el.showOverlay && el.overlayText.trim();
   return (
     <div className={cn("overflow-hidden rounded-[18px] border", p.dark ? "border-white/10 bg-white/[0.04]" : "border-[#E7E8F0] bg-white shadow-[0_1px_3px_rgba(16,24,40,0.06)]")} data-testid="product-card">
-      {(src || ctx.editing) && (
-        <div className="relative w-full overflow-hidden" style={{ aspectRatio: "2 / 1" }}>
-          {src ? (
-            <ResponsiveImg src={src} alt={data.productName} loading="eager" fetchPriority="high" decoding="async" sizes="(max-width: 560px) 100vw, 520px" className="absolute inset-0 h-full w-full object-cover" style={{ objectPosition: `${el.focusX}% ${el.focusY}%` }} />
-          ) : (
-            <div className={cn("absolute inset-0 grid place-items-center border-b border-dashed text-[13px]", p.muted)}>Imagem do produto (adicione-a no produto ou escolha outra aqui)</div>
-          )}
+      {src ? (
+        // a imagem aparece inteira, com as proporções reais e no máximo no seu tamanho real (nunca cortada)
+        <div className="relative mx-auto w-fit max-w-full" data-testid="product-card-media">
+          <ResponsiveImg
+            src={src}
+            alt={data.productName}
+            loading="eager"
+            fetchPriority="high"
+            decoding="async"
+            width={size?.width}
+            height={size?.height}
+            sizes={size ? `min(${size.width}px, 100vw)` : "(max-width: 560px) 100vw, 520px"}
+            className={cn("block h-auto max-w-full", !size && "w-full")}
+            style={size ? { width: size.width } : undefined}
+          />
           {overlay && (
             <span className={cn("absolute max-w-[calc(100%-20px)] rounded-xl bg-black/90 px-3 py-1 text-[22px] font-semibold leading-tight text-white [overflow-wrap:anywhere] @sm:text-[26px]", OVERLAY_POS[el.overlayPosition])} data-testid="product-card-overlay">
               {el.overlayText}
             </span>
           )}
         </div>
+      ) : (
+        ctx.editing && (
+          <div className={cn("grid w-full place-items-center border-b border-dashed text-[13px]", p.muted)} style={{ aspectRatio: "2 / 1" }}>
+            Imagem do produto (adicione-a no produto ou escolha outra aqui)
+          </div>
+        )
       )}
       {(el.showName || el.showPrice) && (
         <div className="px-4 pb-4 pt-3.5">

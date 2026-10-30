@@ -5,6 +5,7 @@ import { getSettings } from "@/server/services/settings";
 import { getActivePaymentProviders } from "@/server/payments/registry";
 import { listPaymentOptions } from "@/server/services/payment-flow";
 import { publicDesign, realSocialProof, usesRealSocialProof } from "@/server/services/checkout-design";
+import { checkoutViewData, productFacing } from "@/server/services/checkout-view-data";
 import { hasUsableCoupons } from "@/server/services/coupons";
 import { scopeOf } from "@/server/scope";
 import { CheckoutView } from "@/components/checkouts/checkout-view";
@@ -20,7 +21,7 @@ const loadCheckout = cache(getPublicCheckout);
 
 export async function generateMetadata({ params }: { params: Promise<{ publicId: string }> }): Promise<Metadata> {
   const r = await loadCheckout((await params).publicId);
-  return { title: r.state === "ok" ? r.checkout.title : "Indisponível", robots: { index: false } };
+  return { title: r.state === "ok" ? productFacing(r.checkout).title : "Indisponível", robots: { index: false } };
 }
 
 export default async function PublicCheckoutPage({ params }: { params: Promise<{ publicId: string }> }) {
@@ -40,32 +41,17 @@ export default async function PublicCheckoutPage({ params }: { params: Promise<{
   const paymentOptions = listPaymentOptions(providers);
   const design = publicDesign(c);
   // prova social com dados reais (só quando o design a mostra)
-  const socialProof = usesRealSocialProof(design) && !c.isDemo ? await realSocialProof(c.id) : undefined;
+  const [socialProof, viewData] = await Promise.all([
+    usesRealSocialProof(design) && !c.isDemo ? realSocialProof(c.id) : Promise.resolve(undefined),
+    checkoutViewData(c, settings),
+  ]);
   return (
     <CheckoutView
       design={design}
       data={{
-        publicId: c.publicId,
-        title: c.title,
-        description: c.description,
-        imageUrl: c.imageUrl ?? c.product.imageUrl,
-        bannerUrl: c.product.bannerUrl,
-        buttonText: c.buttonText,
-        primaryColor: c.primaryColor,
-        backgroundColor: c.backgroundColor,
-        collectPhone: c.collectPhone,
-        requirePhone: c.requirePhone,
-        collectDocument: c.collectDocument,
-        requireDocument: c.requireDocument,
+        ...viewData,
+        // o campo de cupão só aparece se a conta tiver cupões utilizáveis
         allowCoupons: couponsAvailable,
-        supportEmail: c.supportEmail ?? c.product.supportEmail ?? settings.supportEmail,
-        productName: c.product.name,
-        offerName: c.offer.name,
-        priceCents: c.offer.priceCents,
-        compareAtCents: c.offer.compareAtCents,
-        currency: c.offer.currency,
-        isDemo: c.isDemo,
-        businessName: settings.businessName,
         paymentOptions,
         socialProof,
       }}

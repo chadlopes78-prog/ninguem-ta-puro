@@ -379,7 +379,20 @@ function AppearanceFields({ el, set, s, setStyle }: { el: DesignElement; set: Pa
   );
 }
 
-export function ElementProperties({ el, onChange, onStyle }: { el: DesignElement; onChange: Patch; onStyle: (p: Partial<ElementStyle>) => void }) {
+export function ElementProperties({
+  el,
+  onChange,
+  onStyle,
+  theme,
+  onTheme,
+}: {
+  el: DesignElement;
+  onChange: Patch;
+  onStyle: (p: Partial<ElementStyle>) => void;
+  /** estilo da página (o botão de pagamento é configurado aqui e também em «Estilo da página») */
+  theme?: CheckoutTheme;
+  onTheme?: (t: Partial<CheckoutTheme>) => void;
+}) {
   const s = el.style;
   const isCheckout = el.type === "checkout";
   return (
@@ -388,6 +401,15 @@ export function ElementProperties({ el, onChange, onStyle }: { el: DesignElement
       <Group title="Conteúdo">
         <ContentFields el={el} set={onChange} />
       </Group>
+      {isCheckout && theme && onTheme && (
+        <Group title="Botão de pagamento">
+          <div data-testid="pay-button-settings" className="grid gap-3">
+            <TextProp label="Nome do botão" value={theme.buttonText} onChange={(buttonText) => onTheme({ buttonText })} max={40} />
+            <p className="-mt-1 text-[11.5px] text-subtle">Escreva {"{valor}"} para mostrar o total (ex.: QUERO PAGAR {"{valor}"} AGORA).</p>
+            <ColorProp label="Cor do botão" value={theme.buttonColor || undefined} onChange={(v) => onTheme({ buttonColor: v ?? "" })} />
+          </div>
+        </Group>
+      )}
       <AppearanceFields el={el} set={onChange} s={s} setStyle={onStyle} />
       {el.type !== "spacer" && (
         <Group title="Espaçamento">

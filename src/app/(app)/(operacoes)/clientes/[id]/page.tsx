@@ -1,3 +1,4 @@
+import { displayEmail } from "@/lib/buyer-email";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -30,7 +31,7 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
 
   return (
     <>
-      <PageHeader breadcrumbs={[{ label: "Clientes", href: "/clientes" }, { label: c.name }]} title={<span className="flex flex-wrap items-center gap-3">{c.name} {isDemo && <DemoBadge />}</span>} description={c.email} />
+      <PageHeader breadcrumbs={[{ label: "Clientes", href: "/clientes" }, { label: c.name }]} title={<span className="flex flex-wrap items-center gap-3">{c.name} {isDemo && <DemoBadge />}</span>} description={displayEmail(c.email)} />
       <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Pedidos" value={c.orders.length} />
         <StatCard label="Compras confirmadas" value={confirmed.size ? [...confirmed].map(([cur, v]) => formatMoney(v, cur)).join(" · ") : "—"} />
@@ -56,7 +57,7 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
         <Card>
           <CardHeader title="Contacto" />
           <CardBody className="grid gap-2 text-sm">
-            <p><span className="text-muted">Email: </span>{c.email}</p>
+            <p><span className="text-muted">Email: </span>{displayEmail(c.email)}</p>
             <p><span className="text-muted">Telefone: </span>{c.phone ?? "—"}</p>
             <p><span className="text-muted">Documento: </span>{c.document ? `•••${c.document.slice(-3)}` : "—"}</p>
             <p className="mt-2 text-[12px] text-subtle">O documento é apresentado parcialmente para proteção de dados.</p>

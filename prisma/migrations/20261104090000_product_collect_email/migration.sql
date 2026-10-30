@@ -1,0 +1,1 @@
+ALTER TABLE "Product" ADD COLUMN "collectEmail" BOOLEAN NOT NULL DEFAULT true;

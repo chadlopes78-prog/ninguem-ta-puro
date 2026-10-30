@@ -33,7 +33,7 @@ export default async function PersonalizeCheckoutPage({ params }: { params: Prom
       initial={state.draft}
       status={state.status}
       hasPublished={state.hasPublished}
-      previewData={{ ...checkoutViewData(full, settings), paymentOptions }}
+      previewData={{ ...(await checkoutViewData(full, settings)), paymentOptions }}
       saveAction={saveDesignDraftAction.bind(null, state.product.id)}
       publishAction={publishDesignAction.bind(null, state.product.id)}
       discardAction={discardDraftAction.bind(null, state.product.id)}

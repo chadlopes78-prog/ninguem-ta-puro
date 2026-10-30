@@ -179,6 +179,7 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
           pixel,
           upsellUrl,
           bannerUrl: product.bannerUrl ?? "",
+          collectEmail: product.collectEmail,
         }}
       />
     </>

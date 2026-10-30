@@ -1,3 +1,4 @@
+import { phoneOnlyEmail } from "@/lib/buyer-email";
 import { Prisma, type OrderItemKind } from "@prisma/client";
 import { prisma } from "@/server/db";
 import { newOrderCode, newRunId } from "@/lib/ids";
@@ -73,9 +74,11 @@ export async function submitCheckout(publicId: string, raw: Record<string, unkno
   if (res.state !== "ok") return { kind: "unavailable" };
   const c = res.checkout;
 
-  const parsed = publicCheckoutSchema({ requirePhone: c.requirePhone, requireDocument: c.requireDocument }).safeParse(raw);
+  // «Pedir email» desativado no produto: o telefone passa a ser obrigatório e identifica o comprador
+  const askEmail = c.product.collectEmail;
+  const parsed = publicCheckoutSchema({ requirePhone: c.requirePhone || !askEmail, requireDocument: c.requireDocument, requireEmail: askEmail }).safeParse(raw);
   if (!parsed.success) return { kind: "invalid", fieldErrors: flattenErrors(parsed.error) };
-  const input = parsed.data;
+  const input = { ...parsed.data, email: parsed.data.email || phoneOnlyEmail(parsed.data.phone ?? "") };
 
   const session = sessionId
     ? await prisma.checkoutSession.findFirst({ where: { id: sessionId, checkoutId: c.id } })

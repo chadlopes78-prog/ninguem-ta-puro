@@ -9,6 +9,7 @@ import { z } from "zod";
 import { resolveUncertainPayment } from "@/server/services/payment-flow";
 import { recordRefund } from "@/server/services/finance";
 import { parseMoneyToCents } from "@/lib/money";
+import { deleteOrder } from "@/server/services/sales-history";
 
 /** Pagamento "por verificar" (ex.: E2Payments sem resposta): o dono confirma depois de verificar no painel do fornecedor. */
 export async function resolveUncertainPaymentAction(id: string, outcome: "paid" | "failed") {
@@ -50,5 +51,15 @@ export async function createManualOrderAction(fd: FormData) {
     const o = await createManualOrder(p.data, scope);
     revalidatePath("/pedidos");
     return { ok: true, data: { id: o.id }, message: isDemo ? "Pedido de demonstração criado." : "Pedido manual de teste criado (não conta como venda)." };
+  });
+}
+
+/** Elimina permanentemente um pedido real desta conta (ex.: compra de teste feita pelo próprio vendedor). */
+export async function deleteOrderAction(id: string) {
+  return guarded(async ({ scope }) => {
+    if (scope.isDemo) return { ok: false, error: "Os pedidos de demonstração removem-se em Configurações → Modo de demonstração." };
+    const n = await deleteOrder(scope.ownerId, assertId(id));
+    revalidatePath("/", "layout");
+    return { ok: true, message: n > 1 ? `Pedido eliminado (com ${n - 1} upsell/downsell associado${n > 2 ? "s" : ""}).` : "Pedido eliminado do histórico." };
   });
 }

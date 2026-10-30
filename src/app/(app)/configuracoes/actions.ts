@@ -9,6 +9,7 @@ import { demoToolsEnabled, setDemoMode, updateAccountSettings } from "@/server/s
 import { LOCALE_COOKIE } from "@/lib/panel-theme";
 import { clearDemoData, seedDemoData } from "@/server/services/demo";
 import { changePassword } from "@/server/auth/service";
+import { clearSalesHistory, type ClearMode } from "@/server/services/sales-history";
 
 export async function saveSettingsAction(fd: FormData) {
   return guarded(async ({ user }) => {
@@ -61,5 +62,16 @@ export async function changePasswordAction(fd: FormData) {
     const ok = await changePassword(user.id, p.data.current, p.data.next);
     if (!ok) return { ok: false, error: "Palavra-passe atual incorreta.", fieldErrors: { current: "Palavra-passe atual incorreta" } };
     return { ok: true, message: "Palavra-passe alterada. Todas as sessões foram terminadas — inicie sessão novamente." };
+  });
+}
+
+/** Limpa o histórico de vendas REAL da conta autenticada (os dados de demonstração têm a sua própria opção). */
+export async function clearSalesHistoryAction(mode: ClearMode) {
+  return guarded(async ({ user }) => {
+    if (mode !== "test" && mode !== "all") return { ok: false, error: "Opção inválida." };
+    const n = await clearSalesHistory(user.id, mode);
+    revalidatePath("/", "layout");
+    if (!n && mode === "test") return { ok: true, message: "Não havia pagamentos de teste para limpar." };
+    return { ok: true, message: mode === "all" ? `Histórico limpo: ${n} pedido(s) eliminado(s). O Dashboard recomeça do zero.` : `${n} pagamento(s) de teste eliminado(s).` };
   });
 }

@@ -2,13 +2,14 @@ import type { Metadata } from "next";
 import { requireUser } from "@/server/auth/session";
 import { demoToolsEnabled, getSettings } from "@/server/services/settings";
 import { demoDataCounts } from "@/server/services/demo";
+import { salesHistoryCounts } from "@/server/services/sales-history";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert } from "@/components/ui/alert";
 import { ActionButton } from "@/components/ui/action-button";
 import { SecurityCard, SettingsForm } from "@/components/settings/settings-form";
-import { changePasswordAction, clearDemoAction, saveSettingsAction, seedDemoAction, setDemoModeAction } from "./actions";
+import { changePasswordAction, clearDemoAction, clearSalesHistoryAction, saveSettingsAction, seedDemoAction, setDemoModeAction } from "./actions";
 import { PushSettings } from "@/components/notifications/push-settings";
 import { getVapidKeys } from "@/server/notifications/push";
 import { getPrefs, listDevices } from "@/server/notifications/service";
@@ -18,7 +19,7 @@ export const metadata: Metadata = { title: "Configurações" };
 
 export default async function SettingsPage() {
   const user = await requireUser();
-  const [s, counts, vapid, devices, prefs] = await Promise.all([getSettings(user.id), demoDataCounts(user.id), getVapidKeys().catch(() => null), listDevices(user.id), getPrefs(user.id)]);
+  const [s, counts, vapid, devices, prefs, history] = await Promise.all([getSettings(user.id), demoDataCounts(user.id), getVapidKeys().catch(() => null), listDevices(user.id), getPrefs(user.id), salesHistoryCounts(user.id)]);
   const tools = demoToolsEnabled();
   const hasDemo = Object.values(counts).some((n) => n > 0);
 
@@ -47,6 +48,43 @@ export default async function SettingsPage() {
               revokeDevice={revokeDeviceAction}
               sendTest={sendTestAction}
             />
+          </CardBody>
+        </Card>
+
+        <Card id="historico" className="scroll-mt-6" data-testid="sales-history-card">
+          <CardHeader
+            title="Limpar histórico de vendas"
+            description="Fez compras de teste com o seu próprio número? Elimine-as para que o Dashboard, Operações e Relatórios mostrem só vendas verdadeiras. Produtos, checkouts, funis e integrações não são afetados."
+          />
+          <CardBody className="grid gap-4">
+            <p className="text-sm text-muted" data-testid="sales-history-counts">
+              Histórico atual: {history.orders} pedido(s), dos quais {history.testOrders} pagamento(s) de teste.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <ActionButton
+                variant="secondary"
+                action={clearSalesHistoryAction.bind(null, "test")}
+                disabled={!history.testOrders}
+                data-testid="clear-test-sales"
+                confirm={{ title: "Limpar pagamentos de teste?", description: `${history.testOrders} pedido(s) pagos em modo de teste serão eliminados permanentemente. As vendas reais ficam intactas.`, confirmLabel: "Limpar testes", danger: true }}
+              >
+                Limpar pagamentos de teste
+              </ActionButton>
+              <ActionButton
+                variant="danger"
+                action={clearSalesHistoryAction.bind(null, "all")}
+                disabled={!history.orders}
+                data-testid="clear-all-sales"
+                confirm={{
+                  title: "Limpar TODO o histórico de vendas?",
+                  description: `Os ${history.orders} pedido(s) desta conta (incluindo vendas reais), os pagamentos, entregas, reembolsos, notificações de vendas, visitas dos checkouts e metas celebradas serão eliminados permanentemente. O Dashboard recomeça do zero. Não pode ser desfeito. Para apagar só uma compra, abra o pedido em Operações e use «Eliminar pedido».`,
+                  confirmLabel: "Limpar tudo",
+                  danger: true,
+                }}
+              >
+                Limpar todo o histórico
+              </ActionButton>
+            </div>
           </CardBody>
         </Card>
 

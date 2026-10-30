@@ -12,6 +12,7 @@
 //  - dados pessoais: só email, telefone e ID de cliente com hash SHA-256 (como a Meta exige), o navegador e o
 //    clique do anúncio (fbc). Nunca nome, morada, IP ou dados em texto simples.
 // Formato: https://developers.facebook.com/docs/marketing-api/conversions-api (POST /{pixel_id}/events).
+import { isPhoneOnlyEmail } from "@/lib/buyer-email";
 import "server-only";
 import { createHash } from "crypto";
 import type { MetaEvent, MetaPixel, Prisma } from "@prisma/client";
@@ -292,7 +293,7 @@ export function buildPurchaseEvent(order: EventOrder, eventId: string, selected:
   const ctx = order.trackingContext ?? order.parentOrder?.trackingContext ?? null;
   const base = staticAppBaseUrl().url;
   const sourceUrl = ctx?.sourceUrl ?? (base && order.checkout?.slug ? `${base}/checkout/${order.checkout.slug}` : undefined);
-  const email = order.customer.email?.trim().toLowerCase();
+  const email = isPhoneOnlyEmail(order.customer.email) ? undefined : order.customer.email?.trim().toLowerCase();
   const phone = normPhone(order.customer.phone);
   const userData: Record<string, unknown> = { external_id: [sha256(order.customerId)] };
   if (email) userData.em = [sha256(email)];

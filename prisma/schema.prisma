@@ -144,6 +144,8 @@ model Product {
   imageUrl        String?
   /// Banner promocional (imagem larga do checkout), independente da imagem principal
   bannerUrl       String?
+  /// Pedir o email do comprador no checkout (sem email, o comprador é identificado pelo telefone)
+  collectEmail    Boolean            @default(true)
   type            ProductType
   category        String?
   status          ProductStatus      @default(DRAFT)

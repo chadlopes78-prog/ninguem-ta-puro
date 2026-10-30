@@ -1,3 +1,4 @@
+import { displayEmail } from "@/lib/buyer-email";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -16,7 +17,7 @@ import { Badge, DemoBadge } from "@/components/ui/badge";
 import { Alert } from "@/components/ui/alert";
 import { ActionButton } from "@/components/ui/action-button";
 import { OrderStatusBadge } from "@/components/orders/status";
-import { changeOrderStatusAction, recordRefundAction, resolveUncertainPaymentAction } from "../actions";
+import { changeOrderStatusAction, deleteOrderAction, recordRefundAction, resolveUncertainPaymentAction } from "../actions";
 import { RefundButton } from "@/components/orders/refund-panel";
 import { needsManualVerification } from "@/server/services/payment-flow";
 import { e2Reference } from "@/server/payments/providers/e2payments";
@@ -85,6 +86,22 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
               />
             )}
             {can("CANCELED") && <ActionButton variant="danger" action={changeOrderStatusAction.bind(null, o.id, "CANCELED")} confirm={{ title: "Cancelar pedido", description: "O pedido pendente será cancelado. Esta ação não pode ser desfeita.", confirmLabel: "Cancelar pedido", danger: true }}>Cancelar pedido</ActionButton>}
+            {!isDemo && (
+              <ActionButton
+                variant="danger"
+                action={deleteOrderAction.bind(null, o.id)}
+                redirectTo="/pedidos"
+                data-testid="delete-order"
+                confirm={{
+                  title: "Eliminar este pedido?",
+                  description: "O pedido, os pagamentos, a entrega e os upsells associados são eliminados permanentemente e deixam de contar no Dashboard, em Operações e nos Relatórios. Use para compras de teste. Não pode ser desfeito.",
+                  confirmLabel: "Eliminar pedido",
+                  danger: true,
+                }}
+              >
+                Eliminar pedido
+              </ActionButton>
+            )}
           </>
         }
       />
@@ -134,7 +151,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
             <CardHeader title="Cliente" />
             <CardBody>
               <Link href={`/clientes/${o.customer.id}`} className="font-medium text-fg hover:text-accent">{o.customer.name}</Link>
-              <p className="text-sm text-muted">{o.customer.email}</p>
+              <p className="text-sm text-muted">{displayEmail(o.customer.email)}</p>
               {o.customer.phone && <p className="text-sm text-muted">{o.customer.phone}</p>}
             </CardBody>
           </Card>

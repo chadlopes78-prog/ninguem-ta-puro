@@ -724,6 +724,8 @@ export function CheckoutEditor(props: Props) {
     <ElementProperties
       key={selectedEl.id}
       el={selectedEl}
+      theme={design.theme}
+      onTheme={(t) => h.commit((d) => ({ ...d, theme: { ...d.theme, ...t } }), `theme:${Object.keys(t).join(",")}`)}
       onChange={(patch) => h.commit((d) => updateElement(d, selectedEl.id, patch), `el:${selectedEl.id}:${Object.keys(patch).join(",")}`)}
       onStyle={(patch: Partial<ElementStyle>) =>
         h.commit((d) => {
