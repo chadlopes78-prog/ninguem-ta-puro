@@ -8,6 +8,7 @@
 // Segredos: a chave secreta de cada conta (variável EPAY_SECRET_KEY — só para a conta proprietária — ou a chave
 // guardada cifrada na aba Integrações de cada conta) só é lida no servidor, nunca é registada em logs nem enviada ao browser.
 // Cada conta tem a sua instância (createEPayProvider): pagamentos e avisos usam sempre a chave da conta dona da venda.
+import { isPhoneOnlyEmail } from "@/lib/buyer-email";
 import "server-only";
 import { centsToDecimalString, decimalStringToCents } from "@/lib/money";
 import { verifyHmacSha256 } from "../webhooks";
@@ -189,7 +190,8 @@ export function createEPayProvider(cfg: EPayKeySource): PaymentProvider {
       description: req.description.slice(0, 255),
       external_reference: req.reference.slice(0, 255),
       customer_name: req.customer.name.slice(0, 255),
-      customer_email: req.customer.email.slice(0, 255),
+      // opcional na EPay: não se envia o endereço interno dos compradores sem email
+      ...(isPhoneOnlyEmail(req.customer.email) ? {} : { customer_email: req.customer.email.slice(0, 255) }),
       return_url: req.returnUrl,
       cancel_url: req.cancelUrl,
     };

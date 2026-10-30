@@ -208,6 +208,8 @@ function ProductCard({ el, ctx }: { el: Extract<DesignElement, { type: "productC
   const src = el.imageSource === "product" ? (data.bannerUrl ?? data.imageUrl) : el.src;
   const size = el.imageSource === "product" ? data.cardImageSize : null;
   const overlay = el.showOverlay && el.overlayText.trim();
+  // nome do produto oculto (opção do produto): o preço sobe para o lugar do nome
+  const showName = el.showName && data.showProductName !== false;
   return (
     <div className={cn("overflow-hidden rounded-[18px] border", p.dark ? "border-white/10 bg-white/[0.04]" : "border-[#E7E8F0] bg-white shadow-[0_1px_3px_rgba(16,24,40,0.06)]")} data-testid="product-card">
       {src ? (
@@ -215,7 +217,7 @@ function ProductCard({ el, ctx }: { el: Extract<DesignElement, { type: "productC
         <div className="relative mx-auto w-fit max-w-full" data-testid="product-card-media">
           <ResponsiveImg
             src={src}
-            alt={data.productName}
+            alt={data.showProductName === false ? "" : data.productName}
             loading="eager"
             fetchPriority="high"
             decoding="async"
@@ -238,9 +240,9 @@ function ProductCard({ el, ctx }: { el: Extract<DesignElement, { type: "productC
           </div>
         )
       )}
-      {(el.showName || el.showPrice) && (
+      {(showName || el.showPrice) && (
         <div className="px-4 pb-4 pt-3.5">
-          {el.showName && <h1 className={cn("font-[family-name:var(--ck-heading)] font-semibold leading-snug tracking-tight [overflow-wrap:anywhere]", fs(el.style, "text-[18px]"))}>{data.title}</h1>}
+          {showName && <h1 className={cn("font-[family-name:var(--ck-heading)] font-semibold leading-snug tracking-tight [overflow-wrap:anywhere]", fs(el.style, "text-[18px]"))}>{data.title}</h1>}
           {el.showPrice && (
             <p className="mt-1 flex flex-wrap items-baseline gap-x-2.5" data-testid="price">
               <span className="text-[30px] font-extrabold leading-tight tracking-tight tabular" style={{ color: p.primary }}>
@@ -300,6 +302,9 @@ export function ElementContent({ el, ctx }: { el: DesignElement; ctx: RenderCtx 
   switch (el.type) {
     case "heading": {
       const Tag = el.level;
+      // nome do produto oculto (opção do produto): o título desaparece do checkout sem deixar espaço
+      if (el.source === "productName" && data.showProductName === false)
+        return ctx.editing ? <p className={cn("rounded-lg border border-dashed px-3 py-2 text-[13px]", p.muted)}>Nome do produto oculto (opção do produto)</p> : null;
       const txt = el.source === "productName" ? data.title : el.text;
       const size = el.level === "h1" ? "text-[28px] @2xl:text-[38px]" : el.level === "h2" ? "text-[22px] @2xl:text-[28px]" : "text-[18px] @2xl:text-[21px]";
       return <Tag className={cn("font-[family-name:var(--ck-heading)] font-semibold leading-[1.15] tracking-tight [overflow-wrap:anywhere]", fs(s, size))}>{txt}</Tag>;
@@ -319,7 +324,7 @@ export function ElementContent({ el, ctx }: { el: DesignElement; ctx: RenderCtx 
       const media = src ? (
         <ResponsiveImg
           src={src}
-          alt={el.source === "product" ? el.alt || data.productName : el.alt}
+          alt={el.source === "product" ? el.alt || (data.showProductName === false ? "" : data.productName) : el.alt}
           loading={el.source === "product" ? "eager" : "lazy"}
           fetchPriority={el.source === "product" ? "high" : undefined}
           decoding="async"
@@ -329,7 +334,7 @@ export function ElementContent({ el, ctx }: { el: DesignElement; ctx: RenderCtx 
       ) : el.source === "product" && ctx.editing ? (
         <div className={cn("grid w-full place-items-center border", p.panel)} style={{ aspectRatio: aspect ?? "16 / 10", borderRadius: el.imgRadius }} aria-hidden="true">
           <span className="font-display text-5xl font-semibold" style={{ color: p.primary }}>
-            {initials(data.productName)}
+            {data.showProductName === false ? "" : initials(data.productName)}
           </span>
         </div>
       ) : ctx.editing ? (
@@ -523,12 +528,16 @@ export function ElementContent({ el, ctx }: { el: DesignElement; ctx: RenderCtx 
               <ResponsiveImg src={data.imageUrl} alt="" loading="lazy" sizes="80px" maxWidth={160} className="h-20 w-20 shrink-0 rounded-xl object-cover" />
             ) : (
               <span className={cn("grid h-20 w-20 shrink-0 place-items-center rounded-xl border font-display text-xl font-semibold", p.panel)} style={{ color: p.primary }} aria-hidden="true">
-                {initials(data.productName)}
+                {data.showProductName === false ? "" : initials(data.productName)}
               </span>
             ))}
           <div className="min-w-0">
-            <p className="font-semibold leading-snug">{data.productName}</p>
-            <p className={cn("text-[13px]", p.muted)}>{data.offerName}</p>
+            {data.showProductName !== false && (
+              <>
+                <p className="font-semibold leading-snug">{data.productName}</p>
+                <p className={cn("text-[13px]", p.muted)}>{data.offerName}</p>
+              </>
+            )}
             {el.showDescription && data.description && <p className={cn("mt-1.5 line-clamp-3 text-[13.5px] leading-relaxed", p.muted)}>{data.description}</p>}
             <p className="mt-1.5 font-display text-lg font-semibold tabular">{formatMoney(data.priceCents, data.currency)}</p>
           </div>

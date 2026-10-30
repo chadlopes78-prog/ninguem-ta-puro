@@ -29,6 +29,32 @@ test.describe.serial("email opcional, botão de pagamento e histórico", () => {
     await expect(page.getByLabel("Email", { exact: true })).toBeVisible();
   });
 
+  test("ocultar e voltar a mostrar o nome do produto no checkout; o nome continua no painel", async ({ page }) => {
+    await login(page);
+    await page.goto("/produtos");
+    await page.locator("table").getByRole("link", { name: /Ebook Moçambique/ }).click();
+    await expect(page).toHaveURL(/\/produtos\/[a-z0-9]+$/);
+    const productUrl = page.url();
+    const toggle = page.getByTestId("show-name-toggle");
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+    await toggle.click();
+    await page.getByRole("button", { name: "Actualizar produto" }).click();
+    await toast(page, "Produto atualizado");
+    await page.goto("/checkout/ebook-mocambique");
+    await expect(page.getByTestId("pay-button")).toBeVisible();
+    await expect(page.locator("main, body").getByText("Ebook Moçambique")).toHaveCount(0);
+    await expect(page).not.toHaveTitle(/Ebook Moçambique/);
+    // no painel o nome continua igual
+    await page.goto(productUrl);
+    await expect(page.getByLabel("Nome do produto")).toHaveValue("Ebook Moçambique");
+    await expect(page.getByTestId("show-name-toggle")).toHaveAttribute("aria-checked", "false");
+    await page.getByTestId("show-name-toggle").click();
+    await page.getByRole("button", { name: "Actualizar produto" }).click();
+    await toast(page, "Produto atualizado");
+    await page.goto("/checkout/ebook-mocambique");
+    await expect(page.getByText("Ebook Moçambique").first()).toBeVisible();
+  });
+
   test("editor: nome e cor do botão de pagamento no próprio formulário de compra", async ({ page }) => {
     await login(page);
     await page.goto("/produtos");

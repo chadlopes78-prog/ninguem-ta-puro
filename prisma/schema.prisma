@@ -146,6 +146,8 @@ model Product {
   bannerUrl       String?
   /// Pedir o email do comprador no checkout (sem email, o comprador é identificado pelo telefone)
   collectEmail    Boolean            @default(true)
+  /// Mostrar o nome do produto ao comprador no checkout (o nome continua guardado e é enviado aos gateways)
+  showName        Boolean            @default(true)
   type            ProductType
   category        String?
   status          ProductStatus      @default(DRAFT)

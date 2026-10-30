@@ -229,6 +229,17 @@ describe("criar pagamento (POST /v1/payments)", () => {
     expect(v).toMatchObject({ state: "pending", continueUrl: "https://checkout.epay.co.mz/p/01j9x7a2c3d4e5f6g7h8j9k0", accessToken: null });
   });
 
+  it("produto com o nome oculto e sem e-mail: a descrição continua com o nome; o e-mail interno nunca é enviado", async () => {
+    const { product, checkout } = await setup();
+    await prisma.product.update({ where: { id: product.id }, data: { showName: false, collectEmail: false } });
+    const r = await submitCheckout(checkout.publicId, { name: "Ana Macuácua", phone: "841234567", idempotencyKey: key() });
+    expect(r.kind).toBe("payment_started");
+    const body = calls[0].body!;
+    expect(body.description).toBe("Curso Digital — Preço principal");
+    expect(body).not.toHaveProperty("customer_email");
+    expect(body.customer_name).toBe("Ana Macuácua");
+  });
+
   it("sem HTTPS público não envia callback_url (só consulta de estado)", async () => {
     process.env.APP_BASE_URL = "http://localhost:3000";
     const { checkout } = await setup();

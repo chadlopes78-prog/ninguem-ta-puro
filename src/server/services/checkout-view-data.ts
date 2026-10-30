@@ -38,6 +38,7 @@ export async function checkoutViewData(c: Checkout & { product: Product; offer: 
     backgroundColor: c.backgroundColor,
     // sem email, o telefone é sempre pedido e obrigatório (identifica o comprador)
     collectEmail: c.product.collectEmail,
+    showProductName: c.product.showName,
     collectPhone: c.collectPhone || !c.product.collectEmail,
     requirePhone: c.requirePhone || !c.product.collectEmail,
     collectDocument: c.collectDocument,

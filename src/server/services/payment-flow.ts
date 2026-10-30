@@ -318,7 +318,7 @@ export async function getPaymentView(publicToken: string, opts: { refresh?: bool
   const full = await prisma.order.findUnique({
     where: { publicToken },
     include: {
-      items: { select: { description: true, totalCents: true } },
+      items: { select: { description: true, totalCents: true, product: { select: { showName: true } } } },
       payments: { orderBy: { createdAt: "desc" }, take: 1 },
       delivery: { select: { token: true } },
       checkout: { select: { primaryColor: true, backgroundColor: true, successTitle: true, successMessage: true, supportEmail: true, publicId: true } },
@@ -346,7 +346,8 @@ export async function getPaymentView(publicToken: string, opts: { refresh?: bool
     totalCents: full.totalCents,
     discountCents: full.discountCents,
     currency: full.currency,
-    items: full.items,
+    // produtos com o nome oculto no checkout: o comprador vê «A tua compra» (o nome mantém-se no pedido)
+    items: full.items.map((i) => ({ description: i.product?.showName === false ? "A tua compra" : i.description, totalCents: i.totalCents })),
     method: p?.method ?? null,
     phoneMasked: p?.phoneMasked ?? null,
     // Retomar o pagamento na página do fornecedor (apenas enquanto pendente)

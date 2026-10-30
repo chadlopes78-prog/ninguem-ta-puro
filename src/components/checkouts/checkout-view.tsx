@@ -29,6 +29,8 @@ export interface CheckoutViewData {
   bannerUrl?: string | null;
   /** Tamanho real (px) da imagem do cartão do produto: mostrada inteira, sem cortes nem ampliação */
   cardImageSize?: { width: number; height: number } | null;
+  /** false: o nome do produto não é mostrado ao comprador (continua guardado e é enviado aos gateways) */
+  showProductName?: boolean;
   /** false: o checkout não pede email (o produto identifica o comprador pelo telefone) */
   collectEmail?: boolean;
   buttonText: string;

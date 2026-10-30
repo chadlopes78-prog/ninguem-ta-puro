@@ -33,6 +33,8 @@ export interface ProductFormValues {
   bannerUrl?: string;
   /** Pedir o email do comprador no checkout */
   collectEmail?: boolean;
+  /** Mostrar o nome do produto no checkout */
+  showName?: boolean;
 }
 
 /**
@@ -180,7 +182,7 @@ export function ProductForm({
           </CardBody>
         </Card>
 
-        <CollectEmailCard initial={initial.collectEmail !== false} />
+        <CheckoutDisplayCard initialEmail={initial.collectEmail !== false} initialName={initial.showName !== false} />
 
         <Card>
           <CardHeader title="Redireccionamento após a compra" description="Para onde o cliente vai depois de o pagamento ser confirmado pelo processador." />
@@ -272,31 +274,60 @@ export function ProductForm({
   );
 }
 
-/** Interruptor «Pedir email no checkout». Desativado: o checkout só pede nome e número (o telefone identifica o comprador). */
-function CollectEmailCard({ initial }: { initial: boolean }) {
-  const [on, setOn] = useState(initial);
+/** Interruptor ON/OFF com o valor num campo escondido (enviado sempre com o formulário). */
+function CheckoutSwitch({ name, label, on, onChange, hint, testId }: { name: string; label: string; on: boolean; onChange: (v: boolean) => void; hint: string; testId: string }) {
   return (
-    <Card>
-      <CardHeader title="Dados do comprador" description="Escolha se o checkout deste produto pede o email do cliente." />
-      <CardBody className="grid gap-2">
-        <input type="hidden" name="collectEmail" value={on ? "true" : "false"} />
-        <button
-          type="button"
-          role="switch"
-          aria-checked={on}
-          onClick={() => setOn((v) => !v)}
-          data-testid="collect-email-toggle"
-          className="flex w-full items-center justify-between gap-4 rounded-lg border border-line bg-surface-2 px-4 py-3 text-left"
-        >
-          <span>
-            <span className="block text-sm font-medium">Pedir email no checkout</span>
-            <span className="block text-[12.5px] text-muted">{on ? "Ativado — o cliente indica nome, email e número." : "Desativado — o cliente indica só nome e número."}</span>
-          </span>
-          <span className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${on ? "bg-accent" : "bg-line"}`} aria-hidden="true">
-            <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${on ? "translate-x-5" : "translate-x-0.5"}`} />
-          </span>
-        </button>
-        {!on && <p className="text-[12px] text-subtle">Sem email, o cliente não pode recuperar o acesso por email: recebe-o logo a seguir ao pagamento confirmado.</p>}
+    <>
+      <input type="hidden" name={name} value={on ? "true" : "false"} />
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        onClick={() => onChange(!on)}
+        data-testid={testId}
+        className="flex w-full items-center justify-between gap-4 rounded-lg border border-line bg-surface-2 px-4 py-3 text-left"
+      >
+        <span>
+          <span className="block text-sm font-medium">{label}</span>
+          <span className="block text-[12.5px] text-muted">{hint}</span>
+        </span>
+        <span className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${on ? "bg-accent" : "bg-line"}`} aria-hidden="true">
+          <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${on ? "translate-x-5" : "translate-x-0.5"}`} />
+        </span>
+      </button>
+    </>
+  );
+}
+
+/**
+ * Apresentação no checkout (por produto, independentes): só controlam o que o comprador vê. O nome continua guardado
+ * e é usado no painel, nos relatórios e na descrição enviada aos gateways.
+ */
+function CheckoutDisplayCard({ initialEmail, initialName }: { initialEmail: boolean; initialName: boolean }) {
+  const [email, setEmail] = useState(initialEmail);
+  const [name, setName] = useState(initialName);
+  return (
+    <Card data-testid="checkout-display-card">
+      <CardHeader title="Apresentação no checkout" description="Escolha o que o comprador vê no checkout deste produto." />
+      <CardBody className="grid gap-2.5">
+        <CheckoutSwitch
+          name="collectEmail"
+          label="Mostrar campo de e-mail no checkout"
+          on={email}
+          onChange={setEmail}
+          testId="collect-email-toggle"
+          hint={email ? "Activado — o cliente indica nome, e-mail (validado) e número." : "Desactivado — o cliente indica só nome e número; o e-mail não é pedido."}
+        />
+        {!email && <p className="text-[12px] text-subtle">Sem e-mail, o cliente não pode recuperar o acesso por e-mail: recebe-o logo a seguir ao pagamento confirmado.</p>}
+        <CheckoutSwitch
+          name="showName"
+          label="Mostrar nome do produto no checkout"
+          on={name}
+          onChange={setName}
+          testId="show-name-toggle"
+          hint={name ? "Activado — o comprador vê o nome do produto." : "Desactivado — o nome fica oculto para o comprador."}
+        />
+        {!name && <p className="text-[12px] text-subtle">O nome continua guardado: aparece no Dashboard, Operações e Relatórios e identifica a compra junto do gateway de pagamento.</p>}
       </CardBody>
     </Card>
   );

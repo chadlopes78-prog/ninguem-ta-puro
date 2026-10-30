@@ -38,6 +38,11 @@ export const productSchema = z.object({
     .union([z.boolean(), z.string()])
     .optional()
     .transform((v) => (v === undefined || v === "" ? undefined : v === true || v === "true" || v === "on")),
+  /** Mostrar o nome do produto no checkout (só apresentação; omitido = mantém/ativo) */
+  showName: z
+    .union([z.boolean(), z.string()])
+    .optional()
+    .transform((v) => (v === undefined || v === "" ? undefined : v === true || v === "true" || v === "on")),
   type: z.enum(PRODUCT_TYPES, { errorMap: () => ({ message: "Selecione um tipo" }) }),
   category: optionalString(80),
   priceCents: moneyInput({ min: 100, label: "Preço" }),

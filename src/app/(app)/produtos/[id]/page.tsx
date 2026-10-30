@@ -180,6 +180,7 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
           upsellUrl,
           bannerUrl: product.bannerUrl ?? "",
           collectEmail: product.collectEmail,
+          showName: product.showName,
         }}
       />
     </>

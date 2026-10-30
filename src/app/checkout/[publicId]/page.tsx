@@ -21,7 +21,7 @@ const loadCheckout = cache(getPublicCheckout);
 
 export async function generateMetadata({ params }: { params: Promise<{ publicId: string }> }): Promise<Metadata> {
   const r = await loadCheckout((await params).publicId);
-  return { title: r.state === "ok" ? productFacing(r.checkout).title : "Indisponível", robots: { index: false } };
+  return { title: r.state === "ok" ? (r.checkout.product.showName ? productFacing(r.checkout).title : "Checkout seguro") : "Indisponível", robots: { index: false } };
 }
 
 export default async function PublicCheckoutPage({ params }: { params: Promise<{ publicId: string }> }) {
