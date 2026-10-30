@@ -3,7 +3,7 @@ import type { OrderStatus } from "@prisma/client";
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   PENDING: "Pendente",
   APPROVED: "Pago",
-  DECLINED: "Falhado",
+  DECLINED: "Falhou",
   REFUNDED: "Reembolsado",
   CANCELED: "Cancelado",
 };

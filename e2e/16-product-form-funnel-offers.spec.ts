@@ -20,7 +20,8 @@ async function fieldsRemoved(page: Page) {
   });
   for (const gone of ["URL da imagem", "Preço de referência", "Configurações adicionais", "Página de vendas", "Ofertas e preços", "Nova oferta", "Upsell", "Downsell"]) expect(text).not.toContain(gone);
   await expect(page.getByTestId("funnel-offers-note")).toContainText("Funis");
-  await expect(page.locator("input[type=url]")).toHaveCount(0);
+  // sem URL de imagem: o único campo de endereço é o link de upsell (opcional)
+  await expect(page.locator("input[type=url]:not([name=upsellUrl])")).toHaveCount(0);
   // ordem: nome → descrição → imagem → preço principal → guardar
   const y = async (sel: ReturnType<Page["locator"]>) => (await sel.boundingBox())!.y;
   expect(await y(page.getByLabel("Nome do produto"))).toBeLessThan(await y(page.getByLabel("Descrição")));

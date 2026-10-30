@@ -52,6 +52,8 @@ export async function listOrders(f: OrderFilter) {
       include: {
         customer: { select: { id: true, name: true, email: true } },
         items: { select: { description: true, kind: true, product: { select: { name: true } } } },
+        // última tentativa: justificativa do resultado (cancelado pelo cliente, saldo insuficiente, …)
+        payments: { orderBy: { createdAt: "desc" }, take: 1, select: { failureReason: true, failureCode: true } },
       },
     }),
   ]);

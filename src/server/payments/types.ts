@@ -59,6 +59,8 @@ export interface NormalizedStatus {
   currency: CurrencyCode | null;
   feeCents: number | null;
   rawStatus: string;
+  /** Motivo devolvido pelo gateway para falha/cancelamento, exatamente como veio (quando o gateway o envia) */
+  failureMessage?: string | null;
 }
 
 export interface NormalizedPaymentEvent extends NormalizedStatus {

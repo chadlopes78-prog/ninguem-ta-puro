@@ -87,6 +87,11 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
               cell: (o) => (
                 <span className="flex flex-col items-start gap-1 max-lg:items-end">
                   <OrderStatusBadge status={o.status} />
+                  {(o.status === "DECLINED" || o.status === "CANCELED") && o.payments[0]?.failureReason && (
+                    <span className="max-w-[200px] text-[12px] leading-snug text-muted max-lg:text-right" data-testid="order-justification" data-code={o.payments[0].failureCode ?? ""}>
+                      {o.payments[0].failureReason}
+                    </span>
+                  )}
                   {o.source === "MANUAL_TEST" ? <Badge tone="info">Teste manual</Badge> : o.source === "DEMO" ? <Badge tone="demo">Demo</Badge> : o.isTestPayment ? <Badge tone="warning">Pagamento de teste</Badge> : null}
                 </span>
               ),

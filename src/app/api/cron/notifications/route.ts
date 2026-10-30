@@ -4,6 +4,7 @@
 import { timingSafeEqual } from "crypto";
 import { json } from "@/server/notifications/http";
 import { runNotificationJobs } from "@/server/notifications/service";
+import { reconcileStalePayments } from "@/server/services/payment-flow";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -20,5 +21,6 @@ export async function GET(req: Request) {
   if (!process.env.CRON_SECRET) return json({ error: "CRON_SECRET não definido" }, 503);
   if (!authorized(req)) return json({ error: "Não autorizado" }, 401);
   const r = await runNotificationJobs();
-  return json({ ok: true, summary: r.summary, outbox: r.outbox });
+  const payments = await reconcileStalePayments(50);
+  return json({ ok: true, summary: r.summary, outbox: r.outbox, payments });
 }

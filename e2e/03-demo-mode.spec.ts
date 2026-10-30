@@ -45,7 +45,7 @@ test.describe.serial("modo de demonstração (secção 28)", () => {
     await expect(page.getByText("1 resultado(s)")).toBeVisible();
     await page.getByRole("link", { name: /^NTP-/ }).first().click();
     await expect(page.getByRole("heading", { name: "Itens" })).toBeVisible();
-    await expect(page.getByText("Falhado").first()).toBeVisible();
+    await expect(page.getByText("Falhou").first()).toBeVisible();
   });
 
   test("percurso de funil: cupão → upsell recusado → downsell aceite → obrigado", async ({ page }) => {

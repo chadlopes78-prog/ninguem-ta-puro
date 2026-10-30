@@ -70,6 +70,8 @@ export const testLocalProvider: PaymentProvider = {
       currency: (str("currency") as CurrencyCode | null) ?? null,
       feeCents: num("feeCents"),
       rawStatus: state,
+      // motivo opcional, como alguns gateways enviam (ex.: "Insufficient balance")
+      failureMessage: str("message"),
     };
   },
 

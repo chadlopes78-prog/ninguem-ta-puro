@@ -24,12 +24,12 @@ interface Call { method: string; url: string; headers: Record<string, string>; b
 let calls: Call[] = [];
 /** Resposta da API simulada para cada pedido (por omissão: 202 PROCESSING; GET devolve o estado em `remote`). */
 let respond: (c: Call) => { status: number; body: unknown } | "network";
-const remote = new Map<string, { status: string; amountMzn: number; reference: string }>();
+const remote = new Map<string, { status: string; amountMzn: number; reference: string; failureReason?: string; safeMessage?: string }>();
 let seq = 0;
 let remoteSeq = 0;
 
-function paymentJson(id: string, r: { status: string; amountMzn: number; reference: string }) {
-  return { payment: { id, status: r.status, amountMzn: r.amountMzn, currency: "MZN", method: "MPESA", environment: "TEST", purpose: "PAYMENT", reference: r.reference, title: "x", description: "x", payerPhone: "*****0003", providerTransactionId: null, failureReason: null, paidAt: null, failedAt: null, receipt: null } };
+function paymentJson(id: string, r: { status: string; amountMzn: number; reference: string; failureReason?: string; safeMessage?: string }) {
+  return { payment: { id, status: r.status, amountMzn: r.amountMzn, currency: "MZN", method: "MPESA", environment: "TEST", purpose: "PAYMENT", reference: r.reference, title: "x", description: "x", payerPhone: "*****0003", providerTransactionId: null, failureReason: r.failureReason ?? null, safeMessage: r.safeMessage ?? null, paidAt: null, failedAt: null, receipt: null } };
 }
 const defaultRespond = (c: Call): { status: number; body: unknown } => {
   if (c.method === "POST" && c.url === `${BASE}/payments`) {
@@ -195,7 +195,7 @@ describe("Pagar — webhooks", () => {
     const p = await createProduct(form(), S);
     const t = await buy(p.primaryCheckout.slug!);
     if (t.kind !== "payment_started") throw new Error(t.kind);
-    return prisma.order.findFirstOrThrow({ include: { payments: true } });
+    return prisma.order.findFirstOrThrow({ orderBy: { createdAt: "desc" }, include: { payments: true } });
   }
 
   it("assinatura válida → consulta autenticada → PAID aprova uma única vez; o mesmo Pagar-Event-Id não repete", async () => {
@@ -254,6 +254,25 @@ describe("Pagar — webhooks", () => {
     expect((await handleProviderWebhook("pagar", test.raw, test.headers)).result).toBe("ignored");
     const topup = signedWebhook({ type: "wallet.topup.succeeded", data: { topup: { id: "tp_1" } } }, "evt_032");
     expect((await handleProviderWebhook("pagar", topup.raw, topup.headers)).result).toBe("ignored");
+  });
+
+  it("motivo devolvido pela Pagar na consulta: saldo insuficiente → FALHOU; cancelado pelo cliente → CANCELADO; sem motivo → não indicado", async () => {
+    const cases: [string, Record<string, string>, string, string, string][] = [
+      ["FAILED", { failureReason: "INSUFFICIENT_BALANCE", safeMessage: "Saldo insuficiente" }, "DECLINED", "INSUFFICIENT_FUNDS", "Saldo insuficiente na carteira do cliente"],
+      ["CANCELLED", { failureReason: "Cancelled by customer" }, "CANCELED", "CUSTOMER_CANCELLED", "Cancelado pelo cliente"],
+      ["CANCELLED", {}, "CANCELED", "UNKNOWN", "O gateway não indicou o motivo"],
+    ];
+    for (const [i, [status, why, orderStatus, code, reason]] of cases.entries()) {
+      const o = await pending();
+      const pid = o.payments[0].externalId!;
+      Object.assign(remote.get(pid)!, { status, ...why });
+      // o corpo do aviso nunca decide: o estado e o motivo vêm da consulta autenticada
+      const w = signedWebhook(event(pid, "payment.failed"), `evt_motivo_${i}`);
+      expect((await handleProviderWebhook("pagar", w.raw, w.headers)).status).toBe(200);
+      const after = await prisma.order.findUniqueOrThrow({ where: { id: o.id }, include: { payments: true } });
+      expect(after.status).toBe(orderStatus);
+      expect(after.payments[0]).toMatchObject({ failureCode: code, failureReason: reason });
+    }
   });
 
   it("validação isolada (guia): t numérico, v1 hex de 64, ±300 s, HMAC de `${t}.${body}`", () => {

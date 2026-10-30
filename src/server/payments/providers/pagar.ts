@@ -233,6 +233,8 @@ export function normalizePagarStatus(p: PagarPayment): NormalizedStatus {
     currency: p.currency === "MZN" ? "MZN" : null,
     feeCents: null,
     rawStatus: p.status.slice(0, 40),
+    // motivo devolvido pela Pagar (failureReason) e mensagem segura (safeMessage), para classificar o resultado
+    failureMessage: state === "failed" || state === "canceled" ? [p.failureReason, p.safeMessage].filter(Boolean).join(" — ") || null : null,
   };
 }
 
@@ -302,7 +304,7 @@ export function createPagarProvider(
           const payment = readPayment(await client().post("/payments", body, idempotencyKey));
           if (!payment) return { kind: "error", reason: "Resposta da Pagar sem pagamento", retryable: true };
           if (payment.status === "FAILED" || payment.status === "CANCELLED") {
-            return { kind: "failed", externalId: payment.id, reason: payment.safeMessage ?? payment.failureReason ?? "Pagamento não concluído", rawStatus: payment.status };
+            return { kind: "failed", externalId: payment.id, reason: [payment.failureReason, payment.safeMessage].filter(Boolean).join(" — "), rawStatus: payment.status };
           }
           // PENDING/PROCESSING/RECONCILIATION_REQUIRED — e também PAID: a resposta inicial nunca liberta o produto;
           // a confirmação chega por webhook validado ou consulta autenticada.

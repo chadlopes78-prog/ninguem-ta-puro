@@ -1,6 +1,6 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-29 · Sessão 27 (produto: Pixel do Facebook por produto e link de upsell com funil automático) · Sessão 26 (checkout: confirmação do PIN numa janela sem sair do checkout; ícones M-Pesa/e-Mola; produtos só Publicado/Rascunho e Eliminar) · Sessão 25 (Pagar: modo de teste e modo real nas Integrações; checkout com +258 e marcas M-Pesa/e-Mola) · Sessão 24 (Pagar API: pagamentos C2B assinados, webhooks validados, confirmação por consulta autenticada) · Sessão 23 (novo design padrão do checkout: claro e proporcionado; cupão só com cupões ativos) · Sessão 22 (preparação para tráfego pago: carga, concorrência, telemóvel, imagens otimizadas, limites CGNAT) · Sessão 21 (página de obrigado personalizada; área Operações com abas; Dashboard com atividades de hoje e metas de faturamento; partilha das credenciais de pagamento do administrador; logótipos sem fundo) · Sessão 20 (modo simples: vender sem funil; logótipos nas Integrações) · Sessão 19 (entrega do produto PDF/link no produto, área «Os meus produtos», recuperação de acesso, Integrações em cartões) · Sessão 18 (funis: entrada única, várias ofertas, páginas externas com código de integração, obrigado externo) · Sessão 17 (Facebook Pixel / API de Conversões) · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
+Última atualização: 2026-10-30 · Sessão 28 (pagamentos: resultado real de cada transação — cancelado pelo cliente, saldo insuficiente, PIN, tempo excedido — com justificativa em Operações e reconciliação automática) · Sessão 27 (produto: Pixel do Facebook por produto e link de upsell com funil automático) · Sessão 26 (checkout: confirmação do PIN numa janela sem sair do checkout; ícones M-Pesa/e-Mola; produtos só Publicado/Rascunho e Eliminar) · Sessão 25 (Pagar: modo de teste e modo real nas Integrações; checkout com +258 e marcas M-Pesa/e-Mola) · Sessão 24 (Pagar API: pagamentos C2B assinados, webhooks validados, confirmação por consulta autenticada) · Sessão 23 (novo design padrão do checkout: claro e proporcionado; cupão só com cupões ativos) · Sessão 22 (preparação para tráfego pago: carga, concorrência, telemóvel, imagens otimizadas, limites CGNAT) · Sessão 21 (página de obrigado personalizada; área Operações com abas; Dashboard com atividades de hoje e metas de faturamento; partilha das credenciais de pagamento do administrador; logótipos sem fundo) · Sessão 20 (modo simples: vender sem funil; logótipos nas Integrações) · Sessão 19 (entrega do produto PDF/link no produto, área «Os meus produtos», recuperação de acesso, Integrações em cartões) · Sessão 18 (funis: entrada única, várias ofertas, páginas externas com código de integração, obrigado externo) · Sessão 17 (Facebook Pixel / API de Conversões) · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
 
 ## Estado geral
 
@@ -26,6 +26,32 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | 5 — Operação | ✅ Concluída | Pedidos (filtros, detalhe, transições), clientes, cupões (com testador), relatórios |
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
+
+## Pagamentos: resultado real de cada transação (sessão 28)
+
+**Auditoria (antes das alterações):**
+- Gateways: **Pagar** (C2B assíncrono, webhook + consulta autenticada), **E2Payments** (C2B síncrono: a resposta HTTP já é o resultado; sem webhook nem consulta), **EPay** (página alojada, webhook + consulta) e o fornecedor de teste local.
+- Já existia: assinatura dos webhooks (HMAC por gateway), evento único por gateway e id (sem duplicados), validação de referência, valor e moeda, transições condicionais e idempotentes, e aprovação só por confirmação do gateway (`confirm.ts`).
+- **Falhas encontradas:**
+  1. O motivo devolvido pelo gateway perdia-se. `NormalizedStatus` não tinha campo de motivo, `applyPaymentStatus` nunca o gravava, e a Pagar (`failureReason`/`safeMessage`) era ignorada nos webhooks e na consulta.
+  2. «Cancelado pelo cliente» e «saldo insuficiente» ficavam iguais: o estado da encomenda dependia só do estado bruto (FAILED → Falhou, CANCELLED → Cancelado), mesmo quando o texto do gateway dizia o contrário.
+  3. Pendentes só eram verificados quando o comprador tinha a página aberta, ou com «Verificar pendentes» (só EPay). Um pagamento podia ficar pendente indefinidamente com o resultado já disponível no gateway.
+  4. A aba Operações não mostrava justificativa.
+
+**Implementado:**
+- `src/server/payments/outcome.ts`: normalização igual para todos os gateways.
+  - Códigos: `CUSTOMER_CANCELLED` (Cancelado pelo cliente), `INSUFFICIENT_FUNDS` (Saldo insuficiente na carteira do cliente), `WRONG_PIN`, `TIMEOUT`, `GATEWAY_ERROR` (motivo real do gateway), `NOT_STARTED`, `UNKNOWN` (o gateway não indicou o motivo).
+  - Reconhece texto em PT/EN e os códigos da API M-Pesa (INS-5, INS-9, INS-2006) quando o gateway os repassa. Nunca inventa motivos.
+  - Só reclassifica entre estados finais não pagos (falhou ↔ cancelado). Nunca torna um pendente em final nem toca num pago.
+- Migração aditiva `20261102090000_payment_outcome`: `Payment.failureCode` e `Payment.gatewayMessage` (`failureReason` passa a guardar a justificativa).
+- `applyPaymentStatus` grava código, justificativa e mensagem bruta, e regista-os na auditoria e no registo da integração.
+- Pagar: `failureReason` + `safeMessage` vêm da consulta autenticada (o corpo do webhook continua sem decidir nada). E2Payments: a `message` da resposta 400 é classificada.
+- **Limitação documentada:** a EPay não devolve motivo (só `failed`/`cancelled`, e `cancelled` = «cancelado pela loja ou reembolsado»), por isso aparece «O gateway não indicou o motivo». A E2Payments não tem consulta de estado: sem resposta, o pagamento fica «por verificar» (verificação manual já existente).
+- Reconciliação automática (`reconcileStalePayments`): pendentes com mais de 1 minuto são consultados nos gateways com consulta (Pagar, EPay), no cron diário e, no máximo a cada 5 minutos, quando o painel é aberto. Nunca falha um pagamento só por demorar.
+- **Operações:** estado «Falhou» (antes «Falhado») ou «Cancelado», com a justificativa por baixo, guardada na BD. O detalhe do pedido mostra também a resposta do gateway. Aprovado sem justificativa.
+- **Comprador:** a janela do checkout e a página de estado mostram só motivos normalizados (ex.: «Saldo insuficiente na carteira do cliente»), nunca o texto bruto do gateway.
+
+**Testes:** `tests/integration/payment-outcomes.test.ts` (testes 1–6 pedidos + valor errado, assinatura falsa, motivo desconhecido, sem motivo, 16 casos de classificação) e um teste da Pagar com os motivos devolvidos pela consulta. 384 testes unitários/integração.
 
 ## Produto: Pixel por produto e link de upsell (sessão 27)
 
@@ -1338,6 +1364,7 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 28 (2026-10-30)**: resultado real de cada pagamento (cancelado pelo cliente, saldo insuficiente, PIN, tempo excedido, erro do gateway) guardado na BD e mostrado em Operações; motivos da Pagar e da E2Payments classificados; reconciliação automática dos pendentes. Migração aditiva. 384 testes unitários/integração.
 - **Sessão 27 (2026-10-29)**: Pixel do Facebook e link de upsell no formulário do produto (Pixel aparece nas Integrações; upsell cria o funil automaticamente e redireciona só depois do pagamento confirmado). Sem migração. 358 testes unitários/integração.
 - **Sessão 26 (2026-10-29)**: checkout mantém o comprador na página com uma janela «Confirme no seu telemóvel» até o servidor confirmar o pagamento; ícones M-Pesa/e-Mola; produtos só com Publicado/Rascunho e «Eliminar» (sem apagar histórico). Sem migração.
 - **Sessão 25 (2026-10-29)**: Pagar com modo de teste e modo real nas Integrações (credenciais separadas cifradas, mudança só com confirmação e com a key LIVE aceite pela Pagar); checkout com indicativo +258 e bandeira de Moçambique, marcas M-Pesa/e-Mola. Sem migração. 354 testes unitários/integração.

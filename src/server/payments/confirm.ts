@@ -4,6 +4,7 @@ import { randomBytes } from "crypto";
 import type { OrderStatus, PaymentStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/server/db";
 import type { NormalizedStatus } from "./types";
+import { classifyOutcome } from "./outcome";
 import { recordOrderEvent } from "@/server/notifications/events";
 import { schedulePushDispatch } from "@/server/notifications/push";
 
@@ -92,9 +93,13 @@ export async function applyPaymentStatus(
 
   const actor = `${source}:${provider}`;
   const now = new Date();
-  const target = PAYMENT_STATUS[status.state];
+  // Resultado normalizado: o motivo devolvido pelo gateway decide entre «falhou» e «cancelado pelo cliente»
+  // (apenas entre estados finais não pagos; pendente e pago nunca mudam por causa do texto).
+  const outcome = classifyOutcome(status.state, status.failureMessage);
+  const target = PAYMENT_STATUS[outcome.state];
+  const terminalFailure = target === "FAILED" || target === "CANCELED" || target === "EXPIRED";
 
-  const outcome = await prisma.$transaction(async (tx) => {
+  const applied = await prisma.$transaction(async (tx) => {
     // Estado do pagamento — só se altera se for diferente; PAID é final (exceto reembolso futuro)
     if (payment.status === "PAID" && target !== "PAID") return { result: "ignored" as const, reason: "Pagamento já confirmado" };
     const moved = await tx.payment.updateMany({
@@ -104,7 +109,8 @@ export async function applyPaymentStatus(
         rawStatus: status.rawStatus.slice(0, 100),
         externalId: payment.externalId ?? status.externalId,
         lastCheckedAt: now,
-        ...(target === "PAID" ? { confirmedAt: now, failureReason: null } : {}),
+        ...(target === "PAID" ? { confirmedAt: now, failureReason: null, failureCode: null } : {}),
+        ...(terminalFailure ? { failureCode: outcome.code, failureReason: outcome.reason, gatewayMessage: outcome.gatewayMessage } : {}),
       },
     });
     if (moved.count !== 1) return { result: "unchanged" as const };
@@ -156,7 +162,7 @@ export async function applyPaymentStatus(
         if (order.couponId) {
           await tx.$executeRaw`UPDATE "Coupon" SET "usesCount" = GREATEST("usesCount" - 1, 0) WHERE "id" = ${order.couponId}`;
         }
-        await audit(tx, order.id, "PENDING", to, actor, `Pagamento ${status.state} (${status.rawStatus})`);
+        await audit(tx, order.id, "PENDING", to, actor, `${outcome.reason ?? `Pagamento ${outcome.state}`} (${status.rawStatus})`);
         await recordOrderEvent(tx, "failed", order.id);
         return { result: "processed" as const, notified: true };
       }
@@ -166,9 +172,10 @@ export async function applyPaymentStatus(
     return { result: "processed" as const }; // pending: apenas atualização do pagamento
   });
 
-  if (outcome.result === "processed" && target === "PAID") await ownerLog("info", `Pagamento confirmado: ${order.code} (${source}).`);
+  if (applied.result === "processed" && target === "PAID") await ownerLog("info", `Pagamento confirmado: ${order.code} (${source}).`);
+  if (applied.result === "processed" && terminalFailure) await ownerLog("info", `Pagamento ${order.code} não concluído: ${outcome.reason ?? outcome.state} (${source}${outcome.gatewayMessage ? `; gateway: ${outcome.gatewayMessage}` : ""}).`);
   // Envio push depois da resposta; se falhar, a fila persistente volta a tentar
-  if ("notified" in outcome && outcome.notified) await schedulePushDispatch();
-  const { notified: _n, ...rest } = outcome as typeof outcome & { notified?: boolean };
+  if ("notified" in applied && applied.notified) await schedulePushDispatch();
+  const { notified: _n, ...rest } = applied as typeof applied & { notified?: boolean };
   return { ...rest, orderId: order.id };
 }

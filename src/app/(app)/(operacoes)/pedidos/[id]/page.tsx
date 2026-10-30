@@ -23,10 +23,10 @@ import { e2Reference } from "@/server/payments/providers/e2payments";
 
 export const metadata: Metadata = { title: "Pedido" };
 
-const PAYMENT_LABEL: Record<PaymentStatus, string> = { CREATED: "Criado", PENDING: "Pendente", PAID: "Pago", FAILED: "Falhado", CANCELED: "Cancelado", EXPIRED: "Expirado" };
+const PAYMENT_LABEL: Record<PaymentStatus, string> = { CREATED: "Criado", PENDING: "Pendente", PAID: "Pago", FAILED: "Falhou", CANCELED: "Cancelado", EXPIRED: "Expirado" };
 const PAYMENT_TONE: Record<PaymentStatus, Tone> = { CREATED: "neutral", PENDING: "warning", PAID: "success", FAILED: "danger", CANCELED: "neutral", EXPIRED: "neutral" };
 
-const GATEWAY_NAMES: Record<string, string> = { epay: "EPay", e2payments: "E2Payments", "teste-local": "Fornecedor de teste" };
+const GATEWAY_NAMES: Record<string, string> = { epay: "EPay", e2payments: "E2Payments", pagar: "Pagar", "teste-local": "Fornecedor de teste" };
 
 const KIND = { MAIN: "Principal", ORDER_BUMP: "Oferta adicional", UPSELL: "Upsell", DOWNSELL: "Downsell" } as const;
 
@@ -171,7 +171,8 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
                       <p className="mt-1 text-muted tabular">{m(p.amountCents)}{p.phoneMasked ? ` · ${p.phoneMasked}` : ""}</p>
                       <p className="mt-0.5 break-all font-mono text-[11.5px] text-subtle">{p.externalId ?? "sem referência externa"}</p>
                       {p.environment && <p className="text-[11.5px] text-subtle">Ambiente: {p.environment === "test" ? "teste (sandbox)" : "produção"}</p>}
-                      {p.failureReason && <p className="mt-1 text-[12px] text-warning">{p.failureReason}</p>}
+                      {p.failureReason && <p className="mt-1 text-[12px] text-warning" data-testid="payment-justification">{p.failureReason}</p>}
+                      {p.gatewayMessage && !p.failureReason?.includes(p.gatewayMessage) && <p className="mt-0.5 break-words text-[11.5px] text-subtle">Resposta do gateway: {p.gatewayMessage}</p>}
                       <p className="mt-1 text-[11.5px] text-subtle">Criado {formatDate(p.createdAt, tz, true)}{p.confirmedAt ? ` · confirmado ${formatDate(p.confirmedAt, tz, true)}` : ""}</p>
                       {manualIds.has(p.id) && (
                         <div className="mt-3 rounded-[var(--radius-md)] border border-warning/30 bg-warning/[0.06] p-3" data-testid="manual-verification">

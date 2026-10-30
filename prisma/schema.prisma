@@ -802,7 +802,12 @@ model Payment {
   redirectUrl       String?
   /// "test" ou "live", conforme a chave usada
   environment       String?
+  /// Justificativa apresentada (ex.: "Saldo insuficiente na carteira do cliente")
   failureReason     String?
+  /// Resultado normalizado (src/server/payments/outcome.ts): CUSTOMER_CANCELLED, INSUFFICIENT_FUNDS, WRONG_PIN, TIMEOUT, GATEWAY_ERROR, NOT_STARTED, UNKNOWN
+  failureCode       String?
+  /// Motivo exatamente como o gateway o devolveu (auditoria)
+  gatewayMessage    String?
   idempotencyKey    String        @unique
   /// Conta cujas credenciais do gateway foram usadas neste pagamento, quando NÃO é a dona da encomenda
   /// (credenciais partilhadas pelo administrador). null = credenciais da conta dona da encomenda.

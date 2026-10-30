@@ -83,7 +83,8 @@ function MethodMark({ method, small }: { method: string; small?: boolean }) {
       {[0, 1, 2].flatMap((r) => [0, 1, 2].map((c) => <rect key={`${r}${c}`} x={10.6 + c * 3.2} y={22 + r * 3.3} width="2.4" height="2.3" rx="0.5" fill="#F37321" />))}
       <g transform="rotate(-28 27 22)">
         <rect x="19.5" y="15" width="15" height="14" rx="1.5" fill="#fff" stroke="#F37321" strokeWidth="1.2" />
-        <text x="27" y="25.6" textAnchor="middle" fontSize="9" fontWeight="800" fill="#F37321" fontFamily="Arial, sans-serif">$</text>
+        {/* "$" desenhado (sem texto: legível a qualquer tamanho) */}
+        <path d="M29.6 19.4c-.6-.9-1.6-1.3-2.7-1.2-1.3.1-2.2.9-2.1 1.9.1 1.1 1.2 1.5 2.4 1.8 1.4.3 2.7.8 2.8 2.1.1 1.2-1 2.1-2.5 2.2-1.3.1-2.4-.4-3-1.4M27 16.8v10.4" fill="none" stroke="#F37321" strokeWidth="1.6" strokeLinecap="round" />
       </g>
     </svg>
   );
@@ -164,7 +165,7 @@ export function PurchaseForm({
   // Aviso quando o servidor/gateway demora (rede lenta): o pedido continua e não há cobrança em duplicado
   // Pagamento por telemóvel (M-Pesa/e-Mola): o comprador fica no checkout com uma janela por cima a pedir o PIN.
   // A janela consulta o estado no servidor; só o servidor decide o destino (página de pagamento → obrigado/acesso).
-  const [waiting, setWaiting] = useState<{ token: string; phone: string; label: string; state: "pending" | "failed" | "timeout" } | null>(null);
+  const [waiting, setWaiting] = useState<{ token: string; phone: string; label: string; state: "pending" | "failed" | "timeout"; reason?: string | null } | null>(null);
   useEffect(() => {
     if (!waiting || waiting.state !== "pending") return;
     let stop = false;
@@ -176,14 +177,14 @@ export function PurchaseForm({
       try {
         const r = await fetch(`/api/public/pagamento/${waiting.token}`, { cache: "no-store" });
         if (r.ok) {
-          const j = (await r.json()) as { state: string };
+          const j = (await r.json()) as { state: string; reason?: string | null };
           if (j.state === "paid") {
             stop = true;
             router.push(`/pagamento/${waiting.token}`);
             return;
           }
           if (j.state === "failed" || j.state === "canceled") {
-            setWaiting((w) => (w ? { ...w, state: "failed" } : w));
+            setWaiting((w) => (w ? { ...w, state: "failed", reason: j.reason ?? null } : w));
             return;
           }
         }
@@ -532,6 +533,7 @@ export function PurchaseForm({
           label={waiting?.label ?? selectedMethod?.label ?? ""}
           phone={waiting?.phone ?? ""}
           statusHref={waiting ? `/pagamento/${waiting.token}` : null}
+          reason={waiting?.reason ?? null}
           onClose={() => setWaiting(null)}
         />
       )}
@@ -552,9 +554,11 @@ function PhoneConfirmDialog({
   label,
   phone,
   statusHref,
+  reason,
   onClose,
 }: {
   p: Palette;
+  reason?: string | null;
   state: "sending" | "pending" | "failed" | "timeout";
   label: string;
   phone: string;
@@ -573,7 +577,7 @@ function PhoneConfirmDialog({
         </h2>
         <p className={cn("mt-2 text-[14px] leading-relaxed", p.muted)} aria-live="polite">
           {failed
-            ? "O pagamento foi recusado ou cancelado. Nenhum valor foi cobrado. Pode tentar novamente."
+            ? `${reason ? `${reason}. ` : "O pagamento foi recusado ou cancelado. "}Nenhum valor foi cobrado. Pode tentar novamente.`
             : state === "timeout"
               ? "Não recebemos a confirmação. Se já introduziu o PIN, veja o estado do pedido; não pague outra vez."
               : state === "sending"

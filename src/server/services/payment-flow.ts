@@ -239,7 +239,7 @@ export async function chargeWithProvider(
     case "not_created": {
       // Nada foi criado nem cobrado no fornecedor: a tentativa e a encomenda são encerradas e o comprador pode repetir.
       await prisma.$transaction(async (tx) => {
-        await tx.payment.update({ where: { id: created.paymentId }, data: { status: "FAILED", failureReason: `Não iniciado: ${result.reason}`.slice(0, 200) } });
+        await tx.payment.update({ where: { id: created.paymentId }, data: { status: "FAILED", failureReason: `Não iniciado: ${result.reason}`.slice(0, 200), failureCode: "NOT_STARTED", gatewayMessage: result.reason.slice(0, 300) } });
         const upd = await tx.order.updateMany({ where: { id: created.orderId, status: "PENDING" }, data: { status: "CANCELED", canceledAt: new Date() } });
         if (upd.count === 1) {
           const o = await tx.order.findUniqueOrThrow({ where: { id: created.orderId } });
@@ -256,8 +256,9 @@ export async function chargeWithProvider(
       await applyPaymentStatus(provider.id, { externalId: result.externalId, reference: created.reference, state: "paid", amountCents: result.amountCents, currency: result.currency, feeCents: result.feeCents, rawStatus: result.rawStatus }, "charge-response", { ownerId: created.ownerId });
       return { redirectUrl: null };
     case "failed":
-      await prisma.payment.update({ where: { id: created.paymentId }, data: { externalId: result.externalId, failureReason: result.reason.slice(0, 200) } });
-      await applyPaymentStatus(provider.id, { externalId: result.externalId, reference: created.reference, state: "failed", amountCents: null, currency: null, feeCents: null, rawStatus: result.rawStatus ?? "failed" }, "charge-response", { ownerId: created.ownerId });
+      await prisma.payment.update({ where: { id: created.paymentId }, data: { externalId: result.externalId } });
+      // o motivo devolvido pelo gateway é classificado na confirmação (ex.: cancelado pelo cliente, saldo insuficiente)
+      await applyPaymentStatus(provider.id, { externalId: result.externalId, reference: created.reference, state: "failed", amountCents: null, currency: null, feeCents: null, rawStatus: result.rawStatus ?? "failed", failureMessage: result.reason }, "charge-response", { ownerId: created.ownerId });
       return { redirectUrl: null };
     case "error":
       // Estado incerto: a encomenda fica pendente e será verificada por consulta oficial; nunca se assume sucesso.
@@ -307,6 +308,8 @@ async function refreshOne(orderId: string): Promise<void> {
   }
 }
 
+const BUYER_SAFE_CODES = ["CUSTOMER_CANCELLED", "INSUFFICIENT_FUNDS", "WRONG_PIN", "TIMEOUT"];
+
 export async function getPaymentView(publicToken: string, opts: { refresh?: boolean } = {}) {
   if (!/^[A-Za-z0-9_-]{20,40}$/.test(publicToken)) return null;
   let order = await prisma.order.findUnique({ where: { publicToken }, select: { id: true, status: true } });
@@ -349,6 +352,8 @@ export async function getPaymentView(publicToken: string, opts: { refresh?: bool
     // Retomar o pagamento na página do fornecedor (apenas enquanto pendente)
     continueUrl: full.status === "PENDING" && p?.status === "PENDING" ? (p.redirectUrl ?? null) : null,
     isTestPayment: full.isTestPayment,
+    // Motivo para o comprador: só os resultados normalizados (nunca o texto bruto do gateway)
+    failureLabel: (state === "failed" || state === "canceled") && p?.failureCode && BUYER_SAFE_CODES.includes(p.failureCode) ? p.failureReason : null,
     uncertain: Boolean(p?.failureReason?.startsWith("Estado incerto")),
     // Fornecedor sem consulta de estado (E2Payments): a loja verifica manualmente, nunca automaticamente "pago"
     manualReview: Boolean(p?.failureReason?.startsWith("Estado incerto")) && !(await getProviderForPayment(p!, full.ownerId))?.getStatus,
@@ -397,6 +402,36 @@ export async function reconcilePendingPayments(ownerId: string, limit = 30): Pro
     if (o && o.status !== "PENDING") changed++;
   }
   return { checked: pending.length, changed };
+}
+
+/**
+ * Reconciliação automática (todas as contas): pagamentos pendentes há mais de 1 minuto são consultados junto do
+ * gateway (só os que documentam consulta de estado: EPay e Pagar). Um pagamento nunca falha só por demorar: só o
+ * resultado definitivo devolvido pelo gateway muda o estado. Corre no cron diário e, no máximo a cada 5 minutos,
+ * depois de o painel ser aberto (Vercel Hobby não permite cron frequente).
+ */
+export async function reconcileStalePayments(limit = 20): Promise<{ checked: number }> {
+  const now = Date.now();
+  const pending = await prisma.payment.findMany({
+    where: {
+      status: { in: ["CREATED", "PENDING"] },
+      externalId: { not: null },
+      createdAt: { lt: new Date(now - 60_000), gt: new Date(now - 7 * 24 * 3600_000) },
+      OR: [{ lastCheckedAt: null }, { lastCheckedAt: { lt: new Date(now - 2 * 60_000) } }],
+      order: { status: "PENDING", isDemo: false },
+    },
+    orderBy: [{ lastCheckedAt: { sort: "asc", nulls: "first" } }, { createdAt: "asc" }],
+    take: limit,
+    select: { orderId: true },
+  });
+  for (const p of pending) {
+    try {
+      await refreshOne(p.orderId);
+    } catch {
+      // uma falha num pagamento não impede os restantes; volta a ser consultado na próxima ronda
+    }
+  }
+  return { checked: pending.length };
 }
 
 /** Pagamento sem resposta do fornecedor e sem consulta de estado documentada (ex.: E2Payments): precisa de verificação manual. */

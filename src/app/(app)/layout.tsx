@@ -8,6 +8,7 @@ import { setThemePreferenceAction } from "./theme-actions";
 import { canAdminister } from "@/server/auth/policy";
 import { after } from "next/server";
 import { unreadCount, runNotificationJobs } from "@/server/notifications/service";
+import { reconcileStalePayments } from "@/server/services/payment-flow";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     lastJobsRun = Date.now();
     // Depois da resposta: envia push pendente e gera o resumo diário em falta (não depende só do cron)
     after(() => runNotificationJobs().catch((e) => console.error("[notificações] tarefas", e)));
+    // reconciliação dos pagamentos pendentes junto dos gateways (resultado definitivo que não chegou por aviso)
+    after(() => reconcileStalePayments().catch((e) => console.error("[pagamentos] reconciliação", e)));
   }
   const theme = isPanelTheme(user.themePreference) ? user.themePreference : "system";
   return (
