@@ -2,7 +2,7 @@
 // recuperação do acesso e aba Integrações organizada (configurações existentes preservadas).
 // Corre no fim (depois de 07 e 17: credenciais E2Payments e Pixel já guardados). Pagamentos pelo fornecedor de TESTE.
 import { expect, test, type Page } from "@playwright/test";
-import { login, noHorizontalScroll, toast, toPaymentPage } from "./helpers";
+import { login, noHorizontalScroll, toast, toPaymentPage, PAY_BUTTON } from "./helpers";
 
 const PDF = Buffer.from("%PDF-1.4\n% guia e2e\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF");
 let pdfProductUrl = "";
@@ -17,9 +17,12 @@ async function buy(page: Page, path: string, phone: string, email = "entrega@exe
   await page.getByLabel("Nome completo").fill("Comprador Entrega");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel(/Número M-Pesa/).fill(phone);
-  await page.getByRole("button", { name: /Pagar agora|Finalizar compra/ }).click();
+  await page.getByRole("button", { name: PAY_BUTTON }).click();
   await toPaymentPage(page);
 }
+
+// páginas externas simuladas com page.route: sem service worker (os pedidos que ele trata não passam pelo page.route)
+test.use({ serviceWorkers: "block" });
 
 test.describe.serial("entrega do produto e integrações", () => {
   test("Integrações: cartões com estado; credenciais e Pixel existentes preservados; ativar/desativar no cartão", async ({ page }) => {
@@ -56,7 +59,6 @@ test.describe.serial("entrega do produto e integrações", () => {
     await page.getByLabel("Nome do produto").fill("Guia PDF E2E");
     await page.getByLabel("Descrição").fill("Guia em PDF entregue automaticamente depois do pagamento.");
     await page.getByLabel("Preço principal").fill("120,00");
-    await page.getByLabel("Tipo").selectOption("EBOOK");
     await expect(page.getByText("Como o cliente vai receber este produto?")).toBeVisible();
     await page.getByTestId("delivery-choice-file").click();
     await expect(page.getByTestId("delivery-access-url")).toHaveCount(0); // sem URL como método principal
@@ -65,7 +67,7 @@ test.describe.serial("entrega do produto e integrações", () => {
     await expect(page.getByTestId("delivery-file-error")).toContainText("Formato não suportado");
     await page.getByTestId("delivery-file-input").setInputFiles({ name: "Guia E2E.pdf", mimeType: "application/pdf", buffer: PDF });
     await expect(page.getByTestId("delivery-file-name")).toHaveText("Guia E2E.pdf");
-    await page.getByRole("button", { name: "Guardar produto" }).click();
+    await page.getByRole("button", { name: "Guardar rascunho" }).click();
     await expect(page).toHaveURL(/\/produtos\/[a-z0-9]+\?criado=1$/, { timeout: 20_000 });
     pdfProductUrl = new URL(page.url()).pathname;
     pdfCheckout = new URL((await page.getByTestId("product-checkout-url").textContent())!.trim()).pathname;
@@ -86,16 +88,15 @@ test.describe.serial("entrega do produto e integrações", () => {
     await page.getByLabel("Nome do produto").fill("App SaaS E2E");
     await page.getByLabel("Descrição").fill("Ferramenta online com acesso imediato depois do pagamento.");
     await page.getByLabel("Preço principal").fill("300,00");
-    await page.getByLabel("Tipo").selectOption("DIGITAL");
     await page.getByTestId("delivery-choice-link").click();
     await expect(page.getByTestId("delivery-file-input")).toHaveCount(0);
     await page.getByTestId("delivery-access-url").fill("meusite/app");
     await expect(page.getByTestId("delivery-access-invalid")).toBeVisible();
-    await page.getByRole("button", { name: "Guardar produto" }).click();
+    await page.getByRole("button", { name: "Guardar rascunho" }).click();
     await expect(page.getByText("Link inválido").first()).toBeVisible();
     await page.getByTestId("delivery-access-url").fill("https://app.exemplo.co.mz/entrar");
     await expect(page.getByTestId("delivery-access-test")).toHaveAttribute("href", "https://app.exemplo.co.mz/entrar");
-    await page.getByRole("button", { name: "Guardar produto" }).click();
+    await page.getByRole("button", { name: "Guardar rascunho" }).click();
     await expect(page).toHaveURL(/\/produtos\/[a-z0-9]+\?criado=1$/, { timeout: 20_000 });
     saasProductUrl = new URL(page.url()).pathname;
     saasCheckout = new URL((await page.getByTestId("product-checkout-url").textContent())!.trim()).pathname;
@@ -118,16 +119,17 @@ test.describe.serial("entrega do produto e integrações", () => {
     // pendente (termina em 3): sem acesso
     await buy(page, pdfCheckout, "84 777 1113");
     await expect(page.getByTestId("payment-state")).toHaveAttribute("data-state", "pending", { timeout: 30_000 });
-    await expect(page.getByRole("link", { name: /Descarregar produto|Aceder ao meu produto/ })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: /Descarregar produto|Aceder ao meu produto|Baixar o meu PDF/i })).toHaveCount(0);
 
     // pago (termina em 1): encaminhado diretamente para a página de acesso ao produto
     await buy(page, pdfCheckout, "84 777 2221", "recupera@exemplo.co.mz");
     await expect(page).toHaveURL(/\/acesso\/[A-Za-z0-9_-]{30,40}$/, { timeout: 45_000 });
-    await expect(page.getByRole("heading", { name: "Os seus produtos" })).toBeVisible();
-    await expect(page.getByTestId("access-product")).toHaveCount(1);
-    await expect(page.getByTestId("access-product")).toContainText("Guia PDF E2E");
-    const btn = page.getByTestId("delivery-link");
-    await expect(btn).toHaveText(/Descarregar produto/);
+    // PDF sem upsell: página de obrigado com o botão de download em destaque
+    await expect(page.getByRole("heading", { name: "Parabéns! O teu pagamento foi aprovado." })).toBeVisible();
+    await expect(page.getByTestId("pdf-thank-you")).toContainText("Obrigado pela tua compra. O teu material está pronto para descarregar.");
+    await expect(page.getByTestId("pdf-thank-you")).toContainText("Guia PDF E2E");
+    const btn = page.getByTestId("pdf-download");
+    await expect(btn).toHaveText(/Baixar o meu PDF/i);
     const href = (await btn.getAttribute("href"))!;
     expect(href).toMatch(/^\/acesso\/[A-Za-z0-9_-]+\/ficheiro\/[a-z0-9]+$/);
     const dl = await request.get(href);
@@ -152,19 +154,18 @@ test.describe.serial("entrega do produto e integrações", () => {
     await expect(page.getByTestId("recover-results")).toContainText("Guia PDF E2E");
     await page.getByTestId("recover-open").click();
     expect(page.url()).toBe(areaUrl);
-    await expect(page.getByTestId("access-product")).toContainText("Guia PDF E2E");
+    await expect(page.getByTestId("pdf-thank-you")).toContainText("Guia PDF E2E");
   });
 
-  test("modo simples SaaS: publicar sem funil; depois do pagamento, “Aceder ao meu produto” com o link", async ({ page }) => {
+  test("modo simples SaaS: publicar sem funil; depois do pagamento confirmado, vai diretamente para o link de acesso", async ({ page }) => {
     await login(page);
     await page.goto(saasProductUrl);
     await page.getByTestId("publish-product").click();
     await toast(page, "Produto publicado");
-    await buy(page, saasCheckout, "84 777 3331", "saas@exemplo.co.mz");
-    await expect(page).toHaveURL(/\/acesso\//, { timeout: 45_000 });
-    const btn = page.getByTestId("delivery-link");
-    await expect(btn).toHaveText(/Aceder ao meu produto/);
-    await expect(btn).toHaveAttribute("href", "https://app.exemplo.co.mz/entrar");
+    // o site do vendedor é externo (inacessível neste ambiente): basta confirmar que o browser foi encaminhado para lá
+    const redirected = page.waitForRequest((r) => r.url().startsWith("https://app.exemplo.co.mz/entrar"), { timeout: 60_000 });
+    // (a navegação para fora falha neste ambiente, por isso a espera pela página de pagamento pode ser interrompida)
+    await Promise.all([redirected, buy(page, saasCheckout, "84 777 3331", "saas@exemplo.co.mz").catch(() => undefined)]);
   });
 
   test("telemóvel: entrega no formulário, área de acesso e recuperação sem deslocamento horizontal", async ({ browser }) => {

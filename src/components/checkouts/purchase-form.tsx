@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, ShieldCheck, Smartphone, Tag, TriangleAlert, X, XCircle } from "lucide-react";
+import { Check, Loader2, Lock, ShieldCheck, Smartphone, Tag, TriangleAlert, X, XCircle, Zap } from "lucide-react";
+import { ICON_MAP } from "./checkout-elements";
+import type { ICONS } from "@/lib/checkout-design";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import type { PurchaseOutcome } from "@/server/services/purchase";
@@ -61,9 +63,9 @@ function markKey(label: string): string | null {
 }
 
 /** Ícones do M-Pesa (vermelho, telemóvel e nota verde) e do e-Mola (laranja, telemóvel e nota branca). */
-function MethodMark({ method, small }: { method: string; small?: boolean }) {
+function MethodMark({ method, small, large }: { method: string; small?: boolean; large?: boolean }) {
   if (!METHOD_MARKS[method]) return null;
-  const size = small ? "h-6 w-6" : "h-9 w-9";
+  const size = small ? "h-6 w-6" : large ? "h-11 w-11" : "h-9 w-9";
   return method === "mpesa" ? (
     <svg viewBox="0 0 40 40" className={cn("shrink-0 rounded-lg", size)} role="img" aria-label="M-Pesa" data-testid="method-mark-mpesa">
       <rect width="40" height="40" rx="8" fill="#E4161D" />
@@ -106,12 +108,17 @@ export function PurchaseForm({
   p,
   submitAction,
   couponAction,
+  variant = "classic",
+  card,
 }: {
   data: CheckoutViewData;
   mode: "live" | "preview";
   title: string;
   subtitle: string;
   p: Palette;
+  /** classic: formulário anterior; card: modelo padrão (número em destaque, métodos em cartões, botão com o valor) */
+  variant?: "classic" | "card";
+  card?: { phoneTitle: string; phoneHint: string; phoneNote: string; securityItems: { icon: (typeof ICONS)[number]; text: string }[]; consentText: string };
   submitAction?: (input: Record<string, string>, sessionId?: string) => Promise<PurchaseOutcome>;
   couponAction?: (code: string) => Promise<{ ok: true; discountCents: number; totalCents: number; code: string } | { ok: false; message: string }>;
 }) {
@@ -354,20 +361,7 @@ export function PurchaseForm({
       </span>,
     );
 
-  return (
-    <form id={PURCHASE_FORM_ID} onSubmit={onSubmit} noValidate className={cn("flex scroll-mt-6 flex-col gap-5 rounded-2xl border p-5 sm:p-6", panel)} data-testid="purchase-form">
-      {(title || subtitle) && (
-        <div>
-          {title && <h2 className="text-base font-semibold">{title}</h2>}
-          {subtitle && <p className={cn("mt-0.5 text-[13px]", muted)}>{subtitle}</p>}
-        </div>
-      )}
-      {field("name", "Nome completo", { autoComplete: "name", placeholder: "O seu nome" }, true)}
-      {field("email", "Email", { type: "email", autoComplete: "email", placeholder: "voce@exemplo.com", inputMode: "email" }, true)}
-      {data.collectPhone && !selectedMethod?.requiresPhone && phoneField("Telefone", data.requirePhone)}
-      {data.collectDocument && field("document", "Documento (CPF/NIF)", { autoComplete: "off" }, data.requireDocument)}
-
-      {data.allowCoupons && (
+  const couponBlock = data.allowCoupons && (
         <div className="flex flex-col gap-1.5">
           <label htmlFor="co-coupon" className="text-[13px] font-medium">
             Cupão de desconto <span className={cn("font-normal", muted)}>(opcional)</span>
@@ -414,7 +408,287 @@ export function PurchaseForm({
             </p>
           )}
         </div>
+      );
+  const totalLabel = formatMoney(total, data.currency);
+  // «{valor}» no texto do botão é substituído pelo total atual (ex.: «QUERO PAGAR 197,00 MTn AGORA»)
+  const buttonLabel = data.buttonText.replace(/\{valor\}/gi, totalLabel);
+  const statusLines = (
+    <>
+      {pending && selectedMethod && !selectedMethod.hosted && (
+        <p className={cn("text-center text-[12.5px]", muted)} role="status" data-testid="awaiting-phone">
+          Confirme o pagamento no telemóvel ({selectedMethod.label}). Pode demorar até 2 minutos — não feche esta página.
+        </p>
       )}
+      {pending && slow && (!selectedMethod || selectedMethod.hosted) && (
+        <p className={cn("text-center text-[12.5px]", muted)} role="status" data-testid="slow-connection">
+          A ligação está lenta. Aguarde um pouco — não feche a página nem toque outra vez; não será cobrado duas vezes.
+        </p>
+      )}
+    </>
+  );
+  const dialog = (waiting || (pending && selectedMethod?.requiresPhone)) && (
+    <PhoneConfirmDialog
+      p={p}
+      state={waiting?.state ?? "sending"}
+      label={waiting?.label ?? selectedMethod?.label ?? ""}
+      phone={waiting?.phone ?? ""}
+      statusHref={waiting ? `/pagamento/${waiting.token}` : null}
+      reason={waiting?.reason ?? null}
+      onClose={() => setWaiting(null)}
+    />
+  );
+
+  if (variant === "card") {
+    // Deteção do método pelo prefixo do número (84/85 → M-Pesa, 86/87 → e-Mola), só entre as opções reais ativas
+    const detectMethod = (value: string) => {
+      const key = MZ_PREFIX_METHOD[value.replace(/\D/g, "").slice(0, 2)];
+      if (!key) return;
+      const match = options.find((o) => !o.hosted && o.providerId === selectedMethod?.providerId && methodKeyOf(o.id) === key) ?? options.find((o) => !o.hosted && methodKeyOf(o.id) === key);
+      if (match && match.id !== method) setMethod(match.id);
+    };
+    const accent = data.primaryColor;
+    const cardInput = cn(
+      "h-12 w-full rounded-xl border px-3.5 text-[16px] outline-none transition-colors focus:ring-2",
+      dark ? "border-white/12 bg-white/[0.05] text-white placeholder:text-white/35 focus:border-white/30" : "border-[#E3E5EC] bg-white text-[#111827] placeholder:text-black/30 focus:border-[color:var(--ck-accent)]",
+    );
+    const cardField = (name: string, label: string, props: React.InputHTMLAttributes<HTMLInputElement>, required: boolean) => (
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor={`co-${name}`} className="text-[13.5px] font-medium">
+          {label} {!required && <span className={cn("font-normal", muted)}>(opcional)</span>}
+        </label>
+        <input id={`co-${name}`} name={name} className={cn(cardInput, errors[name] && "border-red-500/70")} style={{ ["--tw-ring-color" as string]: `${accent}33` }} aria-invalid={errors[name] ? true : undefined} aria-describedby={errors[name] ? `co-${name}-err` : undefined} required={required} {...props} />
+        {errors[name] && (
+          <p id={`co-${name}-err`} role="alert" className="text-[12.5px] font-medium text-red-500">
+            {errors[name]}
+          </p>
+        )}
+      </div>
+    );
+    const phoneNeeded = Boolean(selectedMethod?.requiresPhone) || (data.collectPhone && !selectedMethod);
+    const phoneRequired = Boolean(selectedMethod?.requiresPhone) || data.requirePhone;
+    const phoneLabel = selectedMethod?.requiresPhone ? `Número ${selectedMethod.label} para pagamento` : "Telefone";
+    const btn = p.button;
+    const onBtn = whiteOn(btn);
+    return (
+      <form
+        id={PURCHASE_FORM_ID}
+        onSubmit={onSubmit}
+        noValidate
+        className={cn("flex scroll-mt-6 flex-col gap-4 rounded-[20px] border p-4 @sm:p-5", p.dark ? "border-white/10 bg-white/[0.04]" : "border-[#E7E8F0] bg-white shadow-[0_1px_3px_rgba(16,24,40,0.06)]")}
+        style={{ ["--ck-accent" as string]: accent }}
+        data-testid="purchase-form"
+        data-variant="card"
+      >
+        {(title || subtitle) && (
+          <div>
+            {title && <h2 className="text-[17px] font-bold tracking-tight">{title}</h2>}
+            {subtitle && <p className={cn("mt-0.5 text-[13px]", muted)}>{subtitle}</p>}
+          </div>
+        )}
+        {cardField("name", "Nome completo", { autoComplete: "name" }, true)}
+        {cardField("email", "Email", { type: "email", autoComplete: "email", placeholder: "voce@exemplo.com", inputMode: "email" }, true)}
+        {data.collectDocument && cardField("document", "Documento (NUIT/BI)", { autoComplete: "off" }, data.requireDocument)}
+
+        {phoneNeeded && (
+          <div className={cn("rounded-2xl border p-3.5", p.dark ? "border-white/15 bg-white/[0.04]" : "bg-[#F8F7FF]")} style={p.dark ? undefined : { borderColor: `color-mix(in srgb, ${accent} 35%, white)` }} data-testid="phone-card">
+            <div className="flex items-start gap-3">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-white" style={{ background: accent }} aria-hidden="true">
+                <Zap className="h-[18px] w-[18px]" fill="currentColor" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-[15px] font-bold leading-snug">{card?.phoneTitle || "Número para fazer o pagamento"}</p>
+                {card?.phoneHint && <p className={cn("mt-0.5 text-[12.5px] leading-snug", muted)}>{card.phoneHint}</p>}
+              </div>
+            </div>
+            <label htmlFor="co-phone" className="sr-only">
+              {phoneLabel}
+            </label>
+            <div className="relative mt-3">
+              <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-[16px] font-bold" style={{ color: accent }} aria-hidden="true" data-testid="phone-prefix">
+                +258
+              </span>
+              <input
+                id="co-phone"
+                name="phone"
+                type="tel"
+                autoComplete="tel-national"
+                inputMode="numeric"
+                placeholder="84 123 4567"
+                required={phoneRequired}
+                aria-invalid={errors.phone ? true : undefined}
+                aria-describedby={errors.phone ? "co-phone-err" : undefined}
+                onInput={(e) => {
+                  e.currentTarget.value = formatMzLocalPhone(e.currentTarget.value);
+                  detectMethod(e.currentTarget.value);
+                }}
+                className={cn(cardInput, "pl-[4.1rem] text-[17px] font-medium tracking-wide", errors.phone && "border-red-500/70")}
+                style={{ ["--tw-ring-color" as string]: `${accent}33` }}
+              />
+            </div>
+            {errors.phone && (
+              <p id="co-phone-err" role="alert" className="mt-1.5 text-[12.5px] font-medium text-red-500">
+                {errors.phone}
+              </p>
+            )}
+            {card?.phoneNote && (
+              <p className={cn("mt-2 flex gap-1.5 text-[11.5px] leading-snug", muted)}>
+                <Lock className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
+                {card.phoneNote}
+              </p>
+            )}
+          </div>
+        )}
+
+        {onlyHosted ? (
+          <div className="flex flex-col gap-2" data-testid="hosted-payment">
+            <p className="text-[14px] font-semibold">Método de pagamento</p>
+            <div className={cn("flex min-h-12 flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl border-2 px-3.5 py-2.5 text-[14px] font-medium")} style={{ borderColor: accent }}>
+              {methodChips(onlyHosted.methodsLabel).map((m) => (
+                <span key={m} className="flex items-center gap-1.5">
+                  {markKey(m) ? <MethodMark method={markKey(m)!} small /> : <span className="h-1.5 w-1.5 rounded-full" style={{ background: accent }} aria-hidden="true" />}
+                  {m}
+                </span>
+              ))}
+            </div>
+            {onlyHosted.isTest && <p className="text-[12px] font-semibold text-amber-500">Ambiente de teste: nenhum dinheiro real é cobrado.</p>}
+          </div>
+        ) : payable ? (
+          <fieldset className="flex flex-col gap-2.5" data-testid="payment-options">
+            <legend className="mb-2 text-[14px] font-semibold">Método de pagamento</legend>
+            <div className="grid grid-cols-2 gap-3">
+              {options.map((m) => {
+                const key = methodKeyOf(m.id);
+                const on = method === m.id;
+                return (
+                  <label
+                    key={m.id}
+                    className={cn(
+                      "relative flex min-h-[112px] cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border px-2 py-3 text-center transition-[border-color,box-shadow]",
+                      on ? "border-2 shadow-[0_6px_18px_-10px_var(--ck-accent)]" : p.dark ? "border-white/12" : "border-[#E5E7EB] hover:border-[#C9CCD6]",
+                      m.hosted && options.length % 2 === 1 && "col-span-2",
+                    )}
+                    style={on ? { borderColor: accent } : undefined}
+                    data-testid={`method-${key}`}
+                    data-selected={on ? "true" : undefined}
+                  >
+                    <input type="radio" name="method" value={m.id} checked={on} onChange={() => setMethod(m.id)} className="peer sr-only" aria-label={m.hosted ? m.providerName : m.label} />
+                    <span
+                      className={cn("absolute right-2.5 top-2.5 grid h-[18px] w-[18px] place-items-center rounded-full border-2 peer-focus-visible:ring-2", !on && (p.dark ? "border-white/25" : "border-[#D1D5DB]"))}
+                      style={on ? { background: accent, borderColor: accent } : undefined}
+                      aria-hidden="true"
+                    >
+                      {on && <Check className="h-2.5 w-2.5 text-white" strokeWidth={3.5} />}
+                    </span>
+                    {m.hosted ? (
+                      <>
+                        <span className="text-[14px] font-semibold">{m.providerName}</span>
+                        <span className={cn("text-[11px]", muted)}>{methodChips(m.hosted.methodsLabel).join(" · ")}</span>
+                      </>
+                    ) : (
+                      <>
+                        <MethodMark method={key} large />
+                        <span className="mt-1 text-[14px] font-semibold leading-tight">{m.label}</span>
+                        <span className={cn("text-[10.5px] font-medium uppercase tracking-[0.14em]", muted)}>{OPERATORS[key] ?? (multiProvider ? m.providerName : "")}</span>
+                      </>
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+            {errors.method && <p role="alert" className="text-[12.5px] font-medium text-red-500">{errors.method}</p>}
+            {hosted?.isTest && (
+              <p className="text-[12px] font-semibold text-amber-500" data-testid="hosted-payment">
+                Ambiente de teste: nenhum dinheiro real é cobrado.
+              </p>
+            )}
+          </fieldset>
+        ) : (
+          <div className={cn("rounded-xl border border-dashed p-4", dark ? "border-white/15" : "border-black/15")}>
+            <p className="flex items-center gap-2 text-sm font-medium">
+              <ShieldCheck className="h-4 w-4" aria-hidden="true" /> Métodos de pagamento
+            </p>
+            <p className={cn("mt-1 text-[12.5px]", muted)}>Não existem métodos de pagamento disponíveis de momento. Nenhum valor pode ser cobrado nesta página.</p>
+          </div>
+        )}
+
+        {couponBlock}
+        {coupon && (
+          <p className={cn("flex justify-between text-[13px]", muted)}>
+            <span>Desconto ({coupon.code})</span>
+            <span className="tabular">−{formatMoney(coupon.discountCents, data.currency)}</span>
+          </p>
+        )}
+
+        {notice && (
+          <div role="alert" className={cn("flex gap-2.5 rounded-xl border px-3.5 py-3 text-[13.5px]", notice.tone === "warn" ? "border-amber-500/40 bg-amber-500/10" : "border-red-500/40 bg-red-500/10")}>
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <span>{notice.text}</span>
+          </div>
+        )}
+
+        {!/\{valor\}/i.test(data.buttonText) && (
+          <p className="flex items-baseline justify-between text-[15px] font-semibold">
+            <span>Total</span>
+            <span className="tabular" data-testid="order-total">
+              {totalLabel}
+            </span>
+          </p>
+        )}
+        <button
+          type="submit"
+          disabled={mode !== "live" || pending}
+          className="flex min-h-[54px] w-full items-center justify-center gap-2 rounded-[14px] px-3 py-3 text-center text-[clamp(13px,3.7vw,15.5px)] font-extrabold uppercase leading-tight transition-[filter,transform] hover:brightness-105 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
+          style={{ background: `linear-gradient(180deg, color-mix(in srgb, ${btn} 78%, white), ${btn})`, color: onBtn, boxShadow: `0 12px 24px -12px ${btn}` }}
+          data-testid="pay-button"
+        >
+          {pending ? (
+            onlyHosted || hosted ? "A preparar o pagamento…" : selectedMethod ? "A aguardar confirmação no telemóvel…" : "A processar…"
+          ) : (
+            <>
+              <CheckBadge />
+              <span className="min-w-0 [overflow-wrap:anywhere]">
+                {/\{valor\}/i.test(data.buttonText)
+                  ? data.buttonText.split(/\{valor\}/i).flatMap((part, i) => (i === 0 ? [part] : [<span key={i} className="tabular" data-testid="order-total">{totalLabel}</span>, part]))
+                  : data.buttonText}
+              </span>
+            </>
+          )}
+        </button>
+        {statusLines}
+        {!!card?.securityItems.length && (
+          <ul className={cn("flex flex-wrap justify-center gap-x-4 gap-y-1.5 text-[11.5px]", muted)} data-testid="security-items">
+            {card.securityItems.map((it, i) => {
+              const Icon = ICON_MAP[it.icon];
+              return (
+                <li key={i} className="flex items-center gap-1">
+                  <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  {it.text}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {card?.consentText && <p className={cn("text-center text-[11.5px] leading-snug", muted)}>{card.consentText}</p>}
+        {data.isDemo && <p className={cn("text-center text-[12px]", muted)}>Compra simulada: será criado apenas um pedido de demonstração.</p>}
+        {dialog}
+      </form>
+    );
+  }
+
+  return (
+    <form id={PURCHASE_FORM_ID} onSubmit={onSubmit} noValidate className={cn("flex scroll-mt-6 flex-col gap-5 rounded-2xl border p-5 sm:p-6", panel)} data-testid="purchase-form">
+      {(title || subtitle) && (
+        <div>
+          {title && <h2 className="text-base font-semibold">{title}</h2>}
+          {subtitle && <p className={cn("mt-0.5 text-[13px]", muted)}>{subtitle}</p>}
+        </div>
+      )}
+      {field("name", "Nome completo", { autoComplete: "name", placeholder: "O seu nome" }, true)}
+      {field("email", "Email", { type: "email", autoComplete: "email", placeholder: "voce@exemplo.com", inputMode: "email" }, true)}
+      {data.collectPhone && !selectedMethod?.requiresPhone && phoneField("Telefone", data.requirePhone)}
+      {data.collectDocument && field("document", "Documento (CPF/NIF)", { autoComplete: "off" }, data.requireDocument)}
+
+      {couponBlock}
 
       {onlyHosted ? (
         // EPay (página alojada) como único gateway: só os métodos, sem texto explicativo
@@ -513,7 +787,7 @@ export function PurchaseForm({
         className="flex h-12 w-full items-center justify-center gap-2 rounded-xl text-[15px] font-semibold transition-[filter,transform] hover:brightness-105 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
         style={{ background: p.button, color: p.onButton }}
       >
-        {pending ? (onlyHosted || hosted ? "A preparar o pagamento…" : selectedMethod ? "A aguardar confirmação no telemóvel…" : "A processar…") : data.buttonText}
+        {pending ? (onlyHosted || hosted ? "A preparar o pagamento…" : selectedMethod ? "A aguardar confirmação no telemóvel…" : "A processar…") : buttonLabel}
       </button>
       {pending && selectedMethod && !selectedMethod.hosted && (
         <p className={cn("text-center text-[12.5px]", muted)} role="status" data-testid="awaiting-phone">
@@ -604,5 +878,32 @@ function PhoneConfirmDialog({
         </div>
       </div>
     </div>
+  );
+}
+
+/** Texto branco sobre o botão (como no modelo), exceto em cores muito claras, onde fica escuro para continuar legível. */
+export function whiteOn(hex: string): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return "#FFFFFF";
+  const n = parseInt(m[1], 16);
+  const lum = 0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255);
+  return lum > 200 ? "#0A0B0D" : "#FFFFFF";
+}
+
+/** Operadora de cada carteira (Moçambique). */
+const OPERATORS: Record<string, string> = { mpesa: "Vodacom", emola: "Movitel" };
+/** Prefixos móveis de Moçambique: 84/85 Vodacom (M-Pesa), 86/87 Movitel (e-Mola). */
+const MZ_PREFIX_METHOD: Record<string, string> = { "84": "mpesa", "85": "mpesa", "86": "emola", "87": "emola" };
+/** "pagar:mpesa" → "mpesa" */
+function methodKeyOf(id: string): string {
+  return id.split(":").pop() ?? "";
+}
+
+/** Visto branco num quadrado arredondado (como ✅), usado nos botões de pagamento. */
+export function CheckBadge() {
+  return (
+    <span className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-[5px] bg-white/25" aria-hidden="true">
+      <Check className="h-3 w-3" strokeWidth={3.5} />
+    </span>
   );
 }

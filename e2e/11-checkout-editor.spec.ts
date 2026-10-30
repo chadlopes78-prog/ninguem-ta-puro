@@ -2,7 +2,7 @@
 // imagens, estilos, rascunho/publicação, telemóvel, compra de teste e isolamento.
 // Compras só com o fornecedor de TESTE local (nenhum pagamento real).
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { completeAndPublish, login, mzn, noHorizontalScroll, toast, toPaymentPage } from "./helpers";
+import { completeAndPublish, login, mzn, noHorizontalScroll, toast, toPaymentPage, PAY_BUTTON } from "./helpers";
 
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 let publicPath = "";
@@ -44,10 +44,9 @@ test.describe.serial("editor visual do checkout", () => {
     await page.goto("/produtos/novo");
     await page.getByLabel("Nome do produto").fill("Curso Editor Visual");
     await page.getByLabel("Descrição").fill("Aprenda a montar páginas de venda que convertem, passo a passo.");
-    await page.getByLabel("Tipo").selectOption("COURSE");
     await page.getByLabel("Preço principal").fill("500,00");
-    await page.getByRole("button", { name: "Guardar produto" }).click();
-    await toast(page, "Produto criado");
+    await page.getByRole("button", { name: "Guardar rascunho" }).click();
+    await toast(page, "Produto guardado como rascunho");
     publicPath = new URL((await page.getByTestId("product-checkout-url").textContent())!.trim()).pathname;
     const productUrl = page.url();
     await completeAndPublish(page, "Curso Editor Visual", { deliveryUrl: "https://conteudo.exemplo.co.mz/curso" });
@@ -59,31 +58,36 @@ test.describe.serial("editor visual do checkout", () => {
     for (const vp of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
       await page.setViewportSize(vp);
       await page.goto(publicPath);
+      // modelo padrão (PayGate): cronómetro → selo seguro → cartão do produto (nome + preço reais) → dados do comprador
       const h1 = page.getByRole("heading", { level: 1, name: "Curso Editor Visual" });
       await expect(h1).toBeVisible();
+      await expect(page.getByTestId("countdown")).toContainText("OFERTA EXPIRA EM");
+      await expect(page.getByTestId("secure-badge")).toContainText("Checkout seguro");
       await expect(page.getByTestId("price")).toContainText(mzn("500,00"));
-      await expect(page.getByTestId("purchase-form")).toBeVisible();
-      // o total aparece uma única vez, junto ao botão, e corresponde ao preço real
-      await expect(page.getByTestId("order-summary")).toHaveCount(1);
+      await expect(page.getByTestId("purchase-form")).toHaveAttribute("data-variant", "card");
+      await expect(page.getByTestId("phone-prefix")).toHaveText("+258");
+      // o total aparece no botão de pagamento (e no botão fixo) e corresponde ao preço real
       await expect(page.getByTestId("order-total")).toHaveText(mzn("500,00"));
-      const btn = page.getByRole("button", { name: "Finalizar compra" });
+      const btn = page.getByRole("button", { name: PAY_BUTTON });
       await expect(btn).toBeVisible();
-      // ordem: nome → preço → formulário (dados → pagamento → total → botão)
+      await expect(btn).toContainText("QUERO PAGAR");
+      await expect(page.getByTestId("sticky-pay-bar")).toBeVisible();
       const y = async (l: Locator) => (await l.boundingBox())!.y;
+      expect(await y(page.getByTestId("countdown"))).toBeLessThan(await y(h1));
       expect(await y(h1)).toBeLessThan(await y(page.getByTestId("price")));
       expect(await y(page.getByTestId("price"))).toBeLessThan(await y(page.getByLabel("Nome completo")));
       expect(await y(page.getByLabel("Nome completo"))).toBeLessThan(await y(page.getByTestId("payment-options")));
-      expect(await y(page.getByTestId("payment-options"))).toBeLessThan(await y(page.getByTestId("order-total")));
-      expect(await y(page.getByTestId("order-total"))).toBeLessThan(await y(btn));
+      expect(await y(page.getByTestId("payment-options"))).toBeLessThan(await y(btn));
       const body = await page.locator("body").innerText();
-      // sem repetições do produto/preço nem a descrição longa no modelo simples
       expect(body).not.toContain("Preço principal");
-      expect(body.match(/500,00/g)?.length).toBe(2); // preço no topo + total junto ao botão
+      expect(body.match(/500,00/g)?.length).toBe(3); // preço no cartão + botão + botão fixo
       expect(body).not.toContain("Aprenda a montar páginas de venda");
       expect(body).not.toContain("Compra segura");
-      expect(body).not.toContain("Ligação cifrada");
       expect(body).not.toMatch(/©/);
-      expect(body).not.toContain("Suporte:");
+      // sem avaliações nem prova social inventadas
+      await expect(page.getByTestId("reviews")).toHaveCount(0);
+      // prova social só com dados reais: nenhuma compra aprovada ainda (as visitas recentes são reais)
+      await expect(page.getByText(/compraram/)).toHaveCount(0);
       await expect(page.locator("header")).toHaveCount(0);
       await expect(page.locator("footer")).toHaveCount(0);
       await noHorizontalScroll(page);
@@ -94,10 +98,18 @@ test.describe.serial("editor visual do checkout", () => {
     await login(page);
     await page.goto(editorUrl);
     await expect(canvas(page)).toHaveAttribute("data-device", "desktop");
+    // o modelo padrão novo tem a sua própria estrutura; estas operações do editor são testadas no modelo clássico
+    expect(await elementTypes(page, "hero")).toEqual(["countdown", "trust", "productCard", "socialProof", "testimonials", "checkout"]);
+    await page.getByTestId("checkout-style").click();
+    await page.getByTestId("use-classic").click();
+    await page.getByRole("button", { name: "Usar modelo clássico" }).last().click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    // a página passa a ser mais curta: mostra o título (a posição de scroll anterior deixava-o sob a barra superior)
+    await el(page, "product-name").evaluate((e) => e.scrollIntoView({ block: "center" }));
     expect(await elementTypes(page, "hero")).toEqual(["heading", "image", "price", "checkout"]);
     // painel de elementos simples (9) + componentes protegidos
-    await expect(page.getByTestId("element-library").locator("[data-testid^=lib-]:not([data-testid=lib-protected])")).toHaveCount(9);
-    for (const t of ["heading", "text", "image", "banner", "countdown", "benefits", "testimonials", "guarantee", "spacer"]) await expect(page.getByTestId(`lib-${t}`)).toBeVisible();
+    await expect(page.getByTestId("element-library").locator("[data-testid^=lib-]:not([data-testid=lib-protected])")).toHaveCount(12);
+    for (const t of ["heading", "text", "image", "banner", "productCard", "countdown", "socialProof", "benefits", "testimonials", "trust", "guarantee", "spacer"]) await expect(page.getByTestId(`lib-${t}`)).toBeVisible();
     await expect(page.getByTestId("lib-video")).toHaveCount(0);
     await expect(page.getByTestId("lib-protected")).toHaveCount(3);
 
@@ -180,7 +192,7 @@ test.describe.serial("editor visual do checkout", () => {
     await page.goto(editorUrl);
     await page.getByTestId("checkout-style").click();
     await page.getByLabel("Cor dos botões", { exact: true }).fill("#2563EB");
-    const submit = canvas(page).getByRole("button", { name: "Finalizar compra" });
+    const submit = canvas(page).getByRole("button", { name: PAY_BUTTON });
     await expect(submit).toHaveCSS("background-color", "rgb(37, 99, 235)");
     await expect(submit).toHaveCSS("color", "rgb(255, 255, 255)");
     await page.getByLabel("Cor do cronómetro", { exact: true }).fill("#16A34A");
@@ -232,7 +244,7 @@ test.describe.serial("editor visual do checkout", () => {
     await page.reload();
     await expect(h1).toHaveCSS("font-size", "35px"); // tamanho reduzido automaticamente no telemóvel
     await expect(page.getByLabel("Nome completo")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Finalizar compra" })).toBeVisible();
+    await expect(page.getByRole("button", { name: PAY_BUTTON })).toBeVisible();
     // cronómetro no telemóvel: fundo completo, dentro da largura do ecrã, números inteiros visíveis
     const box = (await cd.boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(0);
@@ -244,7 +256,7 @@ test.describe.serial("editor visual do checkout", () => {
       expect(await u.evaluate((e) => e.scrollWidth <= e.clientWidth + 1)).toBe(true);
     }
     // botão fácil de tocar
-    expect((await page.getByRole("button", { name: "Finalizar compra" }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect((await page.getByRole("button", { name: PAY_BUTTON }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await noHorizontalScroll(page);
 
     // editor também utilizável no telemóvel (sessão já iniciada)
@@ -263,7 +275,7 @@ test.describe.serial("editor visual do checkout", () => {
     await page.getByLabel("Email").fill("comprador.editor@exemplo.co.mz");
     await page.getByRole("radio", { name: "M-Pesa (teste)" }).check();
     await page.getByLabel(/Número M-Pesa/).fill("84 111 2221"); // termina em 1 → a consulta oficial confirma
-    await page.getByRole("button", { name: "Finalizar compra" }).click();
+    await page.getByRole("button", { name: PAY_BUTTON }).click();
     // confirmado pela consulta oficial: a janela do checkout avança sozinha
     await toPaymentPage(page);
     // confirmado pela consulta oficial → página de obrigado do funil: WhatsApp acima do acesso ao produto

@@ -1,7 +1,7 @@
 // Fluxo de pagamento real no navegador com o fornecedor de TESTE local (não é a EPay).
 import { createHmac } from "crypto";
 import { expect, test, type Page } from "@playwright/test";
-import { completeAndPublish, login, mzn, toast, toPaymentPage } from "./helpers";
+import { completeAndPublish, login, mzn, toast, toPaymentPage, PAY_BUTTON } from "./helpers";
 
 const SECRET = "segredo-e2e-apenas-testes";
 let checkoutPath = "";
@@ -11,7 +11,7 @@ async function buy(page: Page, phone: string) {
   await page.getByLabel("Nome completo").fill("Comprador Moçambique");
   await page.getByLabel("Email").fill("comprador@exemplo.co.mz");
   await page.getByLabel(/Número M-Pesa/).fill(phone);
-  await page.getByRole("button", { name: "Pagar agora" }).click();
+  await page.getByRole("button", { name: PAY_BUTTON }).click();
   // o comprador fica no checkout com a janela de confirmação no telemóvel
   await expect(page.getByTestId("payment-waiting")).toBeVisible();
   // pendente: página de estado; já confirmado (consulta oficial): a janela segue sozinha para o obrigado
@@ -34,10 +34,9 @@ test.describe.serial("pagamentos (fornecedor de teste local)", () => {
     await page.goto("/produtos/novo");
     await page.getByLabel("Nome do produto").fill("Ebook Moçambique");
     await page.getByLabel("Descrição").fill("Produto digital pago em meticais.");
-    await page.getByLabel("Tipo").selectOption("EBOOK");
     await page.getByLabel("Preço principal").fill("1.250,00");
-    await page.getByRole("button", { name: "Guardar produto" }).click();
-    await toast(page, "Produto criado");
+    await page.getByRole("button", { name: "Guardar rascunho" }).click();
+    await toast(page, "Produto guardado como rascunho");
     await expect(page).toHaveURL(/\/produtos\/[a-z0-9]{20,}\?criado=1$/);
     checkoutPath = new URL((await page.getByTestId("product-checkout-url").textContent())!.trim()).pathname;
     expect(checkoutPath).toBe("/checkout/ebook-mocambique");

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/toast";
 import { ProductDeliveryField, type DeliveryChoice, type DeliveryFile } from "./product-delivery-field";
@@ -11,7 +11,7 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { useFormAction } from "@/hooks/use-form-action";
 import { ACTIVE_CURRENCIES, CURRENCY_LABELS, centsToInput } from "@/lib/money";
 import type { ActionResult } from "@/server/validation/common";
-import { PRODUCT_STATUS_LABELS, PRODUCT_TYPE_LABELS } from "./labels";
+import { PRODUCT_STATUS_LABELS } from "./labels";
 import { ProductImageField } from "./product-image-field";
 import Link from "next/link";
 
@@ -29,6 +29,8 @@ export interface ProductFormValues {
   pixel?: { pixelId: string; tokenHint: string } | null;
   /** Link para onde o comprador vai depois do pagamento confirmado */
   upsellUrl?: string;
+  /** Banner promocional (independente da imagem principal) */
+  bannerUrl?: string;
 }
 
 /**
@@ -45,8 +47,11 @@ export function ProductForm({
   productId,
   removeDeliveryFileAction,
   funnelHref,
+  publishAction,
 }: {
   action: (fd: FormData) => Promise<ActionResult<{ id: string }>>;
+  /** Publica o produto acabado de criar (mesma validação do servidor do botão «Publicar») */
+  publishAction?: (id: string) => Promise<ActionResult<unknown>>;
   initial: ProductFormValues;
   isNew: boolean;
   readOnly?: boolean;
@@ -59,6 +64,14 @@ export function ProductForm({
   // produto novo: o ficheiro escolhido fica em memória e é enviado logo a seguir à criação
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
+  // Botão escolhido no produto novo: «Publicar produto» (principal) ou «Guardar rascunho»
+  const intent = useRef<"publish" | "draft">("publish");
+  const intentInput = useRef<HTMLInputElement>(null);
+  const choose = (v: "publish" | "draft") => {
+    intent.current = v;
+    if (intentInput.current) intentInput.current.value = v;
+  };
+  const [publishing, setPublishing] = useState(false);
   const afterCreate = async (id: string) => {
     if (pendingFile) {
       setUploading(true);
@@ -74,15 +87,31 @@ export function ProductForm({
         setUploading(false);
       }
     }
+    // Publicar depois de o ficheiro estar guardado: o servidor valida tudo (entrega, preço…) e só então publica
+    if (intent.current === "publish" && publishAction) {
+      setPublishing(true);
+      try {
+        const r = await publishAction(id);
+        if (r.ok) {
+          toast("Produto publicado! O checkout já está disponível.");
+          router.push(`/produtos/${id}?publicado=1`);
+          return;
+        }
+        toast(`Produto guardado como rascunho. ${r.error}`, "error");
+      } catch {
+        toast("Produto guardado como rascunho. Erro de rede ao publicar — tente «Publicar» na página do produto.", "error");
+      } finally {
+        setPublishing(false);
+      }
+    }
     router.push(`/produtos/${id}?criado=1`);
   };
   const { onSubmit, pending, error, fieldErrors: fe } = useFormAction(action, {
-    // sem ficheiro por enviar: segue logo para o produto; com ficheiro: envia-o primeiro e depois segue
-    redirectTo: (d) => (isNew && d && !pendingFile ? `/produtos/${d.id}?criado=1` : undefined),
+    // produto novo: envia o ficheiro (se houver), publica (se pedido) e só depois segue para o produto
     onSuccess: (d) => {
-      if (isNew && d && pendingFile) void afterCreate(d.id);
+      if (isNew && d) void afterCreate(d.id);
     },
-    skipRefresh: () => isNew && Boolean(pendingFile),
+    skipRefresh: () => isNew,
   });
   const [name, setName] = useState(initial.name);
 
@@ -100,6 +129,17 @@ export function ProductForm({
               {(p) => <Textarea {...p} defaultValue={initial.description} rows={5} maxLength={5000} />}
             </Field>
             <ProductImageField initial={initial.imageUrl} name={name} error={fe.imageUrl} disabled={readOnly} />
+            <ProductImageField
+              initial={initial.bannerUrl ?? ""}
+              name={name}
+              error={fe.bannerUrl}
+              disabled={readOnly}
+              field="bannerUrl"
+              label="Banner promocional (opcional)"
+              hint="Imagem larga mostrada no topo do checkout (proporção 2:1, ex.: 1200×600). JPG, PNG ou WebP; é otimizada automaticamente. Sem banner, usa-se a imagem do produto."
+              wide
+              testId="product-banner"
+            />
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Preço principal" name="priceCents" error={fe.priceCents} required>
                 {(p) => <Input {...p} inputMode="decimal" defaultValue={initial.priceCents !== null ? centsToInput(initial.priceCents) : ""} placeholder="197,00" />}
@@ -115,21 +155,9 @@ export function ProductForm({
                   </Select>
                 )}
               </Field>
-              <Field label="Tipo" name="type" error={fe.type} required>
-                {(p) => (
-                  <Select {...p} defaultValue={initial.type}>
-                    <option value="">Selecione…</option>
-                    {Object.entries(PRODUCT_TYPE_LABELS).map(([v, l]) => (
-                      <option key={v} value={v}>
-                        {l}
-                      </option>
-                    ))}
-                  </Select>
-                )}
-              </Field>
-              <Field label="Categoria" name="category" error={fe.category}>
-                {(p) => <Input {...p} defaultValue={initial.category} maxLength={80} placeholder="Ex.: Marketing" />}
-              </Field>
+              {/* Tipo e categoria saíram do formulário (simplificação): os valores guardados mantêm-se; novos produtos ficam «Produto digital» */}
+              <input type="hidden" name="type" value={initial.type || "DIGITAL"} />
+              <input type="hidden" name="category" value={initial.category} />
             </div>
           </CardBody>
         </Card>
@@ -151,16 +179,25 @@ export function ProductForm({
         </Card>
 
         <Card>
-          <CardHeader title="Depois da compra e anúncios" description="Opcional. Pode deixar em branco." />
-          <CardBody className="grid gap-4">
+          <CardHeader title="Redireccionamento após a compra" description="Para onde o cliente vai depois de o pagamento ser confirmado pelo processador." />
+          <CardBody className="grid gap-3">
             <Field
-              label="Link de upsell"
+              label="Link do upsell (opcional)"
               name="upsellUrl"
               error={fe.upsellUrl}
-              hint="Depois do pagamento confirmado, o comprador é levado para este link. O fluxo é criado automaticamente na aba Funis."
+              hint="Introduza o endereço da página de upsell para onde o cliente deverá ser encaminhado depois de concluir o pagamento. Ex.: https://meusite.com/oferta-especial"
             >
-              {(p) => <Input {...p} type="url" inputMode="url" placeholder="https://…" defaultValue={initial.upsellUrl ?? ""} data-testid="product-upsell-url" />}
+              {(p) => <Input {...p} type="url" inputMode="url" placeholder="https://meusite.com/oferta-especial" defaultValue={initial.upsellUrl ?? ""} data-testid="product-upsell-url" />}
             </Field>
+            <p className="text-[12px] leading-relaxed text-subtle" data-testid="redirect-rules">
+              Sem upsell: com link de acesso, o cliente vai direto para o link; com PDF, vê a página de obrigado com o botão para baixar o PDF. O encaminhamento só acontece depois de o pagamento ser confirmado.
+            </p>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader title="Facebook Pixel (opcional)" description="Envia as compras confirmadas deste produto ao seu Pixel." />
+          <CardBody>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="ID do Facebook Pixel" name="pixelId" error={fe.pixelId} hint="Cada produto pode ter o seu Pixel. Aparece também em Integrações.">
                 {(p) => <Input {...p} inputMode="numeric" placeholder="123456789012345" defaultValue={initial.pixel?.pixelId ?? ""} data-testid="product-pixel-id" />}
@@ -182,8 +219,9 @@ export function ProductForm({
             {isNew ? (
               <>
                 <input type="hidden" name="status" value="DRAFT" />
+                <input ref={intentInput} type="hidden" name="intent" defaultValue="publish" />
                 <p className="text-[12.5px] leading-relaxed text-muted" data-testid="new-product-draft-note">
-                  O produto é guardado como <strong>rascunho</strong>. Depois é só publicar: o checkout é criado automaticamente e o comprador recebe o produto logo após o pagamento confirmado.
+                  Ao <strong>publicar</strong>, o checkout fica disponível de imediato (é preciso ter a entrega do produto configurada). Prefere terminar mais tarde? Guarde como <strong>rascunho</strong>.
                 </p>
               </>
             ) : (
@@ -207,9 +245,20 @@ export function ProductForm({
                 <LinkButton href="/produtos" variant="ghost">
                   Cancelar
                 </LinkButton>
-                <Button type="submit" loading={pending || uploading}>
-                  Guardar produto
-                </Button>
+                {isNew ? (
+                  <>
+                    <Button type="submit" variant="secondary" disabled={pending || uploading || publishing} onClick={() => choose("draft")} data-testid="save-draft">
+                      Guardar rascunho
+                    </Button>
+                    <Button type="submit" loading={pending || uploading || publishing} onClick={() => choose("publish")} data-testid="publish-new-product">
+                      Publicar produto
+                    </Button>
+                  </>
+                ) : (
+                  <Button type="submit" loading={pending || uploading} data-testid="update-product">
+                    Actualizar produto
+                  </Button>
+                )}
               </div>
             )}
           </CardBody>

@@ -90,7 +90,7 @@ export type ElementStyle = z.infer<typeof styleSchema>;
 
 const base = { id, style: styleSchema.default({}) };
 const aspect = z.enum(["auto", "1/1", "4/3", "3/2", "16/9", "21/9", "3/1", "3/4"]);
-export const ICONS = ["check", "shield", "lock", "star", "clock", "gift", "truck", "download", "phone", "heart", "award", "info"] as const;
+export const ICONS = ["check", "shield", "lock", "star", "clock", "gift", "truck", "download", "phone", "heart", "award", "info", "zap", "users"] as const;
 const icon = z.enum(ICONS);
 
 export const elementSchema = z.discriminatedUnion("type", [
@@ -147,6 +147,8 @@ export const elementSchema = z.discriminatedUnion("type", [
       .array(z.object({ name: text(80), text: text(700), role: text(80).default(""), avatarUrl: imageSrc.default(""), rating: z.number().int().min(0).max(5).default(5) }))
       .max(12)
       .default([]),
+    /** cards: cartões com fotografia; compact: estrelas, comentário e nome (modelo PayGate) */
+    variant: z.enum(["cards", "compact"]).default("cards"),
   }),
   z.object({ ...base, type: z.literal("guarantee"), title: text(160).default(""), body: text(1200).default(""), days: z.number().int().min(0).max(365).default(7) }),
   z.object({ ...base, type: z.literal("faq"), title: text(160).default(""), items: z.array(z.object({ q: text(240), a: text(1200) })).max(24).default([]) }),
@@ -164,10 +166,47 @@ export const elementSchema = z.discriminatedUnion("type", [
     /** Cor dos números e do texto (vazio = branco/escuro automático conforme o fundo). */
     textColor: optHex,
     size: z.enum(["sm", "md", "lg"]).default("md"),
+    /** boxes: caixas por unidade; banner: cartão com «03:18» grande (modelo PayGate) */
+    variant: z.enum(["boxes", "banner"]).default("boxes"),
   }),
   z.object({ ...base, type: z.literal("infoBox"), icon: icon.default("info"), title: text(160).default(""), body: text(1200).default(""), layout: z.enum(["row", "column"]).default("row") }),
   /** Elementos de confiança configurados pelo utilizador (nenhum texto é imposto pela plataforma). */
-  z.object({ ...base, type: z.literal("trust"), items: z.array(z.object({ icon, text: text(80) })).max(8).default([]), layout: z.enum(["row", "column"]).default("row") }),
+  z.object({
+    ...base,
+    type: z.literal("trust"),
+    items: z.array(z.object({ icon, text: text(80) })).max(8).default([]),
+    layout: z.enum(["row", "column"]).default("row"),
+    /** accent: ícones na cor principal; muted: discreto e pequeno (ex.: «Checkout seguro · PayGate») */
+    tone: z.enum(["accent", "muted"]).default("accent"),
+  }),
+  /** Cartão do produto: imagem larga com texto sobreposto, nome e preço reais. */
+  z.object({
+    ...base,
+    type: z.literal("productCard"),
+    imageSource: z.enum(["product", "custom"]).default("product"),
+    src: imageSrc.default(""),
+    overlayText: text(80).default(""),
+    showOverlay: z.boolean().default(true),
+    overlayPosition: z.enum(["top-left", "top-center", "top-right", "center", "bottom-left", "bottom-center", "bottom-right"]).default("top-left"),
+    showName: z.boolean().default(true),
+    showPrice: z.boolean().default(true),
+    focusX: num(0, 100).default(50),
+    focusY: num(0, 100).default(50),
+  }),
+  /**
+   * Prova social. real: compras pagas nas últimas 24 h e visitantes nos últimos 5 minutos deste checkout (dados
+   * verificáveis da plataforma; esconde-se quando não há); custom: números indicados pelo vendedor.
+   */
+  z.object({
+    ...base,
+    type: z.literal("socialProof"),
+    mode: z.enum(["real", "custom"]).default("real"),
+    purchasesText: text(120).default("{n} pessoas compraram nas últimas 24h"),
+    viewersText: text(60).default("{n} a ver agora"),
+    customPurchases: z.number().int().min(0).max(100000).default(0),
+    customViewers: z.number().int().min(0).max(100000).default(0),
+    showViewers: z.boolean().default(true),
+  }),
   /** Resumo do produto com dados reais (imagem, nome, oferta, preço). */
   z.object({ ...base, type: z.literal("productSummary"), showImage: z.boolean().default(true), showDescription: z.boolean().default(false) }),
   /** Preço real da oferta (nunca editável). */
@@ -186,7 +225,21 @@ export const elementSchema = z.discriminatedUnion("type", [
   z.object({ ...base, type: z.literal("spacer"), height: num(4, 240).default(32), mobileHeight: num(0, 240).default(24) }),
   z.object({ ...base, type: z.literal("divider"), thickness: num(1, 8).default(1), widthPct: num(5, 100).default(100), line: z.enum(["solid", "dashed", "dotted"]).default("solid"), lineColor: optHex }),
   /** Formulário de compra + pagamento + resumo da encomenda (implementação real). Protegido. */
-  z.object({ ...base, type: z.literal("checkout"), title: text(80).default("Os seus dados"), subtitle: text(200).default("Usados para enviar o acesso ao produto."), stickyDesktop: z.boolean().default(true) }),
+  z.object({
+    ...base,
+    type: z.literal("checkout"),
+    title: text(80).default("Os seus dados"),
+    subtitle: text(200).default("Usados para enviar o acesso ao produto."),
+    stickyDesktop: z.boolean().default(true),
+    /** classic: formulário anterior; card: cartão com o número em destaque e métodos em cartões (modelo PayGate) */
+    variant: z.enum(["classic", "card"]).default("classic"),
+    phoneTitle: text(80).default("Número para fazer o pagamento"),
+    phoneHint: text(160).default("Detectamos automaticamente M-Pesa ou e-Mola."),
+    phoneNote: text(160).default("Nunca partilhamos o seu número. Débito seguro e instantâneo."),
+    /** Selos por baixo do botão de pagamento (variante card) */
+    securityItems: z.array(z.object({ icon, text: text(60) })).max(4).default([]),
+    consentText: text(200).default(""),
+  }),
 ]);
 export type DesignElement = z.infer<typeof elementSchema>;
 export type ElementType = DesignElement["type"];
@@ -201,7 +254,7 @@ export const SECTION_LAYOUTS = {
   "1-1-1": { label: "3 colunas", cols: [1, 1, 1] },
 } as const;
 export type SectionLayout = keyof typeof SECTION_LAYOUTS;
-export const CONTENT_WIDTHS = { narrow: { label: "Estreita (680 px)", px: 680 }, normal: { label: "Normal (960 px)", px: 960 }, wide: { label: "Larga (1160 px)", px: 1160 }, full: { label: "Ecrã inteiro", px: 0 } } as const;
+export const CONTENT_WIDTHS = { compact: { label: "Telemóvel (520 px)", px: 520 }, narrow: { label: "Estreita (680 px)", px: 680 }, normal: { label: "Normal (960 px)", px: 960 }, wide: { label: "Larga (1160 px)", px: 1160 }, full: { label: "Ecrã inteiro", px: 0 } } as const;
 
 export const sectionSchema = z.object({
   id,
@@ -209,7 +262,7 @@ export const sectionSchema = z.object({
   columns: z.array(z.array(elementSchema).max(60)).min(1).max(3),
   style: z
     .object({
-      contentWidth: z.enum(["narrow", "normal", "wide", "full"]).default("wide"),
+      contentWidth: z.enum(["compact", "narrow", "normal", "wide", "full"]).default("wide"),
       background: optHex,
       paddingY: num(0, 200).default(40),
       paddingX: num(0, 120).default(16),
@@ -243,6 +296,8 @@ export const themeSchema = z
     textColor: optHex,
     /** Cor predefinida dos cronómetros (vazio = cor principal). */
     countdownColor: optHex,
+    /** Botão de pagamento fixo no fundo do ecrã (com o valor), sempre visível durante o scroll */
+    stickyPayBar: z.boolean().default(false),
   })
   .strip();
 
@@ -297,6 +352,8 @@ export const ELEMENT_INFO: Record<ElementType, { label: string; description: str
   faq: { label: "Perguntas frequentes", description: "Respostas a dúvidas", group: "content" },
   countdown: { label: "Cronómetro", description: "Contagem decrescente visual", group: "content" },
   productSummary: { label: "Resumo do produto", description: "Imagem, nome e preço reais", group: "product" },
+  productCard: { label: "Cartão do produto", description: "Imagem com destaque, nome e preço", group: "product" },
+  socialProof: { label: "Prova social", description: "Compras e visitantes reais", group: "content" },
   price: { label: "Preço", description: "Preço real da oferta", group: "product" },
   checkout: { label: "Formulário de compra", description: "Dados, pagamento e resumo (protegido)", group: "commerce" },
 };
@@ -312,11 +369,16 @@ export type AddableType = Exclude<ElementType, "checkout">;
  * Elementos que o editor simplificado deixa adicionar. Os restantes tipos (vídeo, perguntas, botão…) continuam
  * a ser apresentados e editáveis nos designs que já os têm, mas deixam de aparecer na biblioteca.
  */
-export const ADDABLE_ELEMENTS: AddableType[] = ["heading", "text", "image", "banner", "countdown", "benefits", "testimonials", "guarantee", "spacer"];
+export const ADDABLE_ELEMENTS: AddableType[] = ["heading", "text", "image", "banner", "productCard", "countdown", "socialProof", "benefits", "testimonials", "trust", "guarantee", "spacer"];
 
 /** Elementos protegidos: não podem ser eliminados no editor (produto, preço e formulário de compra/pagamento). */
 export function isProtectedElement(el: DesignElement): boolean {
   return el.type === "checkout" || el.type === "price" || (el.type === "heading" && el.source === "productName");
+}
+
+/** O design mostra o preço real em algum lado (elemento de preço ou cartão do produto com preço)? */
+export function showsPrice(design: CheckoutDesign): boolean {
+  return design.sections.some((s) => s.columns.flat().some((e) => e.type === "price" || (e.type === "productCard" && e.showPrice) || e.type === "productSummary"));
 }
 
 export function newId(prefix = "e"): string {
@@ -342,17 +404,21 @@ export function newElement(type: AddableType): DesignElement {
     case "benefits":
       return { ...e, type, title: "O que vai receber", items: ["Escreva o primeiro benefício", "Escreva o segundo benefício"], icon: "check" };
     case "testimonials":
-      return { ...e, type, title: "O que dizem os nossos clientes", items: [{ name: "Nome do cliente", text: "Escreva aqui o testemunho real de um cliente.", role: "", avatarUrl: "", rating: 5 }] };
+      return { ...e, type, title: "O que dizem os nossos clientes", items: [{ name: "Nome do cliente", text: "Escreva aqui o testemunho real de um cliente.", role: "", avatarUrl: "", rating: 5 }], variant: "cards" };
     case "guarantee":
       return { ...e, type, title: "Garantia", body: "Descreva aqui as condições da sua garantia.", days: 7 };
     case "faq":
       return { ...e, type, title: "Perguntas frequentes", items: [{ q: "Como recebo o produto?", a: "Recebe o acesso logo após a confirmação do pagamento." }] };
     case "countdown":
-      return { ...e, type, title: "Oferta termina em", mode: "evergreen", endsAt: "", minutes: 15, expiredText: "A oferta pode terminar a qualquer momento.", bgColor: "", textColor: "", size: "md" };
+      return { ...e, type, title: "Oferta termina em", mode: "evergreen", endsAt: "", minutes: 15, expiredText: "A oferta pode terminar a qualquer momento.", bgColor: "", textColor: "", size: "md", variant: "boxes" };
     case "infoBox":
       return { ...e, type, icon: "info", title: "Título do bloco", body: "Texto do bloco de informações.", layout: "row" };
     case "trust":
-      return { ...e, type, items: [{ icon: "lock", text: "Escreva um selo" }], layout: "row" };
+      return { ...e, type, items: [{ icon: "lock", text: "Escreva um selo" }], layout: "row", tone: "accent" };
+    case "productCard":
+      return { ...e, type, imageSource: "product", src: "", overlayText: "", showOverlay: true, overlayPosition: "top-left", showName: true, showPrice: true, focusX: 50, focusY: 50 };
+    case "socialProof":
+      return { ...e, type, mode: "real", purchasesText: "{n} pessoas compraram nas últimas 24h", viewersText: "{n} a ver agora", customPurchases: 0, customViewers: 0, showViewers: true };
     case "productSummary":
       return { ...e, type, showImage: true, showDescription: false };
     case "price":
@@ -390,16 +456,70 @@ export function cloneWithNewIds<T extends DesignElement | DesignSection>(x: T): 
 /** Cores de fábrica dos checkouts (tema escuro néon). Quando o vendedor não as alterou, o modelo padrão usa o tema claro. */
 const FACTORY_COLORS = { primaryColor: "#C8F135", backgroundColor: "#0B0C0E" } as const;
 
+/** Texto de fábrica do botão do checkout; no modelo padrão passa a «QUERO PAGAR {valor} AGORA». */
+const FACTORY_BUTTON_TEXT = "Finalizar compra";
+
 /**
- * Modelo padrão (checkout simples, numa coluna, como nas plataformas de produtos digitais):
- * 1. nome do produto · 2. imagem (se existir) · 3. preço · 4–6. formulário com os dados do comprador,
- * os métodos de pagamento ativos e o botão de finalizar (o total aparece uma única vez, junto ao botão).
- * Visual limpo e claro por omissão (fundo cinza-claro, cartões brancos, botão verde), título e preço em tamanho
- * moderado e imagem com cantos suaves, para o formulário aparecer cedo no telemóvel. Se o vendedor escolheu cores
- * próprias para o checkout, essas cores são respeitadas.
- * Não inclui benefícios, depoimentos nem garantias: dependem de informação que só o vendedor tem.
+ * Modelo padrão oficial (estilo «PayGate», pensado para telemóvel), numa coluna estreita e centrada:
+ *  1. cronómetro em faixa vermelha («OFERTA EXPIRA EM» · 15:00, por visita — só visual)
+ *  2. selo discreto «Checkout seguro · <nome da loja>»
+ *  3. cartão do produto: imagem larga (com texto em destaque opcional), nome e preço reais
+ *  4. prova social com dados REAIS da plataforma (compras pagas nas últimas 24 h, visitantes agora); esconde-se sem dados
+ *  5. avaliações (vazias: só aparecem quando o vendedor escrever avaliações reais)
+ *  6. cartão «Dados do comprador»: nome, email, número com +258 em destaque, métodos em cartões e botão verde com o valor
+ *  + botão fixo no fundo do ecrã com o valor.
+ * Fundo cinza-lilás muito claro, cartões brancos, destaques azul-violeta e botões verdes. Se o vendedor escolheu cores
+ * próprias para o checkout, essas cores são respeitadas. Checkouts com personalização publicada não usam este modelo.
  */
 export function defaultDesign(theme: { primaryColor: string; backgroundColor: string; buttonText: string }): CheckoutDesign {
+  const factory = theme.primaryColor.toUpperCase() === FACTORY_COLORS.primaryColor && theme.backgroundColor.toUpperCase() === FACTORY_COLORS.backgroundColor;
+  const colors = factory ? { ...CHECKOUT_THEME_PRESETS.paygate, mode: "light" as const } : { primaryColor: theme.primaryColor, backgroundColor: theme.backgroundColor };
+  const main = newSection("1");
+  main.id = "hero";
+  main.style.contentWidth = "compact";
+  main.style.paddingY = 20;
+  main.style.paddingX = 14;
+  main.style.rowGap = 12;
+  main.columns = [
+    [
+      { id: "offer-timer", type: "countdown", style: {}, title: "OFERTA EXPIRA EM", mode: "evergreen", endsAt: "", minutes: 15, expiredText: "A oferta pode terminar a qualquer momento.", bgColor: "#E5322D", textColor: "#FFFFFF", size: "md", variant: "banner" },
+      { id: "secure-badge", type: "trust", style: {}, items: [{ icon: "shield", text: "Checkout seguro · {loja}" }], layout: "row", tone: "muted" },
+      { id: "product-card", type: "productCard", style: {}, imageSource: "product", src: "", overlayText: "", showOverlay: true, overlayPosition: "top-left", showName: true, showPrice: true, focusX: 50, focusY: 50 },
+      { id: "social-proof", type: "socialProof", style: {}, mode: "real", purchasesText: "{n} pessoas compraram nas últimas 24h", viewersText: "{n} a ver agora", customPurchases: 0, customViewers: 0, showViewers: true },
+      { id: "reviews", type: "testimonials", style: {}, title: "", items: [], variant: "compact" },
+      {
+        id: "checkout",
+        type: "checkout",
+        style: { marginTop: 4 },
+        title: "Dados do comprador",
+        subtitle: "",
+        stickyDesktop: false,
+        variant: "card",
+        phoneTitle: "Número para fazer o pagamento",
+        phoneHint: "Detectamos automaticamente M-Pesa ou e-Mola.",
+        phoneNote: "Nunca partilhamos o seu número. Débito seguro e instantâneo.",
+        securityItems: [
+          { icon: "lock", text: "Encriptado" },
+          { icon: "zap", text: "Aprovação instantânea" },
+          { icon: "shield", text: "Sem taxas ocultas" },
+        ],
+        consentText: "Ao pagar, autoriza o débito na sua carteira móvel.",
+      },
+    ],
+  ];
+  const buttonText = theme.buttonText === FACTORY_BUTTON_TEXT ? "QUERO PAGAR {valor} AGORA" : theme.buttonText;
+  return {
+    version: 2,
+    theme: { ...colors, buttonText, announcement: "", fontFamily: "inter", headingFont: "inter", buttonColor: factory ? "#22C55E" : "", textColor: "", countdownColor: "", stickyPayBar: true },
+    sections: [main],
+  };
+}
+
+/**
+ * Modelo anterior (clássico): nome → imagem → preço → formulário clássico, tema claro. Continua disponível para
+ * os checkouts já personalizados com ele e como referência nos testes; já não é o padrão dos novos checkouts.
+ */
+export function classicDesign(theme: { primaryColor: string; backgroundColor: string; buttonText: string }): CheckoutDesign {
   const factory = theme.primaryColor.toUpperCase() === FACTORY_COLORS.primaryColor && theme.backgroundColor.toUpperCase() === FACTORY_COLORS.backgroundColor;
   const colors = factory ? { ...CHECKOUT_THEME_PRESETS.light, mode: "light" as const } : { primaryColor: theme.primaryColor, backgroundColor: theme.backgroundColor };
   const main = newSection("1");
@@ -412,12 +532,12 @@ export function defaultDesign(theme: { primaryColor: string; backgroundColor: st
       { id: "product-name", type: "heading", style: { fontSize: 28, fontSizeMobile: 22 }, source: "productName", text: "", level: "h1" },
       { id: "product-image", type: "image", style: {}, source: "product", src: "", alt: "", caption: "", widthPct: 100, mobileWidthPct: 100, maxWidthPx: 0, aspect: "16/9", heightPx: 0, fit: "cover", focusX: 50, focusY: 50, imgRadius: 14, imgAlign: "center" },
       { id: "product-price", type: "price", style: { fontSize: 26, fontSizeMobile: 24 }, label: "", showCompareAt: true },
-      { id: "checkout", type: "checkout", style: { marginTop: 4 }, title: "Os seus dados", subtitle: "", stickyDesktop: false },
+      { id: "checkout", type: "checkout", style: { marginTop: 4 }, title: "Os seus dados", subtitle: "", stickyDesktop: false, variant: "classic", phoneTitle: "", phoneHint: "", phoneNote: "", securityItems: [], consentText: "" },
     ],
   ];
   return {
     version: 2,
-    theme: { ...colors, buttonText: theme.buttonText, announcement: "", fontFamily: "inter", headingFont: "inter", buttonColor: "", textColor: "", countdownColor: "" },
+    theme: { ...colors, buttonText: theme.buttonText, announcement: "", fontFamily: "inter", headingFont: "inter", buttonColor: "", textColor: "", countdownColor: "", stickyPayBar: false },
     sections: [main],
   };
 }
@@ -428,10 +548,12 @@ export function defaultDesign(theme: { primaryColor: string; backgroundColor: st
  */
 export function restoreDefaultStyle(design: CheckoutDesign): CheckoutDesign {
   const mode = themeMode(design.theme);
-  const preset = CHECKOUT_THEME_PRESETS[mode];
+  // checkouts com o formulário em cartão (modelo padrão PayGate) voltam às cores desse modelo
+  const paygate = design.sections.some((s) => s.columns.flat().some((e) => e.type === "checkout" && e.variant === "card"));
+  const preset = paygate ? CHECKOUT_THEME_PRESETS.paygate : CHECKOUT_THEME_PRESETS[mode];
   return {
     ...design,
-    theme: { ...design.theme, mode, primaryColor: preset.primaryColor, backgroundColor: preset.backgroundColor, fontFamily: "inter", headingFont: "grotesk", buttonColor: "", textColor: "", countdownColor: "" },
+    theme: { ...design.theme, mode, primaryColor: preset.primaryColor, backgroundColor: preset.backgroundColor, fontFamily: "inter", headingFont: paygate ? "inter" : "grotesk", buttonColor: paygate ? "#22C55E" : "", textColor: "", countdownColor: "" },
     sections: design.sections.map((s) => ({
       ...s,
       style: { ...s.style, background: "", radius: 0, borderColor: "", borderWidth: 0 },
@@ -441,7 +563,8 @@ export function restoreDefaultStyle(design: CheckoutDesign): CheckoutDesign {
           if (e.style.hideDesktop) keep.hideDesktop = true;
           if (e.style.hideMobile) keep.hideMobile = true;
           const base = { ...e, style: keep } as DesignElement;
-          return base.type === "countdown" ? { ...base, bgColor: "", textColor: "", size: "md" as const } : base;
+          if (base.type === "countdown") return { ...base, bgColor: paygate && base.variant === "banner" ? "#E5322D" : "", textColor: paygate && base.variant === "banner" ? "#FFFFFF" : "", size: "md" as const };
+          return base;
         }),
       ),
     })),
@@ -504,10 +627,10 @@ export function convertLegacy(v1: z.infer<typeof legacyDesign>): CheckoutDesign 
         els.push({ id: b.id, type: "video", style: {}, url: b.url, caption: b.caption });
         break;
       case "testimonials":
-        els.push({ id: b.id, type: "testimonials", style: {}, title: b.title, items: b.items });
+        els.push({ id: b.id, type: "testimonials", style: {}, title: b.title, items: b.items, variant: "cards" });
         break;
       case "countdown":
-        els.push({ id: b.id, type: "countdown", style: {}, title: b.title, mode: b.mode, endsAt: b.endsAt, minutes: b.minutes, expiredText: b.expiredText, bgColor: "", textColor: "", size: "md" });
+        els.push({ id: b.id, type: "countdown", style: {}, title: b.title, mode: b.mode, endsAt: b.endsAt, minutes: b.minutes, expiredText: b.expiredText, bgColor: "", textColor: "", size: "md", variant: "boxes" });
         break;
       case "benefits":
         els.push({ id: b.id, type: "benefits", style: {}, title: b.title, items: b.items, icon: "check" });
@@ -524,7 +647,7 @@ export function convertLegacy(v1: z.infer<typeof legacyDesign>): CheckoutDesign 
         break;
     }
   }
-  const checkout: DesignElement = { id: "checkout", type: "checkout", style: {}, title: "Os seus dados", subtitle: "Usados para enviar o acesso ao produto.", stickyDesktop: true };
+  const checkout: DesignElement = { id: "checkout", type: "checkout", style: {}, title: "Os seus dados", subtitle: "Usados para enviar o acesso ao produto.", stickyDesktop: true, variant: "classic", phoneTitle: "", phoneHint: "", phoneNote: "", securityItems: [], consentText: "" };
   const stacked = v1.theme.layout === "stacked";
   const section = newSection(stacked ? "1" : "1-1");
   section.id = "main";
@@ -532,7 +655,7 @@ export function convertLegacy(v1: z.infer<typeof legacyDesign>): CheckoutDesign 
   section.columns = stacked ? [[...els, checkout]] : [els, [checkout]];
   return {
     version: 2,
-    theme: { primaryColor: v1.theme.primaryColor, backgroundColor: v1.theme.backgroundColor, buttonText: v1.theme.buttonText, announcement: v1.theme.announcement, mode: v1.theme.mode, fontFamily: "inter", headingFont: "grotesk", buttonColor: "", textColor: "", countdownColor: "" },
+    theme: { primaryColor: v1.theme.primaryColor, backgroundColor: v1.theme.backgroundColor, buttonText: v1.theme.buttonText, announcement: v1.theme.announcement, mode: v1.theme.mode, fontFamily: "inter", headingFont: "grotesk", buttonColor: "", textColor: "", countdownColor: "", stickyPayBar: false },
     sections: [section],
   };
 }
@@ -558,7 +681,7 @@ export function mediaIdsIn(design: CheckoutDesign): string[] {
     if (m) ids.add(m[1]);
   };
   for (const e of design.sections.flatMap((s) => s.columns.flat())) {
-    if (e.type === "image" || e.type === "banner") check(e.src);
+    if (e.type === "image" || e.type === "banner" || e.type === "productCard") check(e.src);
     if (e.type === "testimonials") e.items.forEach((t) => check(t.avatarUrl));
   }
   return [...ids];
@@ -568,6 +691,8 @@ export function mediaIdsIn(design: CheckoutDesign): string[] {
 export const CHECKOUT_THEME_PRESETS = {
   dark: { backgroundColor: "#0B0C0E", primaryColor: "#C8F135" },
   light: { backgroundColor: "#F6F7F9", primaryColor: "#16A34A" },
+  /** Modelo padrão (PayGate): fundo cinza-lilás muito claro e destaques azul-violeta (o botão é verde à parte) */
+  paygate: { backgroundColor: "#F4F5FA", primaryColor: "#5B5BD6" },
 } as const;
 
 export function themeMode(theme: { mode?: "dark" | "light"; backgroundColor: string }): "dark" | "light" {

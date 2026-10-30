@@ -49,10 +49,11 @@ export async function saveProductAction(id: string | null, fd: FormData) {
     const product = await createProduct(p.data, scope);
     const warn = await extras(product.id);
     revalidatePath("/produtos");
+    const publishing = fd.get("intent") === "publish";
     return {
       ok: true,
       data: { id: product.id },
-      message: `Produto criado como rascunho. O link do checkout foi gerado — publique o produto para começar a vender.${warn ? ` ${warn}` : ""}`,
+      message: publishing ? `Produto criado. A publicar…${warn ? ` ${warn}` : ""}` : `Produto guardado como rascunho. O link do checkout foi gerado — publique o produto quando estiver pronto.${warn ? ` ${warn}` : ""}`,
     };
   });
 }

@@ -26,10 +26,10 @@ import { CheckCircle2, Circle } from "lucide-react";
 
 export const metadata: Metadata = { title: "Editar produto" };
 
-export default async function ProductPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ criado?: string }> }) {
+export default async function ProductPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ criado?: string; publicado?: string }> }) {
   await requireUser();
   const { id } = await params;
-  const { criado } = await searchParams;
+  const { criado, publicado } = await searchParams;
   const { isDemo, settings, scope } = await getScope();
   const product = await getProduct(id, scope).catch((e) => {
     if (e instanceof NotFoundError) notFound();
@@ -90,6 +90,13 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
           </>
         }
       />
+      {publicado === "1" && live && (
+        <div className="mb-5" data-testid="product-published">
+          <Alert tone="success" title="Produto publicado com sucesso!">
+            O checkout já está disponível. Partilhe o link abaixo para começar a vender.
+          </Alert>
+        </div>
+      )}
       <div className="mb-5">
         <CheckoutLinkCard
           productId={product.id}
@@ -171,6 +178,7 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
           delivery: { method: product.deliveryMethod ?? "", url: product.deliveryUrl ?? "", file: product.deliveryFile },
           pixel,
           upsellUrl,
+          bannerUrl: product.bannerUrl ?? "",
         }}
       />
     </>

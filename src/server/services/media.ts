@@ -107,8 +107,8 @@ export async function deleteMedia(ownerId: string, id: string) {
   const designs = await prisma.checkoutDesign.findMany({ where: { checkout: { ownerId } }, select: { draft: true, published: true, checkout: { select: { product: { select: { name: true } } } } } });
   const using = designs.find((d) => JSON.stringify(d.draft).includes(path) || JSON.stringify(d.published ?? null).includes(path));
   if (using) throw new DomainError(`Esta imagem está a ser usada no checkout de “${using.checkout.product?.name ?? "um produto"}”. Remova-a do design antes de a apagar.`);
-  const product = await prisma.product.findFirst({ where: { ownerId, imageUrl: path }, select: { name: true } });
-  if (product) throw new DomainError(`Esta imagem é a foto do produto “${product.name}”. Substitua-a no produto antes de a apagar.`);
+  const product = await prisma.product.findFirst({ where: { ownerId, OR: [{ imageUrl: path }, { bannerUrl: path }] }, select: { name: true, bannerUrl: true } });
+  if (product) throw new DomainError(`Esta imagem é ${product.bannerUrl === path ? "o banner" : "a foto"} do produto “${product.name}”. Substitua-a no produto antes de a apagar.`);
   await prisma.mediaAsset.delete({ where: { id } });
 }
 

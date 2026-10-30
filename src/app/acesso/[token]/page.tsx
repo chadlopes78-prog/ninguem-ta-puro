@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Download, ExternalLink, MessageCircle, PackageCheck } from "lucide-react";
+import { Download, ExternalLink, MessageCircle, PackageCheck, PartyPopper } from "lucide-react";
 import { getAccessArea } from "@/server/services/delivery";
 import { getSettings } from "@/server/services/settings";
 import { Unavailable } from "@/components/public/unavailable";
@@ -19,6 +19,45 @@ export default async function AccessPage({ params }: { params: Promise<{ token: 
   if (!area) return <Unavailable title="Acesso indisponível" message="Este acesso não existe ou a compra não está paga." />;
   const [settings, base] = await Promise.all([getSettings(area.ownerId), resolveAppBaseUrl()]);
   const personal = `${base}/acesso/${area.rootToken ?? token}`;
+  // Compra de um único produto em PDF: página de obrigado com o botão de download em destaque
+  const only = area.products.length === 1 && !area.legacyFiles.length ? area.products[0] : null;
+  const pdf = only?.action?.kind === "file" ? only : null;
+  if (pdf?.action) {
+    return (
+      <main className="min-h-dvh px-4 py-10" data-testid="pdf-thank-you">
+        <div className="mx-auto w-full max-w-lg text-center">
+          <PartyPopper className="mx-auto h-12 w-12 text-accent" aria-hidden="true" />
+          <h1 className="mt-5 font-display text-2xl font-semibold leading-tight">Parabéns! O teu pagamento foi aprovado.</h1>
+          <p className="mt-2 text-[15px] text-muted">Obrigado pela tua compra. O teu material está pronto para descarregar.</p>
+          <p className="mt-1 text-[13px] text-subtle">
+            {pdf.name} · Encomenda <span className="font-mono">{area.code}</span> · {settings.businessName}
+          </p>
+          <a
+            href={pdf.action.href}
+            className="mt-7 flex min-h-14 w-full items-center justify-center gap-2 rounded-[var(--radius-lg)] bg-accent px-5 text-[16px] font-bold uppercase tracking-wide text-accent-ink shadow-[0_10px_24px_-12px_var(--color-accent)] transition-[filter,transform] hover:brightness-105 active:translate-y-px"
+            data-testid="pdf-download"
+          >
+            <span aria-hidden="true">📥</span> Baixar o meu PDF
+          </a>
+          {pdf.support && (
+            <a href={pdf.support} target="_blank" rel="noopener noreferrer" className="mt-4 inline-flex items-center gap-1.5 text-[13px] text-muted underline underline-offset-2">
+              <MessageCircle className="h-3.5 w-3.5 text-[#25D366]" aria-hidden="true" /> Precisa de ajuda? Fale com o suporte no WhatsApp
+            </a>
+          )}
+          <div className="mt-8 rounded-[var(--radius-lg)] border border-line bg-surface-2 p-4 text-left text-[13px] text-muted" data-testid="access-personal-link">
+            <p className="font-medium text-fg">Guarde este endereço — é o seu acesso pessoal</p>
+            <div className="mt-2 flex items-center gap-2">
+              <code className="min-w-0 flex-1 truncate rounded bg-surface px-2 py-1.5 text-[12px] text-fg">{personal}</code>
+              <CopyButton value={personal} size="icon" label="Copiar link de acesso" />
+            </div>
+            <p className="mt-2 text-[12px] text-subtle">
+              Pode voltar a descarregar o PDF a qualquer momento. Se perder este endereço, recupere-o em <Link href="/acesso" className="underline">/acesso</Link>.
+            </p>
+          </div>
+        </div>
+      </main>
+    );
+  }
   return (
     <main className="min-h-dvh px-4 py-10">
       <div className="mx-auto w-full max-w-lg">

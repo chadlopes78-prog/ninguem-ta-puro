@@ -2,7 +2,7 @@
 // (preço criado no funil, upsell + downsell). Corre no fim, com os dados dos testes anteriores.
 // Pagamentos só pelo fornecedor de TESTE local (telefone terminado em 1 = pago na consulta).
 import { expect, test, type Page } from "@playwright/test";
-import { login, mzn, noHorizontalScroll, toast } from "./helpers";
+import { login, mzn, noHorizontalScroll, toast, PAY_BUTTON } from "./helpers";
 
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 const png = (n: number) => ({ name: `foto-${n}.png`, mimeType: "image/png", buffer: Buffer.concat([PNG, Buffer.from([n])]) });
@@ -27,7 +27,7 @@ async function fieldsRemoved(page: Page) {
   expect(await y(page.getByLabel("Nome do produto"))).toBeLessThan(await y(page.getByLabel("Descrição")));
   expect(await y(page.getByLabel("Descrição"))).toBeLessThan(await y(page.getByTestId("product-image-field")));
   expect(await y(page.getByTestId("product-image-field"))).toBeLessThan(await y(page.getByLabel("Preço principal")));
-  expect(await y(page.getByLabel("Preço principal"))).toBeLessThan(await y(page.getByRole("button", { name: "Guardar produto" })));
+  expect(await y(page.getByLabel("Preço principal"))).toBeLessThan(await y(page.getByRole("button", { name: /Publicar produto|Actualizar produto/ })));
 }
 
 test.describe.serial("produto simples com imagem e ofertas nos funis", () => {
@@ -46,9 +46,8 @@ test.describe.serial("produto simples com imagem e ofertas nos funis", () => {
     await expect(page.getByTestId("product-image-error")).toHaveCount(0);
     const first = await preview.getAttribute("src");
     await page.getByLabel("Preço principal").fill("150,00");
-    await page.getByLabel("Tipo").selectOption("EBOOK");
-    await page.getByRole("button", { name: "Guardar produto" }).click();
-    await toast(page, "Produto criado");
+    await page.getByRole("button", { name: "Guardar rascunho" }).click();
+    await toast(page, "Produto guardado como rascunho");
     await expect(page).toHaveURL(/\/produtos\/[a-z0-9]+\?criado=1$/);
     productUrl = new URL(page.url()).pathname;
     checkoutPath = new URL((await page.getByTestId("product-checkout-url").textContent())!.trim()).pathname;
@@ -70,13 +69,16 @@ test.describe.serial("produto simples com imagem e ofertas nos funis", () => {
     await page.locator("table").getByRole("link", { name: /Ebook Moçambique/ }).click();
     await page.getByTestId("product-image-input").setInputFiles(png(9));
     const ebookImg = await page.getByTestId("product-image-preview").getAttribute("src");
-    await page.getByRole("button", { name: "Guardar produto" }).click();
+    await page.getByRole("button", { name: "Actualizar produto" }).click();
     await toast(page, "Produto atualizado");
     await page.goto("/checkout/ebook-mocambique");
     // a mesma imagem, servida redimensionada no checkout (?w=…)
     const img = page.locator(`img[src^="${ebookImg}"]`).first();
     await expect(img).toBeVisible();
-    expect(await img.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth > 0)).toBe(true);
+    // a imagem de teste tem 1×1 px: com srcset em largura, naturalWidth pode arredondar para 0 — descodifica-se a versão servida
+    await expect
+      .poll(() => img.evaluate(async (i: HTMLImageElement) => i.complete && i.currentSrc !== "" && (await createImageBitmap(await (await fetch(i.currentSrc)).blob())).width > 0))
+      .toBe(true);
     await expect(page.getByTestId("price")).toContainText(mzn("1250,00"));
     await expect(page.getByTestId("order-total")).toHaveText(mzn("1250,00"));
   });
@@ -90,14 +92,14 @@ test.describe.serial("produto simples com imagem e ofertas nos funis", () => {
     await page.getByTestId("product-image-input").setInputFiles(png(2));
     await expect(preview).not.toHaveAttribute("src", before!);
     const replaced = await preview.getAttribute("src");
-    await page.getByRole("button", { name: "Guardar produto" }).click();
+    await page.getByRole("button", { name: "Actualizar produto" }).click();
     await toast(page, "Produto atualizado");
     await page.reload();
     await expect(page.getByTestId("product-image-preview")).toHaveAttribute("src", replaced!);
     // remover
     await page.getByTestId("product-image-remove").click();
     await expect(page.getByTestId("product-image-preview")).toHaveCount(0);
-    await page.getByRole("button", { name: "Guardar produto" }).click();
+    await page.getByRole("button", { name: "Actualizar produto" }).click();
     await toast(page, "Produto atualizado");
     await page.reload();
     await expect(page.getByTestId("product-image-preview")).toHaveCount(0);
@@ -117,10 +119,9 @@ test.describe.serial("produto simples com imagem e ofertas nos funis", () => {
     await page.getByTestId("product-image-input").setInputFiles(png(3));
     await expect(page.getByTestId("product-image-preview")).toBeVisible();
     await page.getByLabel("Preço principal").fill("80,00");
-    await page.getByLabel("Tipo").selectOption("PDF");
     await noHorizontalScroll(page);
-    await page.getByRole("button", { name: "Guardar produto" }).tap();
-    await toast(page, "Produto criado");
+    await page.getByRole("button", { name: "Guardar rascunho" }).tap();
+    await toast(page, "Produto guardado como rascunho");
     await page.reload();
     await expect(page.getByTestId("product-image-preview")).toHaveAttribute("src", /^\/api\/public\/media\//);
     await noHorizontalScroll(page);
@@ -162,7 +163,7 @@ test.describe.serial("produto simples com imagem e ofertas nos funis", () => {
     await page.getByLabel("Nome completo").fill("Comprador Downsell");
     await page.getByLabel("Email").fill("downsell@exemplo.co.mz");
     await page.getByLabel(/Número M-Pesa/).fill("84 555 6661");
-    await page.getByRole("button", { name: "Pagar agora" }).click();
+    await page.getByRole("button", { name: PAY_BUTTON }).click();
     await expect(page).toHaveURL(/\/oferta\//, { timeout: 45_000 });
     await expect(page.getByTestId("upsell-price")).toHaveText(mzn("247,90"));
     await page.getByTestId("upsell-decline").click();

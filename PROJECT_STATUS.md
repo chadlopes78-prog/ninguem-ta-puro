@@ -1,6 +1,6 @@
 # PROJECT_STATUS — Ninguém Tá Puro
 
-Última atualização: 2026-10-30 · Sessão 28 (pagamentos: resultado real de cada transação — cancelado pelo cliente, saldo insuficiente, PIN, tempo excedido — com justificativa em Operações e reconciliação automática) · Sessão 27 (produto: Pixel do Facebook por produto e link de upsell com funil automático) · Sessão 26 (checkout: confirmação do PIN numa janela sem sair do checkout; ícones M-Pesa/e-Mola; produtos só Publicado/Rascunho e Eliminar) · Sessão 25 (Pagar: modo de teste e modo real nas Integrações; checkout com +258 e marcas M-Pesa/e-Mola) · Sessão 24 (Pagar API: pagamentos C2B assinados, webhooks validados, confirmação por consulta autenticada) · Sessão 23 (novo design padrão do checkout: claro e proporcionado; cupão só com cupões ativos) · Sessão 22 (preparação para tráfego pago: carga, concorrência, telemóvel, imagens otimizadas, limites CGNAT) · Sessão 21 (página de obrigado personalizada; área Operações com abas; Dashboard com atividades de hoje e metas de faturamento; partilha das credenciais de pagamento do administrador; logótipos sem fundo) · Sessão 20 (modo simples: vender sem funil; logótipos nas Integrações) · Sessão 19 (entrega do produto PDF/link no produto, área «Os meus produtos», recuperação de acesso, Integrações em cartões) · Sessão 18 (funis: entrada única, várias ofertas, páginas externas com código de integração, obrigado externo) · Sessão 17 (Facebook Pixel / API de Conversões) · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
+Última atualização: 2026-10-30 · Sessão 30 (produto: banner, Publicar produto, redireccionamento após a compra por prioridades, página de obrigado com PDF; Tipo/Categoria removidos) · Sessão 29 (novo checkout padrão «PayGate», fiel à referência do proprietário) · Sessão 28 (pagamentos: resultado real de cada transação — cancelado pelo cliente, saldo insuficiente, PIN, tempo excedido — com justificativa em Operações e reconciliação automática) · Sessão 27 (produto: Pixel do Facebook por produto e link de upsell com funil automático) · Sessão 26 (checkout: confirmação do PIN numa janela sem sair do checkout; ícones M-Pesa/e-Mola; produtos só Publicado/Rascunho e Eliminar) · Sessão 25 (Pagar: modo de teste e modo real nas Integrações; checkout com +258 e marcas M-Pesa/e-Mola) · Sessão 24 (Pagar API: pagamentos C2B assinados, webhooks validados, confirmação por consulta autenticada) · Sessão 23 (novo design padrão do checkout: claro e proporcionado; cupão só com cupões ativos) · Sessão 22 (preparação para tráfego pago: carga, concorrência, telemóvel, imagens otimizadas, limites CGNAT) · Sessão 21 (página de obrigado personalizada; área Operações com abas; Dashboard com atividades de hoje e metas de faturamento; partilha das credenciais de pagamento do administrador; logótipos sem fundo) · Sessão 20 (modo simples: vender sem funil; logótipos nas Integrações) · Sessão 19 (entrega do produto PDF/link no produto, área «Os meus produtos», recuperação de acesso, Integrações em cartões) · Sessão 18 (funis: entrada única, várias ofertas, páginas externas com código de integração, obrigado externo) · Sessão 17 (Facebook Pixel / API de Conversões) · Sessão 16 (formulário de produto simplificado, foto por upload, ofertas e downsell nos funis) · Sessão 15 (auditoria de interface e dispositivos, aba Cupom removida) · Sessão 14 (checkout simplificado, cronómetro, editor simples, revisão mobile) · Sessão 13 (produtos incompletos, WhatsApp de suporte, entrega do produto, configurações e recuperação da palavra-passe) · Sessão 12 (editor visual do checkout tipo Elementor) · Sessão 11 (desempenho no telemóvel) · Sessão 10 (multiutilizador, aprovação de contas, Administração da Plataforma, credenciais de pagamento por conta)
 
 ## Estado geral
 
@@ -26,6 +26,42 @@ As 7 fases do Documento Mestre estão implementadas. A plataforma opera em **MZN
 | 5 — Operação | ✅ Concluída | Pedidos (filtros, detalhe, transições), clientes, cupões (com testador), relatórios |
 | 6 — Preparação para pagamentos | ✅ Concluída | Abstração de fornecedores, página de integrações, webhooks com assinatura/idempotência (sem fornecedores reais) |
 | 7 — Qualidade | ✅ Concluída | Testes, responsividade (320–1440 px), auditoria visual/funcional, build |
+
+## Produtos: banner, publicação directa e destino após a compra (sessão 30)
+
+- **Formulário do produto:**
+  - Sem «Tipo» e «Categoria» (valores guardados mantêm-se em campos ocultos; novos produtos ficam «Produto digital»).
+  - **Banner promocional** (`Product.bannerUrl`, migração aditiva `20261103090000_product_banner`), independente da imagem principal: carregar, pré-visualizar (2:1), substituir e remover. Mesma biblioteca e otimização das imagens (variantes WebP redimensionadas, CDN), com validação de propriedade no servidor. A biblioteca recusa apagar uma imagem usada como banner.
+  - No checkout, o cartão do produto (imagem «Do produto») mostra o banner; sem banner, a imagem principal.
+  - Produto novo: ação principal **Publicar produto** (cria → envia o PDF, se houver → publica com a mesma validação do servidor → página do produto com «Produto publicado com sucesso!»). Também há **Guardar rascunho**. Se faltar algo (ex.: entrega), fica em rascunho com a mensagem do que falta. Os botões ficam bloqueados durante o processo (sem publicações duplicadas).
+  - Produto existente: **Actualizar produto** (o estado continua a poder ser escolhido).
+  - Secção **Redireccionamento após a compra** com «Link do upsell (opcional)» e a explicação das regras. O Pixel tem um cartão próprio.
+- **Destino depois do pagamento CONFIRMADO** (`finalDestination` em `post-purchase.ts`, usado pela página de pagamento):
+  1. upsell (link de upsell do produto ou ofertas do funil), mesmo para PDF;
+  2. sem upsell e com link de acesso (https) → directamente para o link de acesso (só produtos sem funil, compra de um produto, sem upsells pagos; com funil mantém-se a página de obrigado do funil);
+  3. PDF → página de obrigado «Parabéns! O teu pagamento foi aprovado.» com o botão **📥 Baixar o meu PDF** (download autenticado pelo acesso da compra paga);
+  4. caso contrário, a página de obrigado/acesso habitual.
+  - Pendente, falhado ou cancelado nunca redireccionam nem dão acesso (`nextDestination` só actua com encomenda aprovada; os ficheiros exigem o token de uma encomenda paga).
+- Testes: `tests/integration/post-purchase-redirect.test.ts` (testes 1–7 pedidos); 396 testes unitários/integração e 151 E2E a passar. E2E ajustados (Publicar/Guardar rascunho/Actualizar, link de acesso directo, página do PDF). Sem alterações a gateways, webhooks ou confirmação.
+
+## Novo checkout padrão «PayGate» (sessão 29)
+
+- Reprodução da referência enviada pelo proprietário (captura de iPhone):
+  - cronómetro numa faixa vermelha («OFERTA EXPIRA EM» · 15:00 por visita, só visual);
+  - selo «Checkout seguro · {loja}»;
+  - cartão do produto com imagem larga e texto em destaque opcional numa faixa preta, nome e preço em azul-violeta;
+  - prova social;
+  - avaliações em cartões com estrelas;
+  - cartão «Dados do comprador»: nome, email, número com **+258** em destaque, «Detectamos automaticamente M-Pesa ou e-Mola», métodos em cartões com logótipo, operadora e indicador de selecção, botão verde «QUERO PAGAR {valor} AGORA», selos e consentimento;
+  - **botão fixo** no fundo com o valor (sticky, respeita a safe area do iPhone e não provoca saltos).
+- **Modelo padrão:** `defaultDesign` no `src/lib/checkout-design.ts`. Aplica-se a checkouts novos e a todos os que não têm personalização publicada. Os checkouts personalizados e publicados mantêm-se intactos. O modelo anterior continua disponível como `classicDesign` e no editor pelo botão «Usar modelo clássico».
+- **Novos elementos e opções no editor**, todas aditivas e com predefinições que não mudam designs antigos: `productCard`, `socialProof`, cronómetro «faixa», avaliações «compactas», selos «discretos», formulário «cartão» (textos do número, selos e consentimento editáveis), largura «Telemóvel (520 px)», «Botão de pagamento fixo no fundo» e `{valor}` no texto do botão.
+- **Honestidade:**
+  - A prova social usa por omissão dados REAIS: compras pagas deste checkout nas últimas 24 h e visitas nos últimos 5 minutos. Esconde-se sem dados, nunca «0 pessoas». Os números personalizados ficam ao critério do vendedor, com aviso.
+  - As avaliações do modelo vêm vazias e não aparecem até o vendedor escrever avaliações reais.
+- **Detecção do método pelo número:** 84/85 → M-Pesa, 86/87 → e-Mola, só entre as opções reais activas da conta.
+- **Diferença assumida face à referência:** o email continua obrigatório (é usado para a entrega e para a recuperação do acesso).
+- Pagamentos, gateways, webhooks e redireccionamentos não foram alterados.
 
 ## Pagamentos: resultado real de cada transação (sessão 28)
 
@@ -1364,6 +1400,8 @@ PW_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test
 
 ## Registo de sessões
 
+- **Sessão 30 (2026-10-30)**: produto com banner promocional (migração aditiva), «Publicar produto»/«Guardar rascunho»/«Actualizar produto», secção «Redireccionamento após a compra», destino por prioridades depois do pagamento confirmado (upsell → link de acesso → página de obrigado com «Baixar o meu PDF»); «Tipo» e «Categoria» removidos do formulário.
+- **Sessão 29 (2026-10-30)**: novo checkout padrão fiel à referência (cronómetro, selo seguro, cartão do produto, prova social real, avaliações, número +258 com detecção M-Pesa/e-Mola, métodos em cartões, botão verde com o valor, botão fixo); checkouts personalizados intactos.
 - **Sessão 28 (2026-10-30)**: resultado real de cada pagamento (cancelado pelo cliente, saldo insuficiente, PIN, tempo excedido, erro do gateway) guardado na BD e mostrado em Operações; motivos da Pagar e da E2Payments classificados; reconciliação automática dos pendentes. Migração aditiva. 384 testes unitários/integração.
 - **Sessão 27 (2026-10-29)**: Pixel do Facebook e link de upsell no formulário do produto (Pixel aparece nas Integrações; upsell cria o funil automaticamente e redireciona só depois do pagamento confirmado). Sem migração. 358 testes unitários/integração.
 - **Sessão 26 (2026-10-29)**: checkout mantém o comprador na página com uma janela «Confirme no seu telemóvel» até o servidor confirmar o pagamento; ícones M-Pesa/e-Mola; produtos só com Publicado/Rascunho e «Eliminar» (sem apagar histórico). Sem migração.

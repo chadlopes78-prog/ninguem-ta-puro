@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { defaultDesign, designSchema, newElement, type CheckoutDesign } from "@/lib/checkout-design";
+import { classicDesign, defaultDesign, designSchema, newElement, type CheckoutDesign } from "@/lib/checkout-design";
 import { addSection, duplicateElement, duplicateSection, insertElement, locate, moveElement, moveSection, removeElement, removeSection, setSectionLayout } from "@/lib/checkout-design-ops";
 
-const base = () => defaultDesign({ primaryColor: "#C8F135", backgroundColor: "#0B0C0E", buttonText: "Finalizar compra" });
+const base = () => classicDesign({ primaryColor: "#C8F135", backgroundColor: "#0B0C0E", buttonText: "Finalizar compra" });
 const order = (d: CheckoutDesign, sid = "hero", col = 0) => d.sections.find((s) => s.id === sid)!.columns[col].map((e) => e.id);
 
 describe("operações do editor visual", () => {
@@ -76,7 +76,7 @@ describe("operações do editor visual", () => {
 describe("estrutura simplificada, estilo padrão e cronómetro", () => {
   it("só os 9 elementos simples podem ser adicionados; produto, preço e formulário são protegidos", async () => {
     const { ADDABLE_ELEMENTS, isProtectedElement } = await import("@/lib/checkout-design");
-    expect(ADDABLE_ELEMENTS).toEqual(["heading", "text", "image", "banner", "countdown", "benefits", "testimonials", "guarantee", "spacer"]);
+    expect(ADDABLE_ELEMENTS).toEqual(["heading", "text", "image", "banner", "productCard", "countdown", "socialProof", "benefits", "testimonials", "trust", "guarantee", "spacer"]);
     const els = base().sections[0].columns[0];
     expect(els.filter(isProtectedElement).map((e) => e.id)).toEqual(["product-name", "product-price", "checkout"]);
     expect(isProtectedElement(newElement("heading"))).toBe(false);
@@ -114,13 +114,21 @@ describe("estrutura simplificada, estilo padrão e cronómetro", () => {
 });
 
 describe("modelo padrão", () => {
-  it("cores de fábrica → tema claro (fundo cinza-claro, botão verde); cores escolhidas pelo vendedor são respeitadas", () => {
-    expect(base().theme).toMatchObject({ mode: "light", primaryColor: "#16A34A", backgroundColor: "#F6F7F9" });
+  it("novo modelo (PayGate): cores de fábrica → fundo cinza-lilás, destaques violeta e botões verdes; botão com o valor; válido", () => {
+    const d = defaultDesign({ primaryColor: "#C8F135", backgroundColor: "#0B0C0E", buttonText: "Finalizar compra" });
+    expect(d.theme).toMatchObject({ mode: "light", primaryColor: "#5B5BD6", backgroundColor: "#F4F5FA", buttonColor: "#22C55E", buttonText: "QUERO PAGAR {valor} AGORA", stickyPayBar: true });
+    expect(designSchema.safeParse(d).success).toBe(true);
+    expect(d.sections[0].columns[0].map((e) => e.type)).toEqual(["countdown", "trust", "productCard", "socialProof", "testimonials", "checkout"]);
+    // cores e texto do botão escolhidos pelo vendedor são respeitados
     const own = defaultDesign({ primaryColor: "#FF5500", backgroundColor: "#101820", buttonText: "Comprar" });
-    expect(own.theme).toMatchObject({ primaryColor: "#FF5500", backgroundColor: "#101820", buttonText: "Comprar" });
+    expect(own.theme).toMatchObject({ primaryColor: "#FF5500", backgroundColor: "#101820", buttonText: "Comprar", buttonColor: "" });
     expect(own.theme.mode).toBeUndefined();
     expect(designSchema.safeParse(own).success).toBe(true);
-    // estrutura: nome, imagem, preço e formulário, numa coluna
+  });
+
+  it("modelo clássico continua válido (checkouts personalizados com ele não mudam)", () => {
+    expect(base().theme).toMatchObject({ mode: "light", primaryColor: "#16A34A", backgroundColor: "#F6F7F9" });
+    expect(designSchema.safeParse(base()).success).toBe(true);
     expect(base().sections[0].columns[0].map((e) => e.type)).toEqual(["heading", "image", "price", "checkout"]);
   });
 });

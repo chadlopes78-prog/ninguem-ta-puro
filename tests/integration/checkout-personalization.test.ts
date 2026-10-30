@@ -109,7 +109,8 @@ describe("5–7. personalização por produto, rascunho e publicação", () => {
     return { a, b };
   }
   const els = (d: CheckoutDesign) => d.sections.flatMap((s) => s.columns.flat());
-  const has = (d: CheckoutDesign, type: string) => els(d).some((x) => x.type === type);
+  // elementos visíveis (as avaliações vazias do modelo padrão não aparecem no checkout)
+  const has = (d: CheckoutDesign, type: string) => els(d).some((x) => x.type === type && !(x.type === "testimonials" && x.items.length === 0));
   function withTestimonial(base: CheckoutDesign): CheckoutDesign {
     const d = insertElement(base, newElement("testimonials"), { sectionId: base.sections[0].id, col: 0, index: 0 });
     return { ...d, theme: { ...d.theme, primaryColor: "#FF5500", announcement: "Oferta de lançamento" } };
@@ -120,8 +121,11 @@ describe("5–7. personalização por produto, rascunho e publicação", () => {
     const { a } = await two();
     const s = await getEditorState(a.id, S);
     expect(s.status).toBe("default");
-    // modelo padrão simples (uma coluna): nome → imagem → preço → formulário de compra protegido
-    expect(els(s.draft).map((b) => b.type)).toEqual(["heading", "image", "price", "checkout"]);
+    // modelo padrão (uma coluna, estilo PayGate): cronómetro → selo seguro → cartão do produto → prova social real
+    // → avaliações (vazias até o vendedor as escrever) → formulário de compra protegido em cartão
+    expect(els(s.draft).map((b) => b.type)).toEqual(["countdown", "trust", "productCard", "socialProof", "testimonials", "checkout"]);
+    expect(designSchema.safeParse(s.draft).success).toBe(true);
+    expect(s.draft.theme.stickyPayBar).toBe(true);
     expect(s.draft.sections[0].layout).toBe("1");
     // sem o selo "Compra segura" (removido a pedido do proprietário)
     expect(JSON.stringify(s.draft)).not.toContain("Compra segura");

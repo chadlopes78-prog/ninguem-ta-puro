@@ -8,6 +8,7 @@ export function checkoutViewData(c: Checkout & { product: Product; offer: Offer 
     title: c.title,
     description: c.description,
     imageUrl: c.imageUrl ?? c.product.imageUrl,
+    bannerUrl: c.product.bannerUrl,
     buttonText: c.buttonText,
     primaryColor: c.primaryColor,
     backgroundColor: c.backgroundColor,

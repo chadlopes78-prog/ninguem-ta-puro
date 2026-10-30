@@ -31,6 +31,22 @@ export function publicDesign(checkout: { primaryColor: string; backgroundColor: 
   return parseDesign(checkout.design?.published) ?? defaultDesign(themeFrom(checkout));
 }
 
+export function usesRealSocialProof(design: CheckoutDesign): boolean {
+  return design.sections.some((s) => s.columns.flat().some((e) => e.type === "socialProof" && e.mode === "real"));
+}
+
+/**
+ * Números REAIS da prova social de um checkout: encomendas pagas (não de teste, sem upsells) nas últimas 24 h e
+ * visitas nos últimos 5 minutos (+1: o próprio visitante, cuja visita ainda não foi registada).
+ */
+export async function realSocialProof(checkoutId: string, now = Date.now()) {
+  const [purchases24h, recentVisits] = await Promise.all([
+    prisma.order.count({ where: { checkoutId, status: "APPROVED", isTestPayment: false, isDemo: false, parentOrderId: null, approvedAt: { gte: new Date(now - 24 * 3600_000) } } }),
+    prisma.checkoutSession.count({ where: { checkoutId, isDemo: false, createdAt: { gte: new Date(now - 5 * 60_000) } } }),
+  ]);
+  return { purchases24h, viewersNow: recentVisits + 1 };
+}
+
 async function productScoped(productId: string, scope: Scope) {
   // Autorização no servidor: só produtos do âmbito atual (dados reais ou de demonstração)
   const product = await prisma.product.findFirst({ where: { id: productId, ...own(scope) }, include: { offers: { where: { isDefault: true }, take: 1 } } });

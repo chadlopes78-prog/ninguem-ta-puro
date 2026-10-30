@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: () => undefined, refresh: () => undefined }) }));
 
 const { CheckoutView } = await import("@/components/checkouts/checkout-view");
-const { defaultDesign, newElement } = await import("@/lib/checkout-design");
+const { classicDesign, defaultDesign, newElement } = await import("@/lib/checkout-design");
 type ViewData = import("@/components/checkouts/checkout-view").CheckoutViewData;
 type Option = import("@/components/checkouts/checkout-view").CheckoutPaymentOption;
 
@@ -41,7 +41,9 @@ function data(paymentOptions: Option[], extra: Partial<ViewData> = {}): ViewData
     ...extra,
   };
 }
-const render = (d: ViewData, design?: Parameters<typeof CheckoutView>[0]["design"]) => renderToStaticMarkup(createElement(CheckoutView, { data: d, design, mode: "live" }));
+// formulário clássico (checkouts personalizados com o modelo anterior); o modelo padrão novo tem testes próprios
+const render = (d: ViewData, design?: Parameters<typeof CheckoutView>[0]["design"]) => renderToStaticMarkup(createElement(CheckoutView, { data: d, design: design ?? classicDesign(d), mode: "live" }));
+const renderDefault = (d: ViewData) => renderToStaticMarkup(createElement(CheckoutView, { data: d, mode: "live" }));
 const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/&nbsp;| /g, " ").replace(/\s+/g, " ");
 const count = (s: string, sub: string | RegExp) => (s.match(new RegExp(sub, "g")) ?? []).length;
 
@@ -102,7 +104,7 @@ describe("mensagem da EPay", () => {
 
 describe("cronómetro", () => {
   const withCountdown = (cd: Record<string, unknown>, theme: Record<string, unknown> = {}) => {
-    const d = defaultDesign({ primaryColor: "#C8F135", backgroundColor: "#0B0C0E", buttonText: "Finalizar compra" });
+    const d = classicDesign({ primaryColor: "#C8F135", backgroundColor: "#0B0C0E", buttonText: "Finalizar compra" });
     const el = { ...newElement("countdown"), ...cd };
     d.sections[0].columns[0].splice(3, 0, el as never);
     d.theme = { ...d.theme, ...theme };
@@ -143,10 +145,74 @@ describe("cronómetro", () => {
 
 describe("estilo global", () => {
   it("cor dos botões e dos textos do tema aplicam-se ao botão de compra e à página", () => {
-    const d = defaultDesign({ primaryColor: "#C8F135", backgroundColor: "#0B0C0E", buttonText: "Comprar" });
+    const d = classicDesign({ primaryColor: "#C8F135", backgroundColor: "#0B0C0E", buttonText: "Comprar" });
     d.theme = { ...d.theme, buttonColor: "#2563EB", textColor: "#F5F5F5" };
     const html = render(data([EPAY]), d);
     expect(html).toMatch(/<button type="submit"[^>]*style="background:#2563EB;color:#ffffff"/);
     expect(html).toContain("--ck-fg:#F5F5F5");
+  });
+});
+
+describe("modelo padrão (PayGate)", () => {
+  const E2P_EMOLA: Option = { id: "e2payments:emola", providerId: "e2payments", providerName: "E2Payments", label: "e-Mola", requiresPhone: true, hosted: null };
+  it("estrutura da referência: cronómetro, selo seguro com o nome da loja, cartão do produto, formulário em cartão e botão fixo", () => {
+    const html = renderDefault(data([E2P_MPESA, E2P_EMOLA]));
+    const t = text(html);
+    const at = (s: string) => t.indexOf(s);
+    expect(t).toContain("OFERTA EXPIRA EM");
+    expect(t).toContain("Checkout seguro · Ninguém Tá Puro");
+    expect(at("OFERTA EXPIRA EM")).toBeLessThan(at("Checkout seguro"));
+    expect(at("Checkout seguro")).toBeLessThan(at("Produto teste"));
+    expect(at("Produto teste")).toBeLessThan(at("Dados do comprador"));
+    expect(at("Dados do comprador")).toBeLessThan(at("Nome completo"));
+    expect(at("Nome completo")).toBeLessThan(at("Número para fazer o pagamento"));
+    expect(at("Número para fazer o pagamento")).toBeLessThan(at("Método de pagamento"));
+    expect(t).toContain("Detectamos automaticamente M-Pesa ou e-Mola.");
+    expect(t).toContain("Nunca partilhamos o seu número. Débito seguro e instantâneo.");
+    expect(html).toContain('data-testid="phone-prefix"');
+    expect(t).toContain("+258");
+    // métodos em cartões com a operadora; o primeiro vem selecionado
+    expect(t).toContain("Vodacom");
+    expect(t).toContain("Movitel");
+    expect(html).toMatch(/data-testid="method-mpesa" data-selected="true"/);
+    // botão com o valor real e selos/consentimento
+    expect(t).toContain("QUERO PAGAR 10,00 MZN AGORA");
+    expect(count(html, 'data-testid="order-total"')).toBe(1);
+    expect(t).toContain("Encriptado");
+    expect(t).toContain("Ao pagar, autoriza o débito na sua carteira móvel.");
+    expect(html).toContain('data-testid="sticky-pay-bar"');
+    expect(html).toMatch(/aria-label="Ir para o pagamento — 10,00.MZN"/);
+    // sem imagem do produto: o cartão mostra só nome e preço (sem área vazia)
+    expect(html).not.toContain('data-testid="product-card-overlay"');
+  });
+
+  it("prova social só com dados reais: sem compras nem visitantes não aparece; com dados mostra os números verdadeiros", () => {
+    expect(renderDefault(data([E2P_MPESA]))).not.toContain('data-testid="social-proof"');
+    expect(renderDefault(data([E2P_MPESA], { socialProof: { purchases24h: 0, viewersNow: 1 } }))).not.toContain('data-testid="social-proof"');
+    const t = text(renderDefault(data([E2P_MPESA], { socialProof: { purchases24h: 39, viewersNow: 3 } })));
+    expect(t).toContain("39 pessoas compraram nas últimas 24h");
+    expect(t).toContain("3 a ver agora");
+  });
+
+  it("avaliações vazias não aparecem (nada de testemunhos inventados); com avaliações reais mostra estrelas, comentário e nome", () => {
+    const base = defaultDesign({ primaryColor: "#C8F135", backgroundColor: "#0B0C0E", buttonText: "Finalizar compra" });
+    expect(renderToStaticMarkup(createElement(CheckoutView, { data: data([E2P_MPESA]), design: base, mode: "live" }))).not.toContain('data-testid="reviews"');
+    const d = structuredClone(base);
+    const rev = d.sections[0].columns[0].find((e) => e.type === "testimonials")!;
+    if (rev.type === "testimonials") rev.items = [{ name: "Anselmo M.", text: "Paguei em segundos, recebi logo. Recomendo!", role: "", avatarUrl: "", rating: 5 }];
+    const card = d.sections[0].columns[0].find((e) => e.type === "productCard")!;
+    if (card.type === "productCard") card.overlayText = "15 mil meticais hoje";
+    const html = renderToStaticMarkup(createElement(CheckoutView, { data: data([E2P_MPESA], { imageUrl: "https://exemplo.co.mz/p.jpg" }), design: d, mode: "live" }));
+    expect(text(html)).toContain("“Paguei em segundos, recebi logo. Recomendo!”");
+    expect(text(html)).toContain("— Anselmo M.");
+    expect(html).toContain('data-testid="product-card-overlay"');
+    expect(text(html)).toContain("15 mil meticais hoje");
+  });
+
+  it("checkouts com personalização publicada continuam com o seu próprio design (o modelo novo não os substitui)", () => {
+    const html = render(data([E2P_MPESA]));
+    expect(html).not.toContain('data-testid="sticky-pay-bar"');
+    expect(html).not.toContain("OFERTA EXPIRA EM");
+    expect(text(html)).toContain("Os seus dados");
   });
 });

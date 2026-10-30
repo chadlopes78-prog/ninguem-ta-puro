@@ -1,7 +1,7 @@
 // Personalizar Checkout → Personalizar página de obrigado: editar, rascunho, publicar, compra de teste com a
 // página personalizada e acesso real ao produto (PDF). Corre depois de 19 ("Guia PDF E2E" publicado, sem funil).
 import { expect, test } from "@playwright/test";
-import { login, noHorizontalScroll, toast } from "./helpers";
+import { login, noHorizontalScroll, toast, PAY_BUTTON } from "./helpers";
 
 test.describe.serial("página de obrigado personalizada", () => {
   test("as duas opções; o editor do checkout continua a abrir", async ({ page }) => {
@@ -54,7 +54,7 @@ test.describe.serial("página de obrigado personalizada", () => {
     await page.getByLabel("Nome completo").fill("Comprador Obrigado");
     await page.getByLabel("Email").fill("obrigado@exemplo.co.mz");
     await page.getByLabel(/Número M-Pesa/).fill("84 888 1111");
-    await page.getByRole("button", { name: /Pagar agora|Finalizar compra/ }).click();
+    await page.getByRole("button", { name: PAY_BUTTON }).click();
     await expect(page).toHaveURL(/\/obrigado\//, { timeout: 45_000 });
     await expect(page.getByTestId("thank-you-title")).toHaveText("Obrigado pela tua compra!");
     const btn = page.getByTestId("thank-you-button");

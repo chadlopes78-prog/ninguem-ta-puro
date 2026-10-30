@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { completeAndPublish, errorToast, login, mzn, toast } from "./helpers";
+import { completeAndPublish, errorToast, login, mzn, toast, PAY_BUTTON } from "./helpers";
 
 test.describe.serial("modo real: produto → checkout → link público (sem pagamentos)", () => {
   let checkoutPath = "";
@@ -15,18 +15,21 @@ test.describe.serial("modo real: produto → checkout → link público (sem pag
     await page.goto("/produtos");
     await expect(page.getByText("Ainda não tem produtos")).toBeVisible();
     await page.getByRole("link", { name: "Criar primeiro produto" }).click();
-    await page.getByRole("button", { name: "Guardar produto" }).click();
+    // ação principal: Publicar produto (a validação do servidor recusa o formulário vazio)
+    await expect(page.getByRole("button", { name: "Publicar produto" })).toBeVisible();
+    await page.getByRole("button", { name: "Guardar rascunho" }).click();
     await expect(page.getByText("O nome deve ter pelo menos 2 caracteres")).toBeVisible();
-    await expect(page.getByText("Selecione um tipo")).toBeVisible();
+    // «Tipo» e «Categoria» saíram do formulário
+    await expect(page.getByLabel("Tipo")).toHaveCount(0);
+    await expect(page.getByLabel("Categoria")).toHaveCount(0);
 
     await page.getByLabel("Nome do produto").fill("Guia Digital de Exemplo");
     await page.getByLabel("Descrição").fill("Produto fictício utilizado para validar a interface.");
-    await page.getByLabel("Tipo").selectOption("EBOOK");
     await page.getByLabel("Preço principal").fill("197,00");
     await page.getByLabel("Moeda").selectOption("MZN");
     await expect(page.getByTestId("new-product-draft-note")).toBeVisible(); // um produto novo é sempre rascunho
-    await page.getByRole("button", { name: "Guardar produto" }).click();
-    await toast(page, "Produto criado");
+    await page.getByRole("button", { name: "Guardar rascunho" }).click();
+    await toast(page, "Produto guardado como rascunho");
     await expect(page).toHaveURL(/\/produtos\/[a-z0-9]+\?criado=1$/);
     // link de checkout gerado automaticamente, com confirmação
     await expect(page.getByText("Produto criado com sucesso! O link do checkout já está pronto a partilhar.")).toBeVisible();
@@ -35,7 +38,7 @@ test.describe.serial("modo real: produto → checkout → link público (sem pag
 
     await page.getByLabel("Nome do produto").fill("Guia Digital Editado");
     await page.getByLabel("Preço principal").fill("247,90");
-    await page.getByRole("button", { name: "Guardar produto" }).click();
+    await page.getByRole("button", { name: "Actualizar produto" }).click();
     await toast(page, "Produto atualizado");
     await page.reload();
     await expect(page.getByLabel("Nome do produto")).toHaveValue("Guia Digital Editado");
@@ -118,14 +121,14 @@ test.describe.serial("modo real: produto → checkout → link público (sem pag
     await expect(page.getByText(mzn("247,90")).first()).toBeVisible();
     await expect(page.locator("input[name*=card], input[autocomplete^=cc-], input[name=cvv]")).toHaveCount(0);
 
-    await page.getByRole("button", { name: "Finalizar compra" }).click();
+    await page.getByRole("button", { name: PAY_BUTTON }).click();
     await expect(page.getByText("Introduza o seu nome completo")).toBeVisible();
     await expect(page.getByText("Introduza um email válido")).toBeVisible();
 
     await page.getByLabel("Nome completo").fill("Ana Compradora");
     await page.getByLabel("Email").fill("ana@exemplo.pt");
     await expect(page.getByRole("radio", { name: /M-Pesa/ })).toBeChecked();
-    await page.getByRole("button", { name: "Finalizar compra" }).click();
+    await page.getByRole("button", { name: PAY_BUTTON }).click();
     await expect(page.getByText("Introduza um número móvel moçambicano válido").first()).toBeVisible();
     // os dados do formulário mantêm-se
     await expect(page.getByLabel("Nome completo")).toHaveValue("Ana Compradora");

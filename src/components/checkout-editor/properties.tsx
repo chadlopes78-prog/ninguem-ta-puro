@@ -28,7 +28,7 @@ const ALIGN = [
   { value: "center" as const, label: "Centro", icon: <AlignCenter className="h-3.5 w-3.5" /> },
   { value: "right" as const, label: "Direita", icon: <AlignRight className="h-3.5 w-3.5" /> },
 ];
-const ICON_LABELS: Record<(typeof ICONS)[number], string> = { check: "Visto", shield: "Escudo", lock: "Cadeado", star: "Estrela", clock: "Relógio", gift: "Presente", truck: "Entrega", download: "Download", phone: "Telefone", heart: "Coração", award: "Prémio", info: "Informação" };
+const ICON_LABELS: Record<(typeof ICONS)[number], string> = { check: "Visto", shield: "Escudo", lock: "Cadeado", star: "Estrela", clock: "Relógio", gift: "Presente", truck: "Entrega", download: "Download", phone: "Telefone", heart: "Coração", award: "Prémio", info: "Informação", zap: "Raio", users: "Pessoas" };
 const iconOptions = ICONS.map((i) => ({ value: i, label: ICON_LABELS[i] }));
 
 function ImageField({ src, onChange }: { src: string; onChange: (src: string) => void }) {
@@ -135,7 +135,8 @@ function ContentFields({ el, set }: { el: DesignElement; set: Patch }) {
               </>
             )}
           />
-          <p className="text-[11.5px] text-subtle">Use apenas testemunhos reais de clientes.</p>
+          <Segmented label="Estilo" value={el.variant} onChange={(variant) => set({ variant })} options={[{ value: "compact", label: "Avaliações (estrelas)" }, { value: "cards", label: "Cartões com foto" }]} />
+          <p className="text-[11.5px] text-subtle">Use apenas avaliações reais de clientes. Sem avaliações, o bloco não aparece no checkout.</p>
         </>
       );
     case "guarantee":
@@ -176,6 +177,7 @@ function ContentFields({ el, set }: { el: DesignElement; set: Patch }) {
             <Prop label="Termina em">{(id) => <Input id={id} type="datetime-local" value={el.endsAt ? new Date(el.endsAt).toISOString().slice(0, 16) : ""} onChange={(e) => set({ endsAt: e.target.value ? new Date(e.target.value).toISOString() : "" })} className="h-9" />}</Prop>
           )}
           <TextProp label="Texto quando termina" value={el.expiredText} onChange={(expiredText) => set({ expiredText })} max={200} />
+          <Segmented label="Estilo" value={el.variant} onChange={(variant) => set({ variant })} options={[{ value: "banner", label: "Faixa (03:18)" }, { value: "boxes", label: "Caixas" }]} />
           <p className="text-[11.5px] text-subtle">O cronómetro é apenas visual: não altera o preço nem bloqueia a compra.</p>
         </>
       );
@@ -205,7 +207,57 @@ function ContentFields({ el, set }: { el: DesignElement; set: Patch }) {
               </>
             )}
           />
-          <p className="text-[11.5px] text-subtle">Escreva apenas afirmações verdadeiras sobre a sua oferta.</p>
+          <Segmented label="Estilo" value={el.tone} onChange={(tone) => set({ tone })} options={[{ value: "accent", label: "Destacado" }, { value: "muted", label: "Discreto" }]} />
+          <p className="text-[11.5px] text-subtle">Escreva apenas afirmações verdadeiras sobre a sua oferta. «{"{loja}"}» é substituído pelo nome do seu negócio.</p>
+        </>
+      );
+    case "productCard":
+      return (
+        <>
+          <p className="text-[12px] text-subtle">O nome e o preço vêm sempre do produto (alteram-se no produto).</p>
+          <Segmented label="Imagem" value={el.imageSource} onChange={(imageSource) => set({ imageSource })} options={[{ value: "product", label: "Do produto" }, { value: "custom", label: "Outra imagem" }]} />
+          {el.imageSource === "product" && <p className="text-[12px] text-subtle">Mostra o banner do produto (ou a imagem principal, se não houver banner).</p>}
+          {el.imageSource === "custom" && <ImageField src={el.src} onChange={(src) => set({ src })} />}
+          <Toggle label="Mostrar texto sobre a imagem" checked={el.showOverlay} onChange={(showOverlay) => set({ showOverlay })} />
+          {el.showOverlay && (
+            <>
+              <TextProp label="Texto sobre a imagem" value={el.overlayText} onChange={(overlayText) => set({ overlayText })} max={80} placeholder="Ex.: 15 mil meticais hoje" />
+              <SelectProp
+                label="Posição do texto"
+                value={el.overlayPosition}
+                onChange={(overlayPosition) => set({ overlayPosition })}
+                options={[
+                  { value: "top-left", label: "Em cima à esquerda" },
+                  { value: "top-center", label: "Em cima ao centro" },
+                  { value: "top-right", label: "Em cima à direita" },
+                  { value: "center", label: "Centro" },
+                  { value: "bottom-left", label: "Em baixo à esquerda" },
+                  { value: "bottom-center", label: "Em baixo ao centro" },
+                  { value: "bottom-right", label: "Em baixo à direita" },
+                ]}
+              />
+            </>
+          )}
+          <Toggle label="Mostrar nome do produto" checked={el.showName} onChange={(showName) => set({ showName })} />
+          <Toggle label="Mostrar preço" checked={el.showPrice} onChange={(showPrice) => set({ showPrice })} />
+        </>
+      );
+    case "socialProof":
+      return (
+        <>
+          <Segmented label="Números" value={el.mode} onChange={(mode) => set({ mode })} options={[{ value: "real", label: "Reais (automático)" }, { value: "custom", label: "Personalizados" }]} />
+          {el.mode === "real" ? (
+            <p className="text-[12px] text-subtle">Compras pagas deste checkout nas últimas 24 h e pessoas a ver nos últimos 5 minutos. Sem compras, a frase não aparece.</p>
+          ) : (
+            <>
+              <NumberProp label="Compras" value={el.customPurchases} onChange={(v) => set({ customPurchases: v ?? 0 })} min={0} max={100000} />
+              <NumberProp label="A ver agora" value={el.customViewers} onChange={(v) => set({ customViewers: v ?? 0 })} min={0} max={100000} />
+              <p className="text-[11.5px] text-warning">Use apenas números verdadeiros e verificáveis.</p>
+            </>
+          )}
+          <TextProp label="Frase das compras ({n} = número)" value={el.purchasesText} onChange={(purchasesText) => set({ purchasesText })} max={120} />
+          <Toggle label="Mostrar «a ver agora»" checked={el.showViewers} onChange={(showViewers) => set({ showViewers })} />
+          {el.showViewers && <TextProp label="Frase de quem está a ver ({n} = número)" value={el.viewersText} onChange={(viewersText) => set({ viewersText })} max={60} />}
         </>
       );
     case "productSummary":
@@ -260,6 +312,28 @@ function ContentFields({ el, set }: { el: DesignElement; set: Patch }) {
           </ProtectedNote>
           <TextProp label="Título do formulário" value={el.title} onChange={(title) => set({ title })} max={80} />
           <TextProp label="Texto de apoio (opcional)" value={el.subtitle} onChange={(subtitle) => set({ subtitle })} max={200} />
+          <Segmented label="Estilo" value={el.variant} onChange={(variant) => set({ variant })} options={[{ value: "card", label: "Cartão (padrão)" }, { value: "classic", label: "Clássico" }]} />
+          {el.variant === "card" && (
+            <>
+              <TextProp label="Título do número" value={el.phoneTitle} onChange={(phoneTitle) => set({ phoneTitle })} max={80} />
+              <TextProp label="Texto do número" value={el.phoneHint} onChange={(phoneHint) => set({ phoneHint })} max={160} />
+              <TextProp label="Nota de privacidade" value={el.phoneNote} onChange={(phoneNote) => set({ phoneNote })} max={160} />
+              <ListProp
+                items={el.securityItems}
+                max={4}
+                addLabel="Adicionar selo"
+                empty={{ icon: "check" as const, text: "Novo selo" }}
+                onChange={(securityItems) => set({ securityItems })}
+                render={(it, s) => (
+                  <>
+                    <SelectProp label="Ícone" value={it.icon} onChange={(icon) => s({ ...it, icon })} options={iconOptions} />
+                    <TextProp label="Texto" value={it.text} onChange={(text) => s({ ...it, text })} max={60} />
+                  </>
+                )}
+              />
+              <TextProp label="Texto final (opcional)" value={el.consentText} onChange={(consentText) => set({ consentText })} max={200} />
+            </>
+          )}
         </>
       );
   }
@@ -375,7 +449,19 @@ export function SectionProperties({ section, onLayout, onStyle, hasCheckout }: {
 }
 
 /** Estilo geral do checkout: tema, cores principais, botão e restauro do padrão. */
-export function PageProperties({ design, onTheme, onRestoreStyle, onRestoreTemplate }: { design: CheckoutDesign; onTheme: (t: Partial<CheckoutTheme>) => void; onRestoreStyle: () => void; onRestoreTemplate: () => void }) {
+export function PageProperties({
+  design,
+  onTheme,
+  onRestoreStyle,
+  onRestoreTemplate,
+  onUseClassic,
+}: {
+  design: CheckoutDesign;
+  onTheme: (t: Partial<CheckoutTheme>) => void;
+  onRestoreStyle: () => void;
+  onRestoreTemplate: () => void;
+  onUseClassic?: () => void;
+}) {
   const t = design.theme;
   const mode = themeMode(t);
   const pick = (m: "dark" | "light") => {
@@ -413,6 +499,8 @@ export function PageProperties({ design, onTheme, onRestoreStyle, onRestoreTempl
       </Group>
       <Group title="Compra">
         <TextProp label="Texto do botão de compra" value={t.buttonText} onChange={(buttonText) => onTheme({ buttonText })} max={40} />
+        <p className="-mt-1 text-[11.5px] text-subtle">Escreva {"{valor}"} para mostrar o total (ex.: QUERO PAGAR {"{valor}"} AGORA).</p>
+        <Toggle label="Botão de pagamento fixo no fundo" checked={t.stickyPayBar} onChange={(stickyPayBar) => onTheme({ stickyPayBar })} hint="Fica sempre visível no telemóvel, com o valor." />
         <TextProp label="Faixa de anúncio no topo (opcional)" value={t.announcement} onChange={(announcement) => onTheme({ announcement })} max={160} placeholder="Ex.: Oferta de lançamento" />
       </Group>
       <Group title="Restaurar">
@@ -423,7 +511,15 @@ export function PageProperties({ design, onTheme, onRestoreStyle, onRestoreTempl
         <button type="button" onClick={onRestoreTemplate} className="flex h-9 items-center justify-center gap-2 rounded-[var(--radius-md)] border border-line text-[13px] font-medium hover:bg-surface-2" data-testid="restore-template">
           <LayoutTemplate className="h-3.5 w-3.5" /> Restaurar estrutura padrão
         </button>
-        <p className="-mt-1 text-[11.5px] text-subtle">Volta ao checkout simples: nome, imagem, preço e formulário de compra.</p>
+        <p className="-mt-1 text-[11.5px] text-subtle">Volta ao modelo padrão: cronómetro, produto, prova social, avaliações e formulário de compra.</p>
+        {onUseClassic && (
+          <>
+            <button type="button" onClick={onUseClassic} className="flex h-9 items-center justify-center gap-2 rounded-[var(--radius-md)] border border-line text-[13px] font-medium hover:bg-surface-2" data-testid="use-classic">
+              <LayoutTemplate className="h-3.5 w-3.5" /> Usar modelo clássico
+            </button>
+            <p className="-mt-1 text-[11.5px] text-subtle">Estrutura simples: nome, imagem, preço e formulário clássico.</p>
+          </>
+        )}
       </Group>
       <p className="m-4 flex gap-2 rounded-[var(--radius-md)] border border-line bg-surface-2 p-3 text-[12px] leading-relaxed text-muted">
         <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />O preço, a moeda, o formulário de compra e os pagamentos (EPay/E2Payments) não são editáveis aqui: vêm sempre do produto e do servidor.

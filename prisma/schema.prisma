@@ -142,6 +142,8 @@ model Product {
   name            String
   description     String             @db.Text
   imageUrl        String?
+  /// Banner promocional (imagem larga do checkout), independente da imagem principal
+  bannerUrl       String?
   type            ProductType
   category        String?
   status          ProductStatus      @default(DRAFT)

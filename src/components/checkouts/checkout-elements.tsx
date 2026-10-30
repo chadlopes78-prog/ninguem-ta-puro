@@ -2,7 +2,7 @@
 
 import { ResponsiveImg } from "@/components/public/responsive-img";
 import { useEffect, useState } from "react";
-import { Award, Check, ChevronDown, Clock, Download, Gift, Heart, Info, Lock, Phone, ShieldCheck, Star, Truck, type LucideIcon } from "lucide-react";
+import { Award, Check, ChevronDown, Clock, Download, Gift, Heart, Info, Lock, Phone, ShieldCheck, Star, Truck, Users, Zap, type LucideIcon } from "lucide-react";
 import { formatMoney } from "@/lib/money";
 import { readableOn } from "@/lib/color";
 import { cn } from "@/lib/utils";
@@ -10,7 +10,7 @@ import { FONT_FAMILIES, videoEmbedUrl, type DesignElement, type ElementStyle, ty
 import type { CheckoutViewData } from "./checkout-view";
 import { PURCHASE_FORM_ID, type Palette } from "./purchase-form";
 
-export const ICON_MAP: Record<(typeof ICONS)[number], LucideIcon> = { check: Check, shield: ShieldCheck, lock: Lock, star: Star, clock: Clock, gift: Gift, truck: Truck, download: Download, phone: Phone, heart: Heart, award: Award, info: Info };
+export const ICON_MAP: Record<(typeof ICONS)[number], LucideIcon> = { check: Check, shield: ShieldCheck, lock: Lock, star: Star, clock: Clock, gift: Gift, truck: Truck, download: Download, phone: Phone, heart: Heart, award: Award, info: Info, zap: Zap, users: Users };
 
 export interface RenderCtx {
   data: CheckoutViewData;
@@ -102,6 +102,28 @@ function Countdown({ el, storageKey, p }: { el: Extract<DesignElement, { type: "
   const sz = COUNTDOWN_SIZES[el.size ?? "md"];
   // antes do primeiro cálculo (HTML do servidor), "--" no lugar dos números — nunca o texto de "terminado"
   const shown: (number | null)[] = parts ? (parts[0] > 0 ? parts : parts.slice(1)) : [null, null, null];
+  if (el.variant === "banner") {
+    // faixa do modelo padrão: título pequeno com relógio e o tempo grande («03:18»); horas só quando existem
+    const totalH = parts ? parts[0] * 24 + parts[1] : 0;
+    const clock = parts ? [...(totalH > 0 ? [totalH] : []), parts[2], parts[3]].map((v) => String(v).padStart(2, "0")).join(":") : "--:--";
+    return (
+      <div className="w-full rounded-[18px] px-4 py-3 text-center shadow-[0_10px_24px_-12px_rgba(229,50,45,0.6)]" style={{ background: bg, color: fg }} data-testid="countdown" data-bg={bg} data-variant="banner">
+        {el.title && (
+          <p className="flex items-center justify-center gap-1.5 text-[11.5px] font-bold uppercase tracking-[0.14em] [overflow-wrap:anywhere]">
+            <Clock className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            {el.title}
+          </p>
+        )}
+        {left === 0 ? (
+          <p className="mt-1.5 text-sm opacity-90">{el.expiredText}</p>
+        ) : (
+          <p className={cn("font-extrabold leading-none tabular tracking-tight [font-family:ui-monospace,SFMono-Regular,Menlo,monospace]", el.size === "lg" ? "text-[48px]" : el.size === "sm" ? "text-[32px]" : "text-[40px]", el.title && "mt-1.5")} aria-live="off" data-testid="countdown-clock">
+            {clock}
+          </p>
+        )}
+      </div>
+    );
+  }
   return (
     <div className="@container w-full overflow-hidden rounded-2xl px-3 py-3.5 text-center @sm:px-4" style={{ background: bg, color: fg }} data-testid="countdown" data-bg={bg}>
       {el.title && (
@@ -167,6 +189,93 @@ function scrollToForm(e: React.MouseEvent<HTMLAnchorElement>) {
   e.preventDefault();
   form.scrollIntoView({ behavior: "smooth", block: "start" });
   (form.querySelector("input") as HTMLInputElement | null)?.focus({ preventScroll: true });
+}
+
+const OVERLAY_POS: Record<string, string> = {
+  "top-left": "left-2.5 top-2.5",
+  "top-center": "left-1/2 top-2.5 -translate-x-1/2 text-center",
+  "top-right": "right-2.5 top-2.5 text-right",
+  center: "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-center",
+  "bottom-left": "bottom-2.5 left-2.5",
+  "bottom-center": "bottom-2.5 left-1/2 -translate-x-1/2 text-center",
+  "bottom-right": "bottom-2.5 right-2.5 text-right",
+};
+
+/** Cartão do produto (modelo padrão): imagem larga com texto em destaque, nome e preço reais (nunca editáveis aqui). */
+function ProductCard({ el, ctx }: { el: Extract<DesignElement, { type: "productCard" }>; ctx: RenderCtx }) {
+  const { data, p } = ctx;
+  // «Do produto»: o banner promocional, ou a imagem principal quando não há banner
+  const src = el.imageSource === "product" ? (data.bannerUrl ?? data.imageUrl) : el.src;
+  const overlay = el.showOverlay && el.overlayText.trim();
+  return (
+    <div className={cn("overflow-hidden rounded-[18px] border", p.dark ? "border-white/10 bg-white/[0.04]" : "border-[#E7E8F0] bg-white shadow-[0_1px_3px_rgba(16,24,40,0.06)]")} data-testid="product-card">
+      {(src || ctx.editing) && (
+        <div className="relative w-full overflow-hidden" style={{ aspectRatio: "2 / 1" }}>
+          {src ? (
+            <ResponsiveImg src={src} alt={data.productName} loading="eager" fetchPriority="high" decoding="async" sizes="(max-width: 560px) 100vw, 520px" className="absolute inset-0 h-full w-full object-cover" style={{ objectPosition: `${el.focusX}% ${el.focusY}%` }} />
+          ) : (
+            <div className={cn("absolute inset-0 grid place-items-center border-b border-dashed text-[13px]", p.muted)}>Imagem do produto (adicione-a no produto ou escolha outra aqui)</div>
+          )}
+          {overlay && (
+            <span className={cn("absolute max-w-[calc(100%-20px)] rounded-xl bg-black/90 px-3 py-1 text-[22px] font-semibold leading-tight text-white [overflow-wrap:anywhere] @sm:text-[26px]", OVERLAY_POS[el.overlayPosition])} data-testid="product-card-overlay">
+              {el.overlayText}
+            </span>
+          )}
+        </div>
+      )}
+      {(el.showName || el.showPrice) && (
+        <div className="px-4 pb-4 pt-3.5">
+          {el.showName && <h1 className={cn("font-[family-name:var(--ck-heading)] font-semibold leading-snug tracking-tight [overflow-wrap:anywhere]", fs(el.style, "text-[18px]"))}>{data.title}</h1>}
+          {el.showPrice && (
+            <p className="mt-1 flex flex-wrap items-baseline gap-x-2.5" data-testid="price">
+              <span className="text-[30px] font-extrabold leading-tight tracking-tight tabular" style={{ color: p.primary }}>
+                {formatMoney(data.priceCents, data.currency)}
+              </span>
+              {data.compareAtCents && <span className={cn("text-[15px] line-through tabular", p.muted)}>{formatMoney(data.compareAtCents, data.currency)}</span>}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Prova social. Modo real: compras PAGAS deste checkout nas últimas 24 h e pessoas a ver agora (visitas nos
+ * últimos 5 minutos), calculadas no servidor; sem dados, a frase não aparece (nunca «0 pessoas»).
+ */
+function SocialProof({ el, ctx }: { el: Extract<DesignElement, { type: "socialProof" }>; ctx: RenderCtx }) {
+  const { data, p } = ctx;
+  const real = el.mode === "real";
+  const buys = real ? (data.socialProof?.purchases24h ?? 0) : el.customPurchases;
+  const viewers = real ? (data.socialProof?.viewersNow ?? 0) : el.customViewers;
+  const showBuys = buys > 0;
+  const showViewers = el.showViewers && viewers > (real ? 1 : 0);
+  if (!showBuys && !showViewers) {
+    return ctx.editing ? <Placeholder ctx={ctx} label={real ? "Prova social real: aparece quando houver compras nas últimas 24 h ou outras pessoas a ver o checkout" : "Prova social: indique os números no painel"} aspect="6 / 1" /> : null;
+  }
+  const fill = (t: string, n: number) => t.replace(/\{n\}/g, n.toLocaleString("pt-PT"));
+  return (
+    <div className={cn("flex items-center justify-between gap-3 rounded-[14px] border px-3.5 py-2.5", p.dark ? "border-white/10 bg-white/[0.05]" : "border-[#E3E2FA] bg-[#F3F2FE]")} data-testid="social-proof" data-mode={el.mode}>
+      {showBuys ? (
+        <p className="flex min-w-0 items-center gap-2 text-[12.5px] font-medium leading-snug">
+          <Users className="h-4 w-4 shrink-0" style={{ color: p.primary }} aria-hidden="true" />
+          <span className="min-w-0 [overflow-wrap:anywhere]">{fill(el.purchasesText, buys)}</span>
+        </p>
+      ) : (
+        <span />
+      )}
+      {showViewers && (
+        <p className={cn("flex shrink-0 items-center gap-1.5 text-[12px] leading-tight", p.muted)}>
+          <span className="relative flex h-2 w-2" aria-hidden="true">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#22C55E] opacity-60 motion-reduce:animate-none" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-[#22C55E]" />
+          </span>
+          {fill(el.viewersText, viewers)}
+        </p>
+      )}
+    </div>
+  );
 }
 
 /** Conteúdo de um elemento (sem a caixa exterior). Os dados comerciais vêm sempre de `ctx.data` (servidor). */
@@ -277,6 +386,29 @@ export function ElementContent({ el, ctx }: { el: DesignElement; ctx: RenderCtx 
       );
     }
     case "testimonials":
+      if (el.variant === "compact") {
+        if (!el.items.length) return ctx.editing ? <Placeholder ctx={ctx} label="Avaliações: adicione aqui comentários reais de clientes (opcional — sem avaliações, nada aparece no checkout)" aspect="5 / 1" /> : null;
+        return (
+          <div data-testid="reviews">
+            {el.title && <h2 className={cn("mb-2.5 font-[family-name:var(--ck-heading)] font-semibold", fs(s, "text-[16px]"))}>{el.title}</h2>}
+            <ul className="flex flex-col gap-2.5">
+              {el.items.map((t, i) => (
+                <li key={i} className={cn("rounded-[14px] border px-3.5 py-3", p.dark ? "border-white/10 bg-white/[0.04]" : "border-[#E7E8F0] bg-white")}>
+                  {t.rating > 0 && (
+                    <div className="flex gap-0.5" aria-label={`${t.rating} de 5 estrelas`}>
+                      {Array.from({ length: 5 }, (_, k) => (
+                        <Star key={k} className="h-3.5 w-3.5" fill={k < t.rating ? "#F5B400" : "transparent"} stroke={k < t.rating ? "#F5B400" : "#C9CBD3"} aria-hidden="true" />
+                      ))}
+                    </div>
+                  )}
+                  <p className="mt-1.5 whitespace-pre-line text-[14px] font-medium leading-snug [overflow-wrap:anywhere]">“{t.text}”</p>
+                  <p className={cn("mt-1 text-[12px]", p.muted)}>— {t.name}{t.role ? `, ${t.role}` : ""}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      }
       return (
         <div>
           {el.title && <h2 className={cn("mb-3 font-[family-name:var(--ck-heading)] font-semibold", fs(s, "text-lg"))}>{el.title}</h2>}
@@ -347,21 +479,27 @@ export function ElementContent({ el, ctx }: { el: DesignElement; ctx: RenderCtx 
         </div>
       );
     }
-    case "trust":
+    case "trust": {
       if (!el.items.length) return null;
+      const muted = el.tone === "muted";
       return (
-        <ul className={cn("flex gap-x-5 gap-y-2.5 text-[13px] font-medium", el.layout === "row" ? "flex-wrap justify-center" : "flex-col")}>
+        <ul className={cn("flex gap-x-5 gap-y-2.5", muted ? cn("text-[12.5px]", p.muted) : "text-[13px] font-medium", el.layout === "row" ? "flex-wrap justify-center" : "flex-col")} data-testid={muted ? "secure-badge" : undefined}>
           {el.items.map((t, i) => {
             const Icon = ICON_MAP[t.icon];
             return (
-              <li key={i} className="flex items-center gap-2">
-                <Icon className="h-4 w-4 shrink-0" style={{ color: p.primary }} aria-hidden="true" />
-                {t.text}
+              <li key={i} className="flex items-center gap-1.5">
+                <Icon className={cn("shrink-0", muted ? "h-3.5 w-3.5" : "h-4 w-4")} style={{ color: p.primary }} aria-hidden="true" />
+                {t.text.replace(/\{loja\}/gi, data.businessName)}
               </li>
             );
           })}
         </ul>
       );
+    }
+    case "productCard":
+      return <ProductCard el={el} ctx={ctx} />;
+    case "socialProof":
+      return <SocialProof el={el} ctx={ctx} />;
     case "productSummary":
       return (
         <div className={cn("flex gap-4 rounded-2xl border p-4", p.panel)}>

@@ -2,7 +2,7 @@
 // aba Produtos, produto, funis, editor e checkout público em várias larguras — sem deslocamento horizontal,
 // sem textos fora dos cartões, sem letras minúsculas e com botões fáceis de tocar.
 import { expect, test, type Page } from "@playwright/test";
-import { login, noHorizontalScroll } from "./helpers";
+import { login, noHorizontalScroll, PAY_BUTTON } from "./helpers";
 
 const WIDTHS = [320, 375, 414];
 const SHOTS = process.env.E2E_SHOTS_DIR;
@@ -108,8 +108,9 @@ test.describe.serial("revisão mobile", () => {
       expect(form.x).toBeGreaterThanOrEqual(8);
       expect(width - (form.x + form.width)).toBeGreaterThanOrEqual(8);
       expect(form.width).toBeGreaterThanOrEqual(width - 48);
-      await expect(page.getByTestId("order-summary")).toHaveCount(1);
-      const buy = page.getByRole("button", { name: /Finalizar compra|Pagar agora/ });
+      // o total aparece uma única vez (resumo do formulário clássico ou dentro do botão do modelo padrão)
+      await expect(page.getByTestId("order-total")).toHaveCount(1);
+      const buy = page.getByRole("button", { name: PAY_BUTTON });
       expect((await buy.boundingBox())!.height).toBeGreaterThanOrEqual(44);
       for (const input of await page.getByTestId("purchase-form").locator("input:visible:not([type=radio]):not([type=checkbox])").all()) {
         expect(parseFloat(await input.evaluate((e) => getComputedStyle(e).fontSize))).toBeGreaterThanOrEqual(16); // < 16 px faz o iPhone ampliar a página ao tocar

@@ -4,7 +4,7 @@ import { getPublicCheckout } from "@/server/services/checkouts";
 import { getSettings } from "@/server/services/settings";
 import { getActivePaymentProviders } from "@/server/payments/registry";
 import { listPaymentOptions } from "@/server/services/payment-flow";
-import { publicDesign } from "@/server/services/checkout-design";
+import { publicDesign, realSocialProof, usesRealSocialProof } from "@/server/services/checkout-design";
 import { hasUsableCoupons } from "@/server/services/coupons";
 import { scopeOf } from "@/server/scope";
 import { CheckoutView } from "@/components/checkouts/checkout-view";
@@ -38,14 +38,18 @@ export default async function PublicCheckoutPage({ params }: { params: Promise<{
   ]);
   const providers = active.filter((p) => p.supportedCurrencies.includes(c.offer.currency));
   const paymentOptions = listPaymentOptions(providers);
+  const design = publicDesign(c);
+  // prova social com dados reais (só quando o design a mostra)
+  const socialProof = usesRealSocialProof(design) && !c.isDemo ? await realSocialProof(c.id) : undefined;
   return (
     <CheckoutView
-      design={publicDesign(c)}
+      design={design}
       data={{
         publicId: c.publicId,
         title: c.title,
         description: c.description,
         imageUrl: c.imageUrl ?? c.product.imageUrl,
+        bannerUrl: c.product.bannerUrl,
         buttonText: c.buttonText,
         primaryColor: c.primaryColor,
         backgroundColor: c.backgroundColor,
@@ -63,6 +67,7 @@ export default async function PublicCheckoutPage({ params }: { params: Promise<{
         isDemo: c.isDemo,
         businessName: settings.businessName,
         paymentOptions,
+        socialProof,
       }}
       submitAction={submitCheckoutAction.bind(null, c.publicId)}
       couponAction={applyCouponAction.bind(null, c.publicId)}

@@ -83,6 +83,7 @@ function productData(input: ProductInput, currentStatus?: ProductStatus) {
     name: input.name,
     description: input.description,
     imageUrl: input.imageUrl ?? null,
+    bannerUrl: input.bannerUrl ?? null,
     type: input.type,
     category: input.category ?? null,
     status,
@@ -119,6 +120,7 @@ async function assertProductImage(imageUrl: string | undefined, scope: Scope) {
 
 export async function createProduct(input: ProductInput, scope: Scope) {
   await assertProductImage(input.imageUrl, scope);
+  await assertProductImage(input.bannerUrl, scope);
   for (let attempt = 0; ; attempt++) {
     try {
       return await prisma.$transaction(async (tx) => {
@@ -154,6 +156,7 @@ export async function createProduct(input: ProductInput, scope: Scope) {
 export async function updateProduct(id: string, input: ProductInput, scope: Scope) {
   const existing = await getProduct(id, scope);
   if (input.imageUrl !== (existing.imageUrl ?? undefined)) await assertProductImage(input.imageUrl, scope);
+  if (input.bannerUrl !== (existing.bannerUrl ?? undefined)) await assertProductImage(input.bannerUrl, scope);
   if (existing.status === "ARCHIVED") throw new DomainError("Produtos arquivados não podem ser editados. Restaure-o primeiro.");
   const defaultOffer = existing.offers.find((o) => o.isDefault);
   const wantsPublish = input.status === "PUBLISHED" && existing.status !== "PUBLISHED";
@@ -227,6 +230,7 @@ export async function duplicateProduct(id: string, scope: Scope) {
       name: `${p.name} (cópia)`.slice(0, 120),
       description: p.description,
       imageUrl: p.imageUrl,
+      bannerUrl: p.bannerUrl,
       type: p.type,
       category: p.category,
       status: "DRAFT",

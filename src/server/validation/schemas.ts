@@ -31,6 +31,8 @@ export const productSchema = z.object({
   name: z.string().trim().min(2, "O nome deve ter pelo menos 2 caracteres").max(120, "Máximo de 120 caracteres"),
   description: z.string().trim().min(10, "A descrição deve ter pelo menos 10 caracteres").max(5000),
   imageUrl: productImage,
+  /** Banner promocional (imagem larga do checkout); independente da imagem principal */
+  bannerUrl: productImage,
   type: z.enum(PRODUCT_TYPES, { errorMap: () => ({ message: "Selecione um tipo" }) }),
   category: optionalString(80),
   priceCents: moneyInput({ min: 100, label: "Preço" }),

@@ -132,6 +132,45 @@ export async function nextDestination(publicToken: string): Promise<Destination>
   return null; // pendente: continua na página de estado do pagamento
 }
 
+/**
+ * Link de acesso direto (regra 2): compra confirmada de UM produto entregue por link externo (https), sem
+ * upsells pagos na mesma compra → o comprador vai diretamente para o link de acesso.
+ */
+async function directAccessDestination(publicToken: string): Promise<Destination> {
+  if (!TOKEN_RE.test(publicToken)) return null;
+  const order = await prisma.order.findUnique({
+    where: { publicToken },
+    select: { id: true, status: true, isDemo: true, parentOrderId: true, items: { select: { product: { select: { deliveryMethod: true, deliveryUrl: true } } } } },
+  });
+  if (!order || order.isDemo || order.status !== "APPROVED" || order.parentOrderId || order.items.length !== 1) return null;
+  const paidExtras = await prisma.order.count({ where: { parentOrderId: order.id, status: "APPROVED" } });
+  if (paidExtras > 0) return null;
+  const p = order.items[0].product;
+  if (p.deliveryMethod !== "EXTERNAL_LINK" || !p.deliveryUrl || !/^https:\/\/[^\s"'<>]+$/i.test(p.deliveryUrl)) return null;
+  try {
+    new URL(p.deliveryUrl);
+  } catch {
+    return null;
+  }
+  return { kind: "external", url: p.deliveryUrl };
+}
+
+/**
+ * Destino depois de um pagamento CONFIRMADO, por prioridade:
+ *  1. upsell (link de upsell do produto ou ofertas do funil) — mesmo que o produto seja PDF;
+ *  2. sem upsell e com link de acesso → o link de acesso (produtos sem funil; com funil, a página de obrigado
+ *     configurada pelo vendedor mantém-se);
+ *  3./4. página de obrigado da plataforma (com o botão para baixar o PDF, se for o caso) — devolve null ou o
+ *     destino «thank_you» e a página de pagamento encaminha para o obrigado/acesso.
+ * Nunca é chamado com pagamentos pendentes, falhados ou cancelados (nextDestination devolve null nesses casos).
+ */
+export async function finalDestination(publicToken: string): Promise<Destination> {
+  const dest = await nextDestination(publicToken);
+  // com funil (página de obrigado configurada pelo vendedor, ex.: suporte WhatsApp), o funil decide
+  if (dest) return dest;
+  return directAccessDestination(publicToken);
+}
+
 /** Avança o percurso uma única vez (condição sobre a etapa atual evita repetições). */
 /**
  * Avança o percurso depois de uma oferta. Se a ligação seguinte levar a outra oferta (ex.: recusa do upsell →

@@ -33,7 +33,8 @@ test.describe.serial("personalização do checkout", () => {
     await page.getByRole("textbox", { name: "Testemunho", exact: true }).fill("Material excelente, recomendo a todos.");
     await page.getByTestId("lib-countdown").click();
     await expect(page.getByTestId("editor-preview").getByText("Material excelente, recomendo a todos.")).toBeVisible();
-    await expect(page.getByTestId("editor-preview").locator("[data-block=countdown]")).toBeVisible();
+    // o modelo padrão já tem um cronómetro; o novo é o «Oferta termina em»
+    await expect(page.getByTestId("editor-preview").locator("[data-block=countdown]").filter({ hasText: "Oferta termina em" })).toBeVisible();
 
     await page.getByTestId("save-draft").click();
     await toast(page, "Rascunho guardado");
@@ -50,15 +51,16 @@ test.describe.serial("personalização do checkout", () => {
 
     await page.goto(GUIA);
     await expect(page.getByText("Material excelente, recomendo a todos.")).toBeVisible();
-    await expect(page.locator("[data-block=countdown]")).toBeVisible();
+    await expect(page.locator("[data-block=countdown]").filter({ hasText: "Oferta termina em" })).toBeVisible();
     // preço e moeda continuam a vir do produto
     await expect(page.getByText(mzn("247,90")).first()).toBeVisible();
 
     // o outro produto não é afetado
     await page.goto(EBOOK);
     await expect(page.getByRole("heading", { name: "Ebook Moçambique" })).toBeVisible();
-    await expect(page.locator("[data-block=testimonials]")).toHaveCount(0);
-    await expect(page.locator("[data-block=countdown]")).toHaveCount(0);
+    // (o modelo padrão do outro produto já tem o seu próprio cronómetro «OFERTA EXPIRA EM»)
+    await expect(page.getByText("Material excelente, recomendo a todos.")).toHaveCount(0);
+    await expect(page.locator("[data-block=countdown]").filter({ hasText: "Oferta termina em" })).toHaveCount(0);
 
     await page.goto("/checkouts");
     const guia = page.getByTestId("personalization-card").filter({ hasText: "Guia Digital Editado" });
@@ -73,7 +75,7 @@ test.describe.serial("personalização do checkout", () => {
     await page.goto("/produtos");
     await page.getByRole("link", { name: /Guia Digital Editado/ }).first().click();
     await page.getByLabel("Nome do produto").fill("Guia Digital Renomeado");
-    await page.getByRole("button", { name: "Guardar produto" }).click();
+    await page.getByRole("button", { name: "Actualizar produto" }).click();
     await toast(page, "Produto atualizado");
     await page.reload();
     await expect(page.getByTestId("product-checkout-url")).toHaveText(`http://localhost:3100${GUIA}`);

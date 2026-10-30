@@ -3,7 +3,7 @@
 // (interceção de https://paginas.exemplo.test) com o código copiado do editor. Corre depois de 08 e 16
 // (funil do "Ebook Moçambique" com upsell + downsell). Pagamentos só pelo fornecedor de TESTE local.
 import { expect, test, type Page } from "@playwright/test";
-import { login, mzn, noHorizontalScroll, toast, toPaymentPage } from "./helpers";
+import { login, mzn, noHorizontalScroll, toast, toPaymentPage, PAY_BUTTON } from "./helpers";
 
 const EXT = "https://paginas.exemplo.test";
 let funnelUrl = "";
@@ -47,9 +47,23 @@ async function buyEbook(page: Page, phone: string) {
   await page.getByLabel("Nome completo").fill("Comprador Externo");
   await page.getByLabel("Email").fill("externo@exemplo.co.mz");
   await page.getByLabel(/Número M-Pesa/).fill(phone);
-  await page.getByRole("button", { name: "Pagar agora" }).click();
+  await page.getByRole("button", { name: PAY_BUTTON }).click();
   await toPaymentPage(page);
 }
+
+/**
+ * Compra e segue para a página externa do upsell. O page.route não intercepta pedidos que resultam de um
+ * redirecionamento (o servidor redireciona de /pagamento/… para a página externa): regista-se o destino escolhido
+ * pelo servidor e abre-se essa página simulada.
+ */
+async function buyToExternalUpsell(page: Page, phone: string) {
+  const toUpsell = page.waitForRequest((r) => /paginas\.exemplo\.test\/ext\/upsell\?.*ntp_run=/.test(r.url()), { timeout: 60_000 });
+  await Promise.all([toUpsell, buyEbook(page, phone).catch(() => undefined)]);
+  await page.goto((await toUpsell).url());
+}
+
+// páginas externas simuladas com page.route: sem service worker (os pedidos que ele trata não passam pelo page.route)
+test.use({ serviceWorkers: "block" });
 
 test.describe.serial("funis com páginas externas", () => {
   test("entrada única Funil avançado; mapa do funil; link da página e código de integração por etapa", async ({ page }) => {
@@ -89,9 +103,8 @@ test.describe.serial("funis com páginas externas", () => {
 
   test("compra: página externa do upsell → recusar → downsell externo → aceitar → pagamento → obrigado (venda DOWNSELL)", async ({ page }) => {
     await serveExternal(page);
-    await buyEbook(page, "84 600 1111");
     // pagamento confirmado no servidor → página externa do upsell com o percurso e a etapa
-    await page.waitForURL(/paginas\.exemplo\.test\/ext\/upsell\?.*ntp_run=/, { timeout: 45_000 });
+    await buyToExternalUpsell(page, "84 600 1111");
     const up = new URL(page.url());
     expect(up.searchParams.get("ntp_step")).toBe("upsell");
     await expect(page.getByRole("heading", { name: "Página externa do upsell" })).toBeVisible();
@@ -145,8 +158,7 @@ test.describe.serial("funis com páginas externas", () => {
     await expect(page.getByTestId("map-thank-you")).toContainText(`Externa: ${EXT}/ext/obrigado`);
 
     await serveExternal(page);
-    await buyEbook(page, "84 600 2221");
-    await page.waitForURL(/paginas\.exemplo\.test\/ext\/upsell\?/, { timeout: 45_000 });
+    await buyToExternalUpsell(page, "84 600 2221");
     await page.getByRole("link", { name: "NÃO, OBRIGADO" }).click();
     await page.waitForURL(/paginas\.exemplo\.test\/ext\/downsell\?/);
     await page.getByRole("link", { name: /NÃO, OBRIGADO|Não, obrigado/ }).click();

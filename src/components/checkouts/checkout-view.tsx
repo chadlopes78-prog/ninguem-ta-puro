@@ -6,7 +6,8 @@ import { cn } from "@/lib/utils";
 import type { PurchaseOutcome } from "@/server/services/purchase";
 import { CONTENT_WIDTHS, FONT_FAMILIES, SECTION_LAYOUTS, defaultDesign, type CheckoutDesign, type DesignElement, type DesignSection } from "@/lib/checkout-design";
 import { ElementContent, boxStyle, visibilityClass, type RenderCtx } from "./checkout-elements";
-import { PurchaseForm, type Palette } from "./purchase-form";
+import { CheckBadge, PURCHASE_FORM_ID, PurchaseForm, whiteOn, type Palette } from "./purchase-form";
+import { formatMoney } from "@/lib/money";
 
 /** Opção de pagamento de um gateway ativo. id: "epay" (página alojada) ou "e2payments:mpesa" (direto). */
 export interface CheckoutPaymentOption {
@@ -24,6 +25,8 @@ export interface CheckoutViewData {
   title: string;
   description: string | null;
   imageUrl: string | null;
+  /** Banner promocional do produto (cartão do produto no checkout); sem banner usa-se a imagem principal */
+  bannerUrl?: string | null;
   buttonText: string;
   primaryColor: string;
   backgroundColor: string;
@@ -42,6 +45,8 @@ export interface CheckoutViewData {
   businessName: string;
   /** Opções dos gateways ativos (EPay e/ou E2Payments). Vazio = sem métodos disponíveis. */
   paymentOptions?: CheckoutPaymentOption[];
+  /** Dados reais para a prova social: compras pagas deste checkout nas últimas 24 h e visitas nos últimos 5 min */
+  socialProof?: { purchases24h: number; viewersNow: number };
 }
 
 export interface ElementLocation {
@@ -106,15 +111,27 @@ export function CheckoutView({
     editing,
     storageKey: data.publicId ?? "preview",
     checkout: (el) => (
-      <PurchaseForm data={data} mode={editing ? "preview" : mode} title={el.title} subtitle={el.subtitle} p={p} submitAction={submitAction} couponAction={couponAction} />
+      <PurchaseForm
+        data={data}
+        mode={editing ? "preview" : mode}
+        title={el.title}
+        subtitle={el.subtitle}
+        p={p}
+        submitAction={submitAction}
+        couponAction={couponAction}
+        variant={el.variant}
+        card={{ phoneTitle: el.phoneTitle, phoneHint: el.phoneHint, phoneNote: el.phoneNote, securityItems: el.securityItems, consentText: el.consentText }}
+      />
     ),
   };
 
   const renderElement = (el: DesignElement, at: ElementLocation) => {
+    // avaliações sem conteúdo: nada no checkout público (no editor aparece o lembrete)
+    if (!editor && el.type === "testimonials" && el.items.length === 0) return null;
     const node = (
       <div
         key={el.id}
-        className={cn("min-w-0", visibilityClass(el.style, editing), el.type === "checkout" && el.stickyDesktop && "@2xl:sticky @2xl:top-6")}
+        className={cn("min-w-0 empty:hidden", visibilityClass(el.style, editing), el.type === "checkout" && el.stickyDesktop && "@2xl:sticky @2xl:top-6")}
         // o cronómetro aplica a sua cor a todo o componente (não à caixa exterior)
         style={boxStyle(el.type === "countdown" ? { ...el.style, background: undefined, color: undefined } : el.style)}
         data-block={el.type}
@@ -188,6 +205,45 @@ export function CheckoutView({
         </div>
       )}
       <main className="flex flex-col">{design.sections.map(renderSection)}</main>
+      {design.theme.stickyPayBar && <StickyPayBar amount={formatMoney(data.priceCents, data.currency)} color={button} onColor={whiteOn(button)} background={data.backgroundColor} editing={editing} />}
+    </div>
+  );
+}
+
+/**
+ * Botão de pagamento fixo no fundo do ecrã (sticky: ocupa o seu próprio espaço no fim da página, por isso nunca tapa
+ * campos nem provoca saltos). Respeita a zona segura do iPhone. Com os dados preenchidos submete o formulário real
+ * (a mesma validação e o mesmo pagamento); caso contrário leva ao primeiro campo em falta.
+ */
+function StickyPayBar({ amount, color, onColor, background, editing }: { amount: string; color: string; onColor: string; background: string; editing: boolean }) {
+  const go = () => {
+    if (editing) return;
+    const form = document.getElementById(PURCHASE_FORM_ID) as HTMLFormElement | null;
+    if (!form) return;
+    const missing = Array.from(form.querySelectorAll<HTMLInputElement>("input[required]")).find((i) => !i.value.trim());
+    if (missing) {
+      missing.scrollIntoView({ behavior: "smooth", block: "center" });
+      missing.focus({ preventScroll: true });
+      return;
+    }
+    form.requestSubmit();
+  };
+  return (
+    <div
+      className="sticky bottom-0 z-40 px-3.5 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]"
+      style={{ background: `linear-gradient(to top, ${background} 55%, color-mix(in srgb, ${background} 0%, transparent))` }}
+      data-testid="sticky-pay-bar"
+    >
+      <button
+        type="button"
+        onClick={go}
+        className="mx-auto flex h-[52px] w-full max-w-[492px] items-center justify-center gap-2 rounded-[14px] text-[16px] font-extrabold transition-[filter,transform] hover:brightness-105 active:translate-y-px"
+        style={{ background: `linear-gradient(180deg, color-mix(in srgb, ${color} 78%, white), ${color})`, color: onColor, boxShadow: `0 10px 24px -10px ${color}` }}
+        aria-label={`Ir para o pagamento — ${amount}`}
+      >
+        <CheckBadge />
+        <span className="tabular">{amount}</span>
+      </button>
     </div>
   );
 }

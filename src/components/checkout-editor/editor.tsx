@@ -48,7 +48,7 @@ import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import type { ActionResult, FieldErrors } from "@/server/validation/common";
 import { CheckoutView, type CheckoutViewData, type EditorHooks } from "@/components/checkouts/checkout-view";
-import { ELEMENT_INFO, ADDABLE_ELEMENTS, defaultDesign, isProtectedElement, newElement, restoreDefaultStyle, type AddableType, type CheckoutDesign, type DesignElement, type ElementStyle, type SectionLayout } from "@/lib/checkout-design";
+import { ELEMENT_INFO, ADDABLE_ELEMENTS, classicDesign, defaultDesign, isProtectedElement, newElement, restoreDefaultStyle, type AddableType, type CheckoutDesign, type DesignElement, type ElementStyle, type SectionLayout } from "@/lib/checkout-design";
 import {
   addSection,
   duplicateElement,
@@ -754,9 +754,17 @@ export function CheckoutEditor(props: Props) {
       onRestoreTemplate={() =>
         setConfirm({
           title: "Restaurar estrutura padrão?",
-          body: "O checkout volta à estrutura simples (nome, imagem, preço e formulário de compra). Os elementos que adicionou são removidos do rascunho; pode desfazer com Ctrl+Z.",
+          body: "O checkout volta ao modelo padrão (cronómetro, produto, prova social, avaliações e formulário de compra). Os elementos que adicionou são removidos do rascunho; pode desfazer com Ctrl+Z.",
           label: "Restaurar",
-          run: () => (h.commit((d) => ({ ...defaultDesign(d.theme), theme: d.theme })), setSel({ kind: "page" })),
+          run: () => (h.commit((d) => ({ ...defaultDesign(d.theme), theme: { ...d.theme, stickyPayBar: true } })), setSel({ kind: "page" })),
+        })
+      }
+      onUseClassic={() =>
+        setConfirm({
+          title: "Usar o modelo clássico?",
+          body: "O checkout passa a ter a estrutura simples: nome, imagem, preço e formulário de compra clássico (sem botão fixo). Os elementos que adicionou são removidos do rascunho; pode desfazer com Ctrl+Z.",
+          label: "Usar modelo clássico",
+          run: () => (h.commit((d) => ({ ...classicDesign(d.theme), theme: { ...d.theme, stickyPayBar: false } })), setSel({ kind: "page" })),
         })
       }
     />

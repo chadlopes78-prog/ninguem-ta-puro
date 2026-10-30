@@ -4,7 +4,7 @@ import { getScope } from "@/server/services/settings";
 import { PageHeader } from "@/components/ui/page-header";
 import { DemoBadge } from "@/components/ui/badge";
 import { ProductForm } from "@/components/products/product-form";
-import { saveProductAction } from "../actions";
+import { publishProductAction, saveProductAction } from "../actions";
 
 export const metadata: Metadata = { title: "Novo produto" };
 
@@ -21,7 +21,8 @@ export default async function NewProductPage() {
       <ProductForm
         isNew
         action={saveProductAction.bind(null, null)}
-        initial={{ name: "", description: "", imageUrl: "", type: "", category: "", priceCents: null, currency: settings.defaultCurrency, status: "DRAFT", delivery: { method: "", url: "", file: null } }}
+        publishAction={publishProductAction}
+        initial={{ name: "", description: "", imageUrl: "", type: "", category: "", priceCents: null, currency: settings.defaultCurrency, status: "DRAFT", delivery: { method: "", url: "", file: null }, bannerUrl: "" }}
       />
     </>
   );

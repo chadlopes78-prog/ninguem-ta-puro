@@ -1,5 +1,8 @@
 import { expect, type Page } from "@playwright/test";
 
+/** Botão de pagamento do checkout: clássico («Finalizar compra», «Pagar agora») ou do modelo padrão («QUERO PAGAR … AGORA») */
+export const PAY_BUTTON = /Finalizar compra|Pagar agora|QUERO PAGAR/i;
+
 export const USER = { email: "e2e@ntp.local", password: "e2e-password-123" };
 
 export async function login(page: Page) {
@@ -66,7 +69,8 @@ export async function completeAndPublish(page: Page, productName: string, opts: 
  */
 export async function toPaymentPage(page: Page, timeout = 45_000) {
   const link = page.getByTestId("payment-status-link");
-  await page.waitForFunction(() => !!document.querySelector("[data-testid=payment-status-link]") || /\/(pagamento|obrigado|acesso|oferta|entrega)\//.test(location.pathname), null, { timeout });
+  // a janela mostra o link, ou o pagamento já confirmado levou o comprador para fora do checkout (obrigado, oferta, página externa)
+  await page.waitForFunction(() => !!document.querySelector("[data-testid=payment-status-link]") || !location.pathname.startsWith("/checkout/"), null, { timeout });
   if (await link.isVisible().catch(() => false)) await link.click().catch(() => undefined);
-  await page.waitForURL(/\/(pagamento|obrigado|acesso|oferta|entrega)\//, { timeout });
+  await page.waitForURL((u) => !u.pathname.startsWith("/checkout/"), { timeout });
 }
