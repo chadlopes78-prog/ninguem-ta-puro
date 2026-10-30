@@ -152,9 +152,13 @@ export async function sendDelivery(deliveryId: string): Promise<SendResult | nul
   if (claimed.count !== 1) return null;
 
   const n = d.notification;
-  const payload = JSON.stringify({ title: n.title, body: n.body, url: n.url ?? "/notificacoes", tag: `${n.type}:${n.eventKey}`.slice(0, 64), d: d.id, t: d.receiptToken });
+  // kind: o service worker ajusta a apresentação (vibração das vendas); ts: hora real do evento no dispositivo
+  const kind = n.type === "SALE_CONFIRMED" ? "sale" : n.type === "MORNING_MESSAGE" || n.type === "EVENING_MESSAGE" ? "daily" : n.type === "WEEKLY_SUMMARY" ? "weekly" : "info";
+  const payload = JSON.stringify({ title: n.title, body: n.body, url: n.url ?? "/notificacoes", tag: `${n.type}:${n.eventKey}`.slice(0, 64), kind, ts: n.createdAt.getTime(), d: d.id, t: d.receiptToken });
   const urgency = n.type === "SALE_CONFIRMED" || n.type === "TEST" ? "high" : "normal";
-  const r = await sender({ endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth }, payload, { ttl: n.type === "TEST" ? 600 : 24 * 3600, urgency, keys });
+  // «Bom dia»/«Boa noite» que não chegam a tempo deixam de fazer sentido: expiram em 4 h (resumo semanal em 12 h)
+  const ttl = n.type === "TEST" ? 600 : kind === "daily" ? 4 * 3600 : kind === "weekly" ? 12 * 3600 : 24 * 3600;
+  const r = await sender({ endpoint: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth }, payload, { ttl, urgency, keys });
   const attempts = d.attempts + 1;
 
   if (r.ok) {

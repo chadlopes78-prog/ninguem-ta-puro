@@ -887,6 +887,12 @@ enum NotificationType {
   TEST
   /// Alertas da conta (ex.: pedido de remoção de uma integração partilhada)
   ACCOUNT_ALERT
+  /// BARÃO: mensagem da manhã (pode incluir o lucro real da semana)
+  MORNING_MESSAGE
+  /// BARÃO: mensagem da noite (pode incluir o lucro real da semana)
+  EVENING_MESSAGE
+  /// BARÃO: resumo semanal (lucro após reembolsos; sem contagens nem produtos)
+  WEEKLY_SUMMARY
 }
 
 /// Notificação interna (canal "painel"). O push é outro canal: PushDelivery aponta para aqui.
@@ -912,15 +918,19 @@ model Notification {
 }
 
 model NotificationPreference {
-  userId       String   @id
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  pushEnabled  Boolean  @default(true)
-  sales        Boolean  @default(true)
-  pending      Boolean  @default(true)
-  failed       Boolean  @default(true)
-  refunds      Boolean  @default(true)
-  dailySummary Boolean  @default(false)
-  updatedAt    DateTime @updatedAt
+  userId        String   @id
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pushEnabled   Boolean  @default(true)
+  sales         Boolean  @default(true)
+  pending       Boolean  @default(true)
+  failed        Boolean  @default(true)
+  refunds       Boolean  @default(true)
+  dailySummary  Boolean  @default(false)
+  /// BARÃO: manhã, noite e resumo semanal (ativas por omissão)
+  morning       Boolean  @default(true)
+  evening       Boolean  @default(true)
+  weeklySummary Boolean  @default(true)
+  updatedAt     DateTime @updatedAt
 }
 
 /// Dispositivo subscrito (Web Push). As chaves são públicas do navegador; o endpoint é secreto por natureza.

@@ -122,18 +122,20 @@ describe("1–2. venda confirmada: uma única notificação, sem duplicados", ()
     expect(sales).toHaveLength(1);
     expect(sales[0].userId).toBe(a.id);
     expect(await prisma.notification.count({ where: { userId: b.id } })).toBe(0);
-    expect(sales[0].body).toContain("Produto: Ebook Vendas");
-    expect(sales[0].body).toContain("500,00");
-    expect(sales[0].body).toContain("MZN");
+    // BARÃO: título fixo, valor real em MT; nunca o produto nem o cliente
+    expect(sales[0].title).toBe("👑 Venda aprovada!");
+    expect(sales[0].body).toContain("500,00 MT");
+    expect(sales[0].body).not.toContain("Ebook Vendas");
+    expect(sales[0].body).toMatch(/Barão|império|negócio/);
     expect(sales[0].url).toBe(`/pedidos/${order.id}`);
     expect(await prisma.pushDelivery.count({ where: { notification: { type: "SALE_CONFIRMED" } } })).toBe(1);
 
     // envio pela fila persistente (fora de um pedido HTTP o envio fica na fila — nada se perde)
     const out = await processPushOutbox();
     expect(out.sent).toBeGreaterThanOrEqual(1);
-    const salePush = sent.find((s) => JSON.parse(s.payload).url === `/pedidos/${order.id}` && JSON.parse(s.payload).body.includes("Produto"));
+    const salePush = sent.find((s) => JSON.parse(s.payload).url === `/pedidos/${order.id}` && JSON.parse(s.payload).title === "👑 Venda aprovada!" && JSON.parse(s.payload).kind === "sale");
     expect(salePush).toBeTruthy();
-    expect(JSON.parse(salePush!.payload)).toMatchObject({ title: expect.stringMatching(/confirmad/), d: expect.any(String), t: expect.any(String) });
+    expect(JSON.parse(salePush!.payload)).toMatchObject({ title: "👑 Venda aprovada!", d: expect.any(String), t: expect.any(String) });
   });
 
   it("eventos repetidos (webhook duplicado, novo id, consulta de estado) não duplicam notificações nem faturamento", async () => {
@@ -152,7 +154,7 @@ describe("1–2. venda confirmada: uma única notificação, sem duplicados", ()
     expect(await prisma.orderAuditLog.count({ where: { orderId: order.id, toStatus: "APPROVED" } })).toBe(1);
     await processPushOutbox();
     await processPushOutbox();
-    expect(sent.filter((s) => JSON.parse(s.payload).title.includes("confirmado")).length).toBe(1);
+    expect(sent.filter((s) => JSON.parse(s.payload).title === "👑 Venda aprovada!").length).toBe(1);
   });
 });
 

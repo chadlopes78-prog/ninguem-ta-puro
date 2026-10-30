@@ -12,13 +12,21 @@ self.addEventListener("push", (event) => {
   }
   const title = data.title || "Ninguém Tá Puro";
   const url = typeof data.url === "string" && data.url.startsWith("/") ? data.url : "/notificacoes";
-  const show = self.registration.showNotification(title, {
+  // Apresentação BARÃO: título curto com o emoji da categoria, corpo de uma ou duas linhas com o valor em destaque,
+  // ícone e emblema da aplicação. iOS e Android mostram título + corpo no ecrã bloqueado e no centro de notificações.
+  const options = {
     body: data.body || "",
     icon: "/icons/icon-192.png",
     badge: "/icons/badge-96.png",
     tag: data.tag || undefined,
+    lang: "pt-PT",
+    dir: "ltr",
+    timestamp: typeof data.ts === "number" ? data.ts : Date.now(),
     data: { url },
-  });
+  };
+  // vendas: vibração curta e marcante (Android; o iOS usa o som/vibração do sistema)
+  if (data.kind === "sale") options.vibrate = [90, 50, 90, 50, 160];
+  const show = self.registration.showNotification(title, options);
   // Confirmação de receção no dispositivo (o token só existe neste conteúdo cifrado)
   const receipt =
     data.d && data.t

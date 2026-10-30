@@ -12,6 +12,7 @@ import { prisma } from "@/server/db";
 import { formatMoney, type CurrencyCode } from "@/lib/money";
 import { DEFAULT_PREFS, isAllowed, type NotificationPrefs } from "@/lib/notifications";
 import { newReceiptToken } from "./push";
+import { baraoAmount, saleMessage } from "@/lib/barao";
 
 type Tx = Prisma.TransactionClient | PrismaClient;
 
@@ -70,7 +71,7 @@ export type OrderEvent = "sale" | "pending" | "failed";
 async function orderSummary(tx: Tx, orderId: string) {
   return tx.order.findUnique({
     where: { id: orderId },
-    select: { id: true, code: true, ownerId: true, isDemo: true, isTestPayment: true, totalCents: true, currency: true, status: true, items: { select: { product: { select: { name: true } } } } },
+    select: { id: true, code: true, ownerId: true, isDemo: true, isTestPayment: true, totalCents: true, currency: true, status: true },
   });
 }
 
@@ -83,21 +84,15 @@ async function orderSummary(tx: Tx, orderId: string) {
 export async function recordOrderEvent(tx: Tx, event: OrderEvent, orderId: string): Promise<number> {
   const o = await orderSummary(tx, orderId);
   if (!o || o.isDemo) return 0;
-  const product = [...new Set(o.items.map((i) => i.product.name))].join(", ") || "—";
-  const value = formatMoney(o.totalCents, o.currency as CurrencyCode);
   const test = o.isTestPayment ? " (teste)" : "";
   const url = `/pedidos/${o.id}`;
   // Só a conta dona da venda é notificada
   const to = { userIds: [o.ownerId] };
   if (event === "sale") {
-    return notifyUsers(tx, {
-      type: "SALE_CONFIRMED",
-      eventKey: `sale:${o.id}`,
-      title: o.isTestPayment ? "Pagamento de teste confirmado" : "Nova venda confirmada!",
-      body: `Produto: ${product}\nValor: ${value}${test}`,
-      url,
-      orderId: o.id,
-    }, to);
+    // BARÃO: só o valor real da transação aprovada — nunca o produto nem o cliente. A variação muda a cada venda.
+    const previous = await tx.notification.count({ where: { userId: o.ownerId, type: "SALE_CONFIRMED" } });
+    const msg = saleMessage(baraoAmount(o.totalCents, o.currency as CurrencyCode), previous, o.ownerId, o.isTestPayment);
+    return notifyUsers(tx, { type: "SALE_CONFIRMED", eventKey: `sale:${o.id}`, title: msg.title, body: msg.body, url, orderId: o.id }, to);
   }
   if (event === "pending") {
     return notifyUsers(tx, { type: "PAYMENT_PENDING", eventKey: `pending:${o.id}`, title: "Pagamento pendente.", body: `Pedido: ${o.code}${test}\nAinda não é uma venda: aguarda confirmação do gateway.`, url, orderId: o.id }, to);

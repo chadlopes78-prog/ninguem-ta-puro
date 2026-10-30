@@ -75,12 +75,15 @@ export const prefsSchema = z.object({
   failed: z.boolean(),
   refunds: z.boolean(),
   dailySummary: z.boolean(),
+  morning: z.boolean().default(true),
+  evening: z.boolean().default(true),
+  weeklySummary: z.boolean().default(true),
 });
 
 export async function getPrefs(userId: string): Promise<NotificationPrefs> {
   const p = await prisma.notificationPreference.findUnique({ where: { userId } });
   if (!p) return { ...DEFAULT_PREFS };
-  return { pushEnabled: p.pushEnabled, sales: p.sales, pending: p.pending, failed: p.failed, refunds: p.refunds, dailySummary: p.dailySummary };
+  return { pushEnabled: p.pushEnabled, sales: p.sales, pending: p.pending, failed: p.failed, refunds: p.refunds, dailySummary: p.dailySummary, morning: p.morning, evening: p.evening, weeklySummary: p.weeklySummary };
 }
 
 export async function savePrefs(userId: string, input: unknown): Promise<NotificationPrefs> {
@@ -152,8 +155,8 @@ export async function sendTestNotification(userId: string, endpoint: string | nu
       userId,
       type: "TEST",
       eventKey: `test:${newReceiptToken()}`,
-      title: "Notificação de teste",
-      body: "As notificações da Ninguém Tá Puro estão a funcionar neste dispositivo.",
+      title: "👑 Notificação de teste",
+      body: "Tudo pronto, Barão. Este dispositivo vai receber as tuas vendas aprovadas no momento.",
       url: "/notificacoes",
     },
   });
@@ -247,9 +250,15 @@ export async function runDailySummary(now = new Date(), opts: { force?: boolean 
  * Tarefas de fundo baratas, executadas depois da resposta quando o painel é aberto e pelo cron diário:
  * envia a fila push pendente e gera o resumo diário em falta. Nada depende de processos em memória.
  */
-export async function runNotificationJobs(now = new Date()) {
+export async function runNotificationJobs(now = new Date(), opts: { userId?: string } = {}) {
   const summary = await runDailySummary(now).catch((e) => {
     console.error("[notificações] resumo diário", e);
+    return null;
+  });
+  // BARÃO (manhã, noite, resumo semanal): no painel só para quem o abriu; no cron para todas as contas
+  const { runBarao } = await import("./barao");
+  const barao = await runBarao(now, opts).catch((e) => {
+    console.error("[barão] rotina", e instanceof Error ? e.message : "erro");
     return null;
   });
   const outbox = (await hasDuePushDeliveries()) ? await processPushOutbox(50) : { processed: 0, sent: 0, failed: 0 };
@@ -259,5 +268,5 @@ export async function runNotificationJobs(now = new Date()) {
     console.error("[meta] rotina", e instanceof Error ? e.message : "erro");
     return null;
   });
-  return { summary, outbox, meta };
+  return { summary, barao, outbox, meta };
 }

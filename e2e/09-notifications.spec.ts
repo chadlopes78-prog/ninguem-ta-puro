@@ -43,10 +43,11 @@ test.describe.serial("notificações e relatórios", () => {
     await login(page);
     await expect(page.getByTestId("unread-badge").first()).toBeVisible();
     await page.goto("/notificacoes");
-    const sale = page.getByTestId("notification").filter({ hasText: "Pagamento de teste confirmado" }).first();
+    const sale = page.getByTestId("notification").filter({ hasText: "👑 Venda aprovada!" }).first();
     await expect(sale).toBeVisible();
-    await expect(sale).toContainText("Produto: Ebook Moçambique");
-    await expect(sale).toContainText(mzn("1250,00"));
+    // BARÃO: valor real em MT, sem o nome do produto
+    await expect(sale).toContainText(/1\s?250,00 MT/);
+    await expect(sale).not.toContainText("Ebook Moçambique");
     await expect(sale).toHaveAttribute("data-unread", "true");
     await expect(page.getByTestId("notification").filter({ hasText: "Pagamento pendente." }).first()).toBeVisible();
     // abrir leva ao pedido e marca como lida

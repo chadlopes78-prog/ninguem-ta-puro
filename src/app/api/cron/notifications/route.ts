@@ -1,4 +1,4 @@
-// Tarefa agendada (Vercel Cron, uma vez por dia): resumo diário + reenvio da fila push pendente.
+// Tarefa agendada (Vercel Cron, 07:10 e 19:10 em Maputo): resumo diário, mensagens BARÃO + reenvio da fila push.
 // Protegida por CRON_SECRET (a Vercel envia "Authorization: Bearer <CRON_SECRET>"). Sem CRON_SECRET fica desativada;
 // as mesmas tarefas correm também quando o painel é aberto, por isso nada se perde.
 import { timingSafeEqual } from "crypto";
@@ -22,5 +22,5 @@ export async function GET(req: Request) {
   if (!authorized(req)) return json({ error: "Não autorizado" }, 401);
   const r = await runNotificationJobs();
   const payments = await reconcileStalePayments(50);
-  return json({ ok: true, summary: r.summary, outbox: r.outbox, payments });
+  return json({ ok: true, summary: r.summary, barao: r.barao, outbox: r.outbox, payments });
 }
