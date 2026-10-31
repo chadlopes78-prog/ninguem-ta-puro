@@ -24,12 +24,12 @@ interface Call { method: string; url: string; headers: Record<string, string>; b
 let calls: Call[] = [];
 /** Resposta da API simulada para cada pedido (por omissão: 202 PROCESSING; GET devolve o estado em `remote`). */
 let respond: (c: Call) => { status: number; body: unknown } | "network";
-const remote = new Map<string, { status: string; amountMzn: number; reference: string; failureReason?: string; safeMessage?: string }>();
+const remote = new Map<string, { status: string; amountMzn: number; reference: string; failureReason?: string; safeMessage?: string; extra?: Record<string, unknown> }>();
 let seq = 0;
 let remoteSeq = 0;
 
-function paymentJson(id: string, r: { status: string; amountMzn: number; reference: string; failureReason?: string; safeMessage?: string }) {
-  return { payment: { id, status: r.status, amountMzn: r.amountMzn, currency: "MZN", method: "MPESA", environment: "TEST", purpose: "PAYMENT", reference: r.reference, title: "x", description: "x", payerPhone: "*****0003", providerTransactionId: null, failureReason: r.failureReason ?? null, safeMessage: r.safeMessage ?? null, paidAt: null, failedAt: null, receipt: null } };
+function paymentJson(id: string, r: { status: string; amountMzn: number; reference: string; failureReason?: string; safeMessage?: string; extra?: Record<string, unknown> }) {
+  return { payment: { ...(r.extra ?? {}), id, status: r.status, amountMzn: r.amountMzn, currency: "MZN", method: "MPESA", environment: "TEST", purpose: "PAYMENT", reference: r.reference, title: "x", description: "x", payerPhone: "*****0003", providerTransactionId: null, failureReason: r.failureReason ?? null, safeMessage: r.safeMessage ?? null, paidAt: null, failedAt: null, receipt: null } };
 }
 const defaultRespond = (c: Call): { status: number; body: unknown } => {
   if (c.method === "POST" && c.url === `${BASE}/payments`) {
@@ -201,10 +201,11 @@ describe("Pagar — recusa na resposta inicial («Payment was declined»)", () =
       return defaultRespond(c);
     };
     const r = await buy(p.primaryCheckout.slug!);
-    expect(r).toMatchObject({ kind: "payment_not_started", message: "Pagamento recusado pelo operador. Tente novamente. Nenhum valor foi cobrado. Verifique o número e tente novamente." });
+    // mensagem segura da própria Pagar (safeMessage), feita para o comprador
+    expect(r).toMatchObject({ kind: "payment_not_started", message: "O pagamento foi recusado. Pode criar uma nova tentativa. Nenhum valor foi cobrado." });
     const o = await prisma.order.findFirstOrThrow({ include: { payments: true } });
     expect(o.status).toBe("DECLINED");
-    expect(o.payments[0]).toMatchObject({ status: "FAILED", failureCode: "DECLINED", failureReason: "Pagamento recusado pelo operador. Tente novamente.", gatewayMessage: "Payment was declined — O pagamento foi recusado. Pode criar uma nova tentativa." });
+    expect(o.payments[0]).toMatchObject({ status: "FAILED", failureCode: "DECLINED", failureReason: "Recusado pelo operador", buyerMessage: "O pagamento foi recusado. Pode criar uma nova tentativa.", gatewayMessage: "Payment was declined — O pagamento foi recusado. Pode criar uma nova tentativa." });
     // registo técnico da tentativa (sem número nem segredos)
     const log = await prisma.integrationLog.findFirstOrThrow({ where: { provider: "pagar", message: { contains: o.code } } });
     expect(log.message).toContain("recusado pelo gateway");
@@ -292,7 +293,7 @@ describe("Pagar — webhooks", () => {
       ["CANCELLED", { failureReason: "Cancelled by customer" }, "CANCELED", "CUSTOMER_CANCELLED", "Cancelado pelo cliente"],
       ["CANCELLED", {}, "CANCELED", "UNKNOWN", "O gateway não indicou o motivo"],
       // a resposta reportada pelos clientes: recusa genérica da Pagar → recusado pelo operador (texto original guardado à parte)
-      ["FAILED", { failureReason: "Payment was declined", safeMessage: "O pagamento foi recusado. Pode criar uma nova tentativa." }, "DECLINED", "DECLINED", "Pagamento recusado pelo operador. Tente novamente."],
+      ["FAILED", { failureReason: "Payment was declined", safeMessage: "O pagamento foi recusado. Pode criar uma nova tentativa." }, "DECLINED", "DECLINED", "Recusado pelo operador"],
     ];
     for (const [i, [status, why, orderStatus, code, reason]] of cases.entries()) {
       const o = await pending();
@@ -305,6 +306,39 @@ describe("Pagar — webhooks", () => {
       expect(after.status).toBe(orderStatus);
       expect(after.payments[0]).toMatchObject({ failureCode: code, failureReason: reason });
     }
+  });
+
+  it("motivo do operador noutros campos da resposta (ex.: código M-Pesa) é lido e guardado — não se perde na recusa genérica", async () => {
+    const o = await pending();
+    const pid = o.payments[0].externalId!;
+    Object.assign(remote.get(pid)!, { status: "FAILED", failureReason: "Payment was declined", safeMessage: "O pagamento foi recusado.", extra: { providerResponseCode: "INS-2006", providerResponseDescription: "Insufficient balance", payerPhone: "*****0003" } });
+    const w = signedWebhook(event(pid, "payment.failed"), "evt_diag_1");
+    expect((await handleProviderWebhook("pagar", w.raw, w.headers)).status).toBe(200);
+    const p = (await prisma.payment.findFirstOrThrow({ where: { orderId: o.id } }))!;
+    expect(p).toMatchObject({ status: "FAILED", failureCode: "INSUFFICIENT_FUNDS", failureReason: "Saldo insuficiente na carteira do cliente", gatewayCode: "INS-2006" });
+    expect(p.gatewayMessage).toContain("providerResponseCode: INS-2006");
+    expect(p.gatewayMessage).not.toContain("0003"); // nunca o telefone
+  });
+
+  it("motivo que só vem no aviso assinado completa a consulta (o estado continua a vir da consulta)", async () => {
+    const o = await pending();
+    const pid = o.payments[0].externalId!;
+    Object.assign(remote.get(pid)!, { status: "FAILED", failureReason: "Payment was declined" });
+    const w = signedWebhook({ type: "payment.failed", data: { payment: { id: pid, status: "FAILED", failureReason: "Payment was declined", operatorMessage: "Invalid PIN" } } }, "evt_diag_2");
+    expect((await handleProviderWebhook("pagar", w.raw, w.headers)).status).toBe(200);
+    expect(await prisma.payment.findFirstOrThrow({ where: { orderId: o.id } })).toMatchObject({ status: "FAILED", failureCode: "WRONG_PIN", failureReason: "PIN incorrecto" });
+  });
+
+  it("CANCELLED sem motivo ao fim de 3 min (cancelamento automático documentado) → expirado; o comprador vê «expirou»", async () => {
+    const o = await pending();
+    const pid = o.payments[0].externalId!;
+    await prisma.payment.update({ where: { id: o.payments[0].id }, data: { createdAt: new Date(Date.now() - 3 * 60_000 - 5_000) } });
+    Object.assign(remote.get(pid)!, { status: "CANCELLED" });
+    const w = signedWebhook(event(pid, "payment.failed"), "evt_diag_3");
+    expect((await handleProviderWebhook("pagar", w.raw, w.headers)).status).toBe(200);
+    expect(await prisma.payment.findFirstOrThrow({ where: { orderId: o.id } })).toMatchObject({ status: "CANCELED", failureCode: "EXPIRED" });
+    const { getPaymentView } = await import("@/server/services/payment-flow");
+    expect((await getPaymentView(o.publicToken!))!).toMatchObject({ failureCode: "EXPIRED", failureLabel: "O tempo para confirmar o pagamento expirou. Inicie uma nova tentativa." });
   });
 
   it("validação isolada (guia): t numérico, v1 hex de 64, ±300 s, HMAC de `${t}.${body}`", () => {

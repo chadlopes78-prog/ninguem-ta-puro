@@ -195,6 +195,31 @@ export function pagarEventPaymentRef(event: unknown): { id: string | null; refer
   return visit(event, 0);
 }
 
+/**
+ * Motivo de falha trazido no corpo de um aviso JÁ validado (assinatura HMAC): serve só para completar a justificativa
+ * — o estado continua a vir da consulta autenticada. Devolve null se o aviso não trouxer nenhum motivo.
+ */
+export function pagarEventFailure(event: unknown): { text: string | null; code: string | null; safeMessage: string | null } | null {
+  const seen = new Set<unknown>();
+  const find = (v: unknown, depth: number): Record<string, unknown> | null => {
+    if (!v || typeof v !== "object" || depth > 3 || seen.has(v)) return null;
+    seen.add(v);
+    const o = v as Record<string, unknown>;
+    if (typeof o.id === "string" && /^pay_/.test(o.id)) return o;
+    for (const k of ["payment", "data", "object"]) {
+      const r = find(o[k], depth + 1);
+      if (r) return r;
+    }
+    return null;
+  };
+  const obj = find(event, 0);
+  if (!obj) return null;
+  const str = (k: string) => (typeof obj[k] === "string" && (obj[k] as string).trim() ? (obj[k] as string).trim().slice(0, 200) : null);
+  const d = pagarDiagnostics(obj);
+  const text = [str("failureReason"), str("safeMessage"), ...d.lines].filter(Boolean).join(" — ").slice(0, 300) || null;
+  return text ? { text, code: d.code ?? (str("failureReason") && /^[A-Z0-9_-]{3,60}$/.test(str("failureReason")!) ? str("failureReason") : null), safeMessage: str("safeMessage") } : null;
+}
+
 // ───────────── Estados (guia, secção 06) ─────────────
 
 interface PagarPayment {
@@ -207,6 +232,41 @@ interface PagarPayment {
   failureReason: string | null;
   /** TEST ou LIVE (resposta pública, secção 05) */
   environment: string | null;
+  /** Outros campos de diagnóstico devolvidos pela Pagar (códigos/mensagens do operador), «chave: valor» */
+  diagnostics: string[];
+  /** Primeiro código de erro devolvido (campo cujo nome contém «code»), para auditoria */
+  failureCode: string | null;
+}
+
+// Campos do objeto pagamento que nunca são diagnóstico (dados próprios, do comprador ou do recibo)
+const NOT_DIAGNOSTIC = new Set(["id", "status", "amountMzn", "currency", "method", "environment", "purpose", "reference", "title", "description", "payerPhone", "providerTransactionId", "paidAt", "failedAt", "createdAt", "updatedAt", "receipt", "failureReason", "safeMessage", "retryAllowed"]);
+const DIAGNOSTIC_KEY = /(fail|error|reason|code|message|desc|response|result|detail)/i;
+
+/**
+ * Lê TODOS os campos de diagnóstico que a Pagar devolva no objeto pagamento (e em sub-objetos até 2 níveis), além de
+ * `failureReason` e `safeMessage`: códigos e mensagens do operador que de outra forma se perdiam. Nunca lê números
+ * de telefone, recibos ou dados do comprador.
+ */
+export function pagarDiagnostics(p: Record<string, unknown>): { lines: string[]; code: string | null } {
+  const lines: string[] = [];
+  let code: string | null = null;
+  const visit = (o: Record<string, unknown>, prefix: string, depth: number) => {
+    for (const [k, v] of Object.entries(o)) {
+      if (depth === 0 && NOT_DIAGNOSTIC.has(k)) continue;
+      if (/phone|msisdn|pin|secret|token|key|receipt|url/i.test(k)) continue;
+      if (v && typeof v === "object" && !Array.isArray(v) && depth < 2) {
+        visit(v as Record<string, unknown>, `${prefix}${k}.`, depth + 1);
+        continue;
+      }
+      if ((typeof v !== "string" && typeof v !== "number") || !DIAGNOSTIC_KEY.test(k)) continue;
+      const val = String(v).trim().replace(/\s+/g, " ").slice(0, 160);
+      if (!val) continue;
+      lines.push(`${prefix}${k}: ${val}`);
+      if (!code && /code/i.test(k)) code = val.slice(0, 80);
+    }
+  };
+  visit(p, "", 0);
+  return { lines: lines.slice(0, 8), code };
 }
 
 function readPayment(data: Record<string, unknown>): PagarPayment | null {
@@ -222,6 +282,10 @@ function readPayment(data: Record<string, unknown>): PagarPayment | null {
     safeMessage: s("safeMessage"),
     failureReason: s("failureReason"),
     environment: s("environment"),
+    ...(() => {
+      const d = pagarDiagnostics(p);
+      return { diagnostics: d.lines, failureCode: d.code };
+    })(),
   };
 }
 
@@ -237,8 +301,15 @@ export function normalizePagarStatus(p: PagarPayment): NormalizedStatus {
     feeCents: null,
     rawStatus: p.status.slice(0, 40),
     // motivo devolvido pela Pagar (failureReason) e mensagem segura (safeMessage), para classificar o resultado
-    failureMessage: state === "failed" || state === "canceled" ? [p.failureReason, p.safeMessage].filter(Boolean).join(" — ") || null : null,
+    failureMessage: state === "failed" || state === "canceled" ? pagarFailureText(p) : null,
+    failureCode: state === "failed" || state === "canceled" ? (p.failureCode ?? (p.failureReason && /^[A-Z0-9_-]{3,60}$/.test(p.failureReason) ? p.failureReason : null)) : null,
+    buyerMessage: state === "failed" || state === "canceled" ? p.safeMessage : null,
   };
+}
+
+/** Motivo completo devolvido pela Pagar: failureReason, safeMessage e os restantes campos de diagnóstico. */
+export function pagarFailureText(p: Pick<PagarPayment, "failureReason" | "safeMessage" | "diagnostics">): string | null {
+  return [p.failureReason, p.safeMessage, ...p.diagnostics].filter(Boolean).join(" — ").slice(0, 300) || null;
 }
 
 const METHODS: PaymentMethodOption[] = [
@@ -309,7 +380,14 @@ export function createPagarProvider(
           // diagnóstico: estado inicial e ambiente devolvidos pela Pagar (TEST não envia USSD a números reais)
           console.info(`[pagar] POST /payments → ${payment.status} (${payment.environment ?? "?"}) ${payment.id}${payment.failureReason ? ` — ${payment.failureReason.slice(0, 120)}` : ""}`);
           if (payment.status === "FAILED" || payment.status === "CANCELLED") {
-            return { kind: "failed", externalId: payment.id, reason: [payment.failureReason, payment.safeMessage].filter(Boolean).join(" — "), rawStatus: payment.status };
+            return {
+              kind: "failed",
+              externalId: payment.id,
+              reason: pagarFailureText(payment) ?? "",
+              rawStatus: payment.status,
+              failureCode: payment.failureCode ?? (payment.failureReason && /^[A-Z0-9_-]{3,60}$/.test(payment.failureReason) ? payment.failureReason : null),
+              buyerMessage: payment.safeMessage,
+            };
           }
           // PENDING/PROCESSING/RECONCILIATION_REQUIRED — e também PAID: a resposta inicial nunca liberta o produto;
           // a confirmação chega por webhook validado ou consulta autenticada.

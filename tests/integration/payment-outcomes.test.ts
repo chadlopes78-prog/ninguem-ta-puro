@@ -60,7 +60,7 @@ describe("resultado real de cada pagamento", () => {
     // persiste e aparece na lista de Operações
     expect((await row(order.id)).payments[0]).toEqual({ failureCode: "CUSTOMER_CANCELLED", failureReason: "Cancelado pelo cliente" });
     // o comprador vê o motivo normalizado na janela do checkout
-    expect(await getPaymentView(token)).toMatchObject({ state: "canceled", failureLabel: "Cancelado pelo cliente" });
+    expect(await getPaymentView(token)).toMatchObject({ state: "canceled", failureCode: "CUSTOMER_CANCELLED", failureLabel: "Pagamento cancelado. Pode iniciar uma nova tentativa quando desejar." });
   });
 
   it("TESTE 2: PIN introduzido sem saldo → FALHOU, «Saldo insuficiente na carteira do cliente» (nunca como cancelamento)", async () => {
@@ -68,7 +68,7 @@ describe("resultado real de cada pagamento", () => {
     await notify(payment, "failed", "INS-2006: Insufficient balance");
     expect(await state(order.id)).toMatchObject({ order: "DECLINED", payment: "FAILED", code: "INSUFFICIENT_FUNDS", reason: "Saldo insuficiente na carteira do cliente" });
     expect((await row(order.id)).payments[0].failureReason).toBe("Saldo insuficiente na carteira do cliente");
-    expect((await getPaymentView(token))!.failureLabel).toBe("Saldo insuficiente na carteira do cliente");
+    expect((await getPaymentView(token))!.failureLabel).toBe("Saldo insuficiente na sua carteira. Recarregue e tente novamente.");
   });
 
   it("TESTE 3: pagamento confirmado pelo gateway → APROVADO, sem justificativa; venda, entrega e notificação criadas", async () => {
@@ -129,13 +129,14 @@ describe("resultado real de cada pagamento", () => {
 
   it("motivo desconhecido: guarda o texto real do gateway; sem motivo: diz que o gateway não o indicou", async () => {
     const a = await buy();
-    await notify(a.payment, "failed", "Carteira bloqueada pela operadora");
-    expect(await state(a.order.id)).toMatchObject({ payment: "FAILED", code: "GATEWAY_ERROR", reason: "Falhou: Carteira bloqueada pela operadora" });
+    await notify(a.payment, "failed", "Erro 4532 do sistema da operadora");
+    expect(await state(a.order.id)).toMatchObject({ payment: "FAILED", code: "GATEWAY_ERROR", reason: "Falhou: Erro 4532 do sistema da operadora" });
     const b = await buy();
     await notify(b.payment, "canceled");
     expect(await state(b.order.id)).toMatchObject({ payment: "CANCELED", code: "UNKNOWN", reason: "O gateway não indicou o motivo" });
-    // o texto bruto do gateway não é mostrado ao comprador
-    expect((await getPaymentView(a.order.publicToken!))!.failureLabel).toBeNull();
+    // o texto bruto do gateway nunca é mostrado ao comprador: mensagem genérica, sem culpar o cliente
+    expect((await getPaymentView(a.order.publicToken!))!.failureLabel).toBe("O pagamento não foi concluído. Pode tentar novamente.");
+    expect((await getPaymentView(b.order.publicToken!))!.failureLabel).toBe("O pagamento não foi concluído. Pode tentar novamente.");
   });
 });
 

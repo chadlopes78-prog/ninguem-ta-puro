@@ -13,7 +13,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ toke
   const view = await getPaymentView(token, { refresh: true });
   if (!view) return NextResponse.json({ error: "not_found" }, { status: 404 });
   return NextResponse.json(
-    { state: view.state, reason: view.failureLabel, uncertain: view.uncertain, accessUrl: view.accessToken ? `/acesso/${view.accessToken}` : null },
+    { state: view.state, reason: view.failureLabel, code: view.failureCode, uncertain: view.uncertain, accessUrl: view.accessToken ? `/acesso/${view.accessToken}` : null },
     { headers: { "cache-control": "no-store" } },
   );
 }

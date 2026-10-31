@@ -1,5 +1,6 @@
 // Fluxo de pagamento real: encomenda pendente idempotente → cobrança no fornecedor → confirmação → entrega.
 // O preço vem SEMPRE da base de dados; o browser só envia identificação, método e telefone.
+import { buyerFailureMessage } from "@/server/payments/outcome";
 import { randomBytes } from "crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db";
@@ -272,7 +273,7 @@ export async function chargeWithProvider(
     case "failed":
       await prisma.payment.update({ where: { id: created.paymentId }, data: { externalId: result.externalId } });
       // o motivo devolvido pelo gateway é classificado na confirmação (ex.: cancelado pelo cliente, saldo insuficiente)
-      await applyPaymentStatus(provider.id, { externalId: result.externalId, reference: created.reference, state: "failed", amountCents: null, currency: null, feeCents: null, rawStatus: result.rawStatus ?? "failed", failureMessage: result.reason }, "charge-response", { ownerId: created.ownerId });
+      await applyPaymentStatus(provider.id, { externalId: result.externalId, reference: created.reference, state: "failed", amountCents: null, currency: null, feeCents: null, rawStatus: result.rawStatus ?? "failed", failureMessage: result.reason, failureCode: result.failureCode ?? null, buyerMessage: result.buyerMessage ?? null }, "charge-response", { ownerId: created.ownerId });
       return { redirectUrl: null, rejected: await rejectionMessage(created.paymentId) };
     case "error":
       // Estado incerto: a encomenda fica pendente e será verificada por consulta oficial; nunca se assume sucesso.
@@ -285,9 +286,8 @@ export async function chargeWithProvider(
 
 /** Motivo para o comprador quando o gateway recusa logo o pedido (só motivos normalizados, nunca o texto bruto). */
 async function rejectionMessage(paymentId: string): Promise<string> {
-  const p = await prisma.payment.findUnique({ where: { id: paymentId }, select: { failureCode: true, failureReason: true } });
-  const why = p?.failureCode && BUYER_SAFE_CODES.includes(p.failureCode) && p.failureReason ? `${p.failureReason.replace(/\.\s*$/, "")}. ` : "O operador recusou o pedido de pagamento. ";
-  return `${why}Nenhum valor foi cobrado. Verifique o número e tente novamente.`;
+  const p = await prisma.payment.findUnique({ where: { id: paymentId }, select: { failureCode: true, buyerMessage: true } });
+  return `${buyerFailureMessage(p?.failureCode, p?.buyerMessage).replace(/\.\s*$/, "")}. Nenhum valor foi cobrado.`;
 }
 
 /**
@@ -369,7 +369,6 @@ async function refreshOne(orderId: string): Promise<void> {
   }
 }
 
-const BUYER_SAFE_CODES = ["CUSTOMER_CANCELLED", "INSUFFICIENT_FUNDS", "WRONG_PIN", "INVALID_NUMBER", "EXPIRED", "TIMEOUT", "DECLINED", "GATEWAY_INTERNAL"];
 
 export async function getPaymentView(publicToken: string, opts: { refresh?: boolean } = {}) {
   if (!/^[A-Za-z0-9_-]{20,40}$/.test(publicToken)) return null;
@@ -415,7 +414,10 @@ export async function getPaymentView(publicToken: string, opts: { refresh?: bool
     continueUrl: full.status === "PENDING" && p?.status === "PENDING" ? (p.redirectUrl ?? null) : null,
     isTestPayment: full.isTestPayment,
     // Motivo para o comprador: só os resultados normalizados (nunca o texto bruto do gateway)
-    failureLabel: (state === "failed" || state === "canceled") && p?.failureCode && BUYER_SAFE_CODES.includes(p.failureCode) ? p.failureReason : null,
+    // Mensagem para o comprador a partir do motivo normalizado (nunca o texto técnico do gateway)
+    failureLabel: state === "failed" || state === "canceled" ? buyerFailureMessage(p?.failureCode, p?.buyerMessage) : null,
+    // Motivo normalizado (só o código, sem dados): o checkout escolhe o título e as ações (ex.: corrigir o número)
+    failureCode: state === "failed" || state === "canceled" ? (p?.failureCode ?? "UNKNOWN") : null,
     uncertain: Boolean(p?.failureReason?.startsWith("Estado incerto")),
     // Fornecedor sem consulta de estado (E2Payments): a loja verifica manualmente, nunca automaticamente "pago"
     manualReview: Boolean(p?.failureReason?.startsWith("Estado incerto")) && !(await getProviderForPayment(p!, full.ownerId))?.getStatus,

@@ -56,12 +56,31 @@ test.describe("janela de confirmação do pagamento", () => {
 
   test("o gateway recusa logo: erro real, sem janela «Confirme»; erro de comunicação: «A confirmar o pagamento…»", async ({ page }) => {
     await startPayment(page, "84 222 3330"); // termina em 0 → recusa imediata
-    await expect(page.getByText(/Pagamento recusado pelo operador.*Nenhum valor foi cobrado/)).toBeVisible();
+    await expect(page.getByText(/A operadora recusou o pagamento.*Nenhum valor foi cobrado/)).toBeVisible();
     await expect(page.getByTestId("payment-waiting")).toHaveCount(0);
 
     await startPayment(page, "84 222 3339"); // termina em 9 → sem resposta conclusiva do gateway
     await expect(page.getByTestId("payment-waiting")).toHaveAttribute("data-state", "checking");
     await expect(page.getByRole("heading", { name: "A confirmar o pagamento…" })).toBeVisible();
+  });
+
+  test("pagamento expirado na consulta: título e motivo próprios; «Usar outro número» mantém os dados e permite nova tentativa", async ({ page }) => {
+    await startPayment(page, "84 555 6662"); // termina em 2 → a consulta oficial devolve expirado
+    const dialog = page.getByTestId("payment-waiting");
+    await expect(dialog).toHaveAttribute("data-state", "failed", { timeout: 30_000 });
+    await expect(page.getByRole("heading", { name: "Pagamento expirado" })).toBeVisible();
+    await expect(dialog).toContainText("O tempo para confirmar o pagamento expirou. Inicie uma nova tentativa.");
+    await expect(dialog).toContainText("Nenhum valor foi cobrado");
+    await expect(page.getByTestId("payment-retry")).toBeVisible();
+    await page.getByTestId("payment-change-phone").click();
+    await expect(dialog).toHaveCount(0);
+    // os dados continuam preenchidos e o número fica em foco para corrigir
+    await expect(page.getByLabel("Nome completo")).toHaveValue("Comprador Modal");
+    await expect(page.getByLabel(/Número M-Pesa/)).toBeFocused();
+    await page.getByLabel(/Número M-Pesa/).fill("84 555 6663");
+    await page.getByRole("button", { name: PAY_BUTTON }).first().click();
+    // nova tentativa: novo pedido, a janela volta a pedir o PIN
+    await expect(page.getByTestId("payment-waiting")).toHaveAttribute("data-state", "pending");
   });
 
   test("credenciais de teste: a janela avisa que nenhum pedido real chega ao telemóvel; um único pedido por clique", async ({ page }) => {

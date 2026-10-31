@@ -195,6 +195,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
                       )}
                       {p.failureReason && <p className="mt-1 text-[12px] text-warning" data-testid="payment-justification">{p.failureReason}</p>}
                       {p.gatewayMessage && !p.failureReason?.includes(p.gatewayMessage) && <p className="mt-0.5 break-words text-[11.5px] text-subtle">Resposta do gateway: {p.gatewayMessage}</p>}
+                      {p.status !== "PAID" && p.gatewayCode && <p className="mt-0.5 break-words font-mono text-[11px] text-subtle" data-testid="payment-gateway-code">Código do gateway: {p.gatewayCode}</p>}
                       <p className="mt-1 text-[11.5px] text-subtle">Criado {formatDate(p.createdAt, tz, true)}{p.confirmedAt ? ` · confirmado ${formatDate(p.confirmedAt, tz, true)}` : ""}</p>
                       {manualIds.has(p.id) && (
                         <div className="mt-3 rounded-[var(--radius-md)] border border-warning/30 bg-warning/[0.06] p-3" data-testid="manual-verification">

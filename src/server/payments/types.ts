@@ -41,7 +41,7 @@ export type ChargeResult =
   /** O fornecedor confirmou o pagamento na resposta autenticada servidor-a-servidor */
   | { kind: "paid"; externalId: string; amountCents: number; currency: CurrencyCode; feeCents: number | null; rawStatus: string }
   /** Rejeição definitiva (ex.: saldo insuficiente, número inválido) */
-  | { kind: "failed"; externalId: string | null; reason: string; rawStatus?: string }
+  | { kind: "failed"; externalId: string | null; reason: string; rawStatus?: string; failureCode?: string | null; buyerMessage?: string | null }
   /** Erro de rede/servidor: o estado é incerto e deve ser consultado mais tarde */
   | { kind: "error"; reason: string; retryable: boolean }
   /** O fornecedor não criou o pagamento (credenciais, validação, limite, indisponibilidade). Nada foi cobrado. */
@@ -61,6 +61,10 @@ export interface NormalizedStatus {
   rawStatus: string;
   /** Motivo devolvido pelo gateway para falha/cancelamento, exatamente como veio (quando o gateway o envia) */
   failureMessage?: string | null;
+  /** Código original do erro devolvido pelo gateway/operador (auditoria), quando existe */
+  failureCode?: string | null;
+  /** Mensagem do gateway feita para ser mostrada ao comprador (ex.: `safeMessage` da Pagar), quando existe */
+  buyerMessage?: string | null;
 }
 
 export interface NormalizedPaymentEvent extends NormalizedStatus {

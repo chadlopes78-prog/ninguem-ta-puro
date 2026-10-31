@@ -13,7 +13,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db";
 import { applyPaymentStatus } from "./confirm";
 import { gatewayContext, pagarCredentialSets, buildPagarProvider } from "./gateways";
-import { pagarEnvCredentials, pagarEventPaymentRef, verifyPagarWebhook, type PagarMode } from "./providers/pagar";
+import { pagarEnvCredentials, pagarEventFailure, pagarEventPaymentRef, verifyPagarWebhook, type PagarMode } from "./providers/pagar";
 import type { WebhookOutcome } from "./webhooks";
 
 const ACK = { received: true };
@@ -110,6 +110,15 @@ export async function handlePagarWebhook(rawBody: string, headers: Headers, nowM
     if (status.state === "pending") {
       await finish("PROCESSED", `Ainda ${status.rawStatus}`, payment.orderId);
       return { status: 200, body: ACK, result: "pending" };
+    }
+    // motivo: o da consulta, completado com o que o aviso assinado trouxer (códigos/mensagens do operador)
+    if (status.state === "failed" || status.state === "canceled") {
+      const extra = pagarEventFailure(event);
+      if (extra?.text && !(status.failureMessage ?? "").includes(extra.text)) {
+        status.failureMessage = [status.failureMessage, extra.text].filter(Boolean).join(" — ").slice(0, 300);
+      }
+      status.failureCode ??= extra?.code ?? null;
+      status.buyerMessage ??= extra?.safeMessage ?? null;
     }
     const r = await applyPaymentStatus("pagar", status, "webhook", { ownerId: payment.order.ownerId });
     await finish(r.result === "rejected" ? "REJECTED" : r.result === "ignored" ? "IGNORED" : "PROCESSED", r.reason ?? null, r.orderId ?? payment.orderId);

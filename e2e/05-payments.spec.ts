@@ -110,7 +110,7 @@ test.describe.serial("pagamentos (fornecedor de teste local)", () => {
     await page.getByLabel(/Número M-Pesa/).fill("84 111 2220"); // termina em 0 → recusa imediata
     await page.getByRole("button", { name: PAY_BUTTON }).click();
     // a mensagem real (recusado pelo operador), nunca «Confirme no seu telemóvel»
-    await expect(page.getByText(/Pagamento recusado pelo operador.*Nenhum valor foi cobrado/)).toBeVisible();
+    await expect(page.getByText(/A operadora recusou o pagamento.*Nenhum valor foi cobrado/)).toBeVisible();
     await expect(page.getByTestId("payment-waiting")).toHaveCount(0);
     // pode tentar de novo no mesmo checkout
     await expect(page.getByRole("button", { name: PAY_BUTTON })).toBeEnabled();

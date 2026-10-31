@@ -205,7 +205,7 @@ describe("resposta imediata do fornecedor e consulta oficial", () => {
     const { checkout } = await setup();
     const r = await buy(checkout.publicId, "841234560");
     // o comprador vê logo a recusa real; repetir a mesma submissão devolve o mesmo erro (sem nova cobrança)
-    expect(r).toMatchObject({ kind: "payment_not_started", message: expect.stringContaining("Pagamento recusado pelo operador") });
+    expect(r).toMatchObject({ kind: "payment_not_started", message: "A operadora recusou o pagamento. Pode tentar novamente. Nenhum valor foi cobrado." });
     const o = await prisma.order.findFirstOrThrow({ orderBy: { createdAt: "desc" }, include: { payments: true, delivery: true } });
     expect(o.status).toBe("DECLINED");
     expect(o.payments[0]).toMatchObject({ status: "FAILED", failureCode: "DECLINED" });

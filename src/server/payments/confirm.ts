@@ -5,6 +5,9 @@ import type { OrderStatus, PaymentStatus, Prisma } from "@prisma/client";
 import { prisma } from "@/server/db";
 import type { NormalizedStatus } from "./types";
 import { classifyOutcome } from "./outcome";
+
+/** Gateways que cancelam sozinhos os pagamentos não confirmados ao fim de um prazo documentado. */
+const AUTO_CANCEL_MS: Record<string, number> = { pagar: 3 * 60_000 };
 import { recordOrderEvent } from "@/server/notifications/events";
 import { schedulePushDispatch } from "@/server/notifications/push";
 
@@ -95,7 +98,8 @@ export async function applyPaymentStatus(
   const now = new Date();
   // Resultado normalizado: o motivo devolvido pelo gateway decide entre «falhou» e «cancelado pelo cliente»
   // (apenas entre estados finais não pagos; pendente e pago nunca mudam por causa do texto).
-  const outcome = classifyOutcome(status.state, status.failureMessage);
+  // A Pagar cancela sozinha os pagamentos não confirmados ao fim de 3 minutos (docs/pagar-api.md, secção 06)
+  const outcome = classifyOutcome(status.state, status.failureMessage, { autoCancelAfterMs: AUTO_CANCEL_MS[provider] ?? null, ageMs: now.getTime() - payment.createdAt.getTime() });
   const target = PAYMENT_STATUS[outcome.state];
   const terminalFailure = target === "FAILED" || target === "CANCELED" || target === "EXPIRED";
 
@@ -110,7 +114,15 @@ export async function applyPaymentStatus(
         externalId: payment.externalId ?? status.externalId,
         lastCheckedAt: now,
         ...(target === "PAID" ? { confirmedAt: now, failureReason: null, failureCode: null } : {}),
-        ...(terminalFailure ? { failureCode: outcome.code, failureReason: outcome.reason, gatewayMessage: outcome.gatewayMessage } : {}),
+        ...(terminalFailure
+          ? {
+              failureCode: outcome.code,
+              failureReason: outcome.reason,
+              gatewayMessage: outcome.gatewayMessage,
+              gatewayCode: status.failureCode?.slice(0, 80) ?? null,
+              buyerMessage: status.buyerMessage?.slice(0, 300) ?? null,
+            }
+          : {}),
       },
     });
     if (moved.count !== 1) return { result: "unchanged" as const };
@@ -173,6 +185,10 @@ export async function applyPaymentStatus(
   });
 
   if (applied.result === "processed" && target === "PAID") await ownerLog("info", `Pagamento confirmado: ${order.code} (${source}).`);
+  if (applied.result === "processed" && terminalFailure) {
+    // registo técnico do resultado final (sem número, PIN nem segredos): motivo original do gateway e classificação
+    console.info(JSON.stringify({ evt: "payment.result", provider, source, order: order.code, reference: payment.idempotencyKey, state: outcome.state, code: outcome.code, gatewayCode: status.failureCode ?? null, gatewayMessage: outcome.gatewayMessage, rawStatus: status.rawStatus }));
+  }
   if (applied.result === "processed" && terminalFailure) await ownerLog("info", `Pagamento ${order.code} não concluído: ${outcome.reason ?? outcome.state} (${source}${outcome.gatewayMessage ? `; gateway: ${outcome.gatewayMessage}` : ""}).`);
   // Envio push depois da resposta; se falhar, a fila persistente volta a tentar
   if ("notified" in applied && applied.notified) await schedulePushDispatch();

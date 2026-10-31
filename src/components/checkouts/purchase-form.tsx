@@ -173,7 +173,16 @@ export function PurchaseForm({
   // Aviso quando o servidor/gateway demora (rede lenta): o pedido continua e não há cobrança em duplicado
   // Pagamento por telemóvel (M-Pesa/e-Mola): o comprador fica no checkout com uma janela por cima a pedir o PIN.
   // A janela consulta o estado no servidor; só o servidor decide o destino (página de pagamento → obrigado/acesso).
-  const [waiting, setWaiting] = useState<{ token: string; phone: string; label: string; state: "pending" | "checking" | "failed" | "timeout"; reason?: string | null; test?: boolean; sync?: boolean } | null>(null);
+  const [waiting, setWaiting] = useState<{ token: string; phone: string; label: string; state: "pending" | "checking" | "failed" | "timeout"; reason?: string | null; code?: string | null; test?: boolean; sync?: boolean } | null>(null);
+  // «Usar outro número»: fecha a janela e leva o comprador ao campo do número (os restantes dados ficam preenchidos)
+  const changePhone = () => {
+    setWaiting(null);
+    setTimeout(() => {
+      const el = document.querySelector<HTMLInputElement>(`#co-phone, input[name="phone"]`);
+      el?.focus();
+      el?.select();
+    }, 50);
+  };
   useEffect(() => {
     if (!waiting || (waiting.state !== "pending" && waiting.state !== "checking")) return;
     let stop = false;
@@ -185,14 +194,14 @@ export function PurchaseForm({
       try {
         const r = await fetch(`/api/public/pagamento/${waiting.token}`, { cache: "no-store" });
         if (r.ok) {
-          const j = (await r.json()) as { state: string; reason?: string | null };
+          const j = (await r.json()) as { state: string; reason?: string | null; code?: string | null };
           if (j.state === "paid") {
             stop = true;
             router.push(`/pagamento/${waiting.token}`);
             return;
           }
           if (j.state === "failed" || j.state === "canceled") {
-            setWaiting((w) => (w ? { ...w, state: "failed", reason: j.reason ?? null } : w));
+            setWaiting((w) => (w ? { ...w, state: "failed", reason: j.reason ?? null, code: j.code ?? null } : w));
             return;
           }
         }
@@ -438,7 +447,9 @@ export function PurchaseForm({
       reason={waiting?.reason ?? null}
       sync={waiting?.sync ?? selectedMethod?.providerId === "e2payments"}
       test={waiting?.test ?? selectedMethod?.isTest}
+      code={waiting?.code ?? null}
       onClose={() => setWaiting(null)}
+      onChangePhone={changePhone}
     />
   );
 
@@ -814,7 +825,9 @@ export function PurchaseForm({
           reason={waiting?.reason ?? null}
           sync={waiting?.sync ?? selectedMethod?.providerId === "e2payments"}
           test={waiting?.test ?? selectedMethod?.isTest}
+          code={waiting?.code ?? null}
           onClose={() => setWaiting(null)}
+          onChangePhone={changePhone}
         />
       )}
     </form>
@@ -826,6 +839,19 @@ function maskPhone(raw: string): string {
   const d = raw.replace(/\D/g, "").replace(/^258(?=\d{9}$)/, "");
   return d.length >= 4 ? `${d.slice(0, 2)}•••••${d.slice(-2)}` : "";
 }
+
+/** Título da janela para cada motivo normalizado da falha (o texto explicativo vem do servidor). */
+const FAILURE_TITLES: Record<string, string> = {
+  CUSTOMER_CANCELLED: "Pagamento cancelado",
+  INSUFFICIENT_FUNDS: "Saldo insuficiente",
+  WRONG_PIN: "PIN incorrecto",
+  INVALID_NUMBER: "Número inválido",
+  ACCOUNT_INACTIVE: "Carteira indisponível",
+  EXPIRED: "Pagamento expirado",
+  TIMEOUT: "Pagamento expirado",
+  DECLINED: "Pagamento recusado",
+  GATEWAY_INTERNAL: "Serviço temporariamente indisponível",
+};
 
 /**
  * Janela por cima do checkout enquanto o comprador confirma o pagamento com o PIN no telemóvel, desenhada no <body> (portal): o checkout usa container queries, e um contentor com
@@ -842,7 +868,9 @@ function PhoneConfirmDialog({
   statusHref,
   sync,
   test,
+  code,
   onClose,
+  onChangePhone,
 }: {
   p: Palette;
   reason?: string | null;
@@ -856,7 +884,11 @@ function PhoneConfirmDialog({
   sync?: boolean;
   /** Credenciais de TESTE do gateway */
   test?: boolean;
+  /** Motivo normalizado da falha (ex.: INSUFFICIENT_FUNDS) — escolhe o título */
+  code?: string | null;
   onClose: () => void;
+  /** Fecha a janela e leva o comprador ao campo do número (sem perder os outros dados) */
+  onChangePhone?: () => void;
 }) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
@@ -872,7 +904,7 @@ function PhoneConfirmDialog({
   const awaitingPin = state === "pending" || (state === "sending" && sync);
   const busy = state === "sending" || state === "pending" || state === "checking";
   const title = failed
-    ? "Pagamento não concluído"
+    ? (FAILURE_TITLES[code ?? ""] ?? "Pagamento não concluído")
     : state === "timeout"
       ? "Ainda sem confirmação"
       : state === "checking"
@@ -881,7 +913,7 @@ function PhoneConfirmDialog({
           ? "Confirme o pagamento no seu telemóvel."
           : "A enviar o pedido de pagamento…";
   const text = failed
-    ? `${reason ? `${reason.replace(/\.$/, "")}. ` : "O pagamento foi recusado ou cancelado. "}Nenhum valor foi cobrado. Pode tentar novamente.`
+    ? (reason ?? "O pagamento não foi concluído. Pode tentar novamente.")
     : state === "timeout"
       ? "Não recebemos a confirmação. Se já introduziu o PIN, veja o estado do pedido; não pague outra vez."
       : state === "checking"
@@ -932,9 +964,17 @@ function PhoneConfirmDialog({
         )}
         <div className="mt-5 flex flex-col gap-2">
           {failed && (
-            <button type="button" onClick={onClose} className="h-12 rounded-xl text-[15px] font-semibold" style={{ background: p.button, color: p.onButton }} data-testid="payment-retry">
-              Tentar novamente
-            </button>
+            <>
+              <p className="-mt-1 mb-1 text-[12.5px] text-[#6B7280]">Nenhum valor foi cobrado. Os seus dados continuam preenchidos.</p>
+              <button type="button" onClick={onClose} className="h-12 rounded-xl text-[15px] font-semibold" style={{ background: p.button, color: p.onButton }} data-testid="payment-retry">
+                Tentar novamente
+              </button>
+              {onChangePhone && (
+                <button type="button" onClick={onChangePhone} className="h-10 rounded-xl text-[14px] font-medium text-[#374151] underline-offset-2 hover:underline" data-testid="payment-change-phone">
+                  Usar outro número
+                </button>
+              )}
+            </>
           )}
           {/* enquanto aguarda o PIN não há ligação («segue automaticamente»); só depois do tempo de espera */}
           {statusHref && state === "timeout" && (

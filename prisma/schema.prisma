@@ -823,6 +823,10 @@ model Payment {
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
+  /// Código original do erro devolvido pelo gateway/operador (auditoria)
+  gatewayCode     String?
+  /// Mensagem do gateway destinada ao comprador (ex.: safeMessage da Pagar)
+  buyerMessage    String?
   /// Tempo de resposta do gateway ao criar a cobrança (ms) — monitorização
   chargeLatencyMs Int?
 
