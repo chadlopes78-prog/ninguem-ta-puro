@@ -190,6 +190,36 @@ describe("Pagar — pagamento C2B", () => {
   });
 });
 
+describe("Pagar — recusa na resposta inicial («Payment was declined»)", () => {
+  it("POST /payments devolve FAILED: o comprador vê a recusa real (sem «confirme no telemóvel»); Operações guarda o motivo e o texto original", async () => {
+    const p = await createProduct(form(), S);
+    respond = (c) => {
+      if (c.method === "POST" && c.url === `${BASE}/payments`) {
+        const b = JSON.parse(c.body!);
+        return { status: 202, body: paymentJson("pay_declined1", { status: "FAILED", amountMzn: b.amountMzn, reference: b.reference, failureReason: "Payment was declined", safeMessage: "O pagamento foi recusado. Pode criar uma nova tentativa." }) };
+      }
+      return defaultRespond(c);
+    };
+    const r = await buy(p.primaryCheckout.slug!);
+    expect(r).toMatchObject({ kind: "payment_not_started", message: "Pagamento recusado pelo operador. Tente novamente. Nenhum valor foi cobrado. Verifique o número e tente novamente." });
+    const o = await prisma.order.findFirstOrThrow({ include: { payments: true } });
+    expect(o.status).toBe("DECLINED");
+    expect(o.payments[0]).toMatchObject({ status: "FAILED", failureCode: "DECLINED", failureReason: "Pagamento recusado pelo operador. Tente novamente.", gatewayMessage: "Payment was declined — O pagamento foi recusado. Pode criar uma nova tentativa." });
+    // registo técnico da tentativa (sem número nem segredos)
+    const log = await prisma.integrationLog.findFirstOrThrow({ where: { provider: "pagar", message: { contains: o.code } } });
+    expect(log.message).toContain("recusado pelo gateway");
+    expect(log.message).not.toContain("0000003");
+  });
+
+  it("pedido aceite (202 PROCESSING): o checkout recebe o ambiente de teste para avisar que não há USSD real", async () => {
+    const p = await createProduct(form(), S);
+    const r = await buy(p.primaryCheckout.slug!);
+    expect(r).toMatchObject({ kind: "payment_started", testMode: true });
+    const log = await prisma.integrationLog.findFirstOrThrow({ where: { provider: "pagar", level: "info" } });
+    expect(log.message).toMatch(/TESTE · aceite — pedido enviado ao telemóvel · id pay_\w+ · \d+ ms/);
+  });
+});
+
 describe("Pagar — webhooks", () => {
   async function pending() {
     const p = await createProduct(form(), S);
@@ -261,6 +291,8 @@ describe("Pagar — webhooks", () => {
       ["FAILED", { failureReason: "INSUFFICIENT_BALANCE", safeMessage: "Saldo insuficiente" }, "DECLINED", "INSUFFICIENT_FUNDS", "Saldo insuficiente na carteira do cliente"],
       ["CANCELLED", { failureReason: "Cancelled by customer" }, "CANCELED", "CUSTOMER_CANCELLED", "Cancelado pelo cliente"],
       ["CANCELLED", {}, "CANCELED", "UNKNOWN", "O gateway não indicou o motivo"],
+      // a resposta reportada pelos clientes: recusa genérica da Pagar → recusado pelo operador (texto original guardado à parte)
+      ["FAILED", { failureReason: "Payment was declined", safeMessage: "O pagamento foi recusado. Pode criar uma nova tentativa." }, "DECLINED", "DECLINED", "Pagamento recusado pelo operador. Tente novamente."],
     ];
     for (const [i, [status, why, orderStatus, code, reason]] of cases.entries()) {
       const o = await pending();

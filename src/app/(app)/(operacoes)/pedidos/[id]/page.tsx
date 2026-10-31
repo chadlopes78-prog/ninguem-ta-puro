@@ -188,6 +188,11 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
                       <p className="mt-1 text-muted tabular">{m(p.amountCents)}{p.phoneMasked ? ` · ${p.phoneMasked}` : ""}</p>
                       <p className="mt-0.5 break-all font-mono text-[11.5px] text-subtle">{p.externalId ?? "sem referência externa"}</p>
                       {p.environment && <p className="text-[11.5px] text-subtle">Ambiente: {p.environment === "test" ? "teste (sandbox)" : "produção"}</p>}
+                      {p.environment === "test" && p.status !== "PAID" && (
+                        <p className="mt-1 text-[11.5px] text-warning" data-testid="payment-test-env">
+                          Credenciais de TESTE: o gateway não envia o pedido (USSD) para números reais — só simula com os números de teste do fornecedor. Para cobrar clientes, active o modo real em Integrações.
+                        </p>
+                      )}
                       {p.failureReason && <p className="mt-1 text-[12px] text-warning" data-testid="payment-justification">{p.failureReason}</p>}
                       {p.gatewayMessage && !p.failureReason?.includes(p.gatewayMessage) && <p className="mt-0.5 break-words text-[11.5px] text-subtle">Resposta do gateway: {p.gatewayMessage}</p>}
                       <p className="mt-1 text-[11.5px] text-subtle">Criado {formatDate(p.createdAt, tz, true)}{p.confirmedAt ? ` · confirmado ${formatDate(p.confirmedAt, tz, true)}` : ""}</p>

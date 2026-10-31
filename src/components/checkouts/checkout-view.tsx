@@ -18,6 +18,8 @@ export interface CheckoutPaymentOption {
   requiresPhone: boolean;
   /** Pagamento numa página alojada pelo fornecedor (ex.: EPay) */
   hosted: { methodsLabel: string; isTest: boolean } | null;
+  /** Gateway com credenciais de TESTE: nenhum pedido real chega ao telemóvel */
+  isTest?: boolean;
 }
 
 export interface CheckoutViewData {

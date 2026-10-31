@@ -204,11 +204,12 @@ describe("resposta imediata do fornecedor e consulta oficial", () => {
   it("recusa imediata → encomenda falhada, sem entrega", async () => {
     const { checkout } = await setup();
     const r = await buy(checkout.publicId, "841234560");
-    if (r.kind !== "payment_started") throw new Error();
-    const o = await orderByToken(r.token);
+    // o comprador vê logo a recusa real; repetir a mesma submissão devolve o mesmo erro (sem nova cobrança)
+    expect(r).toMatchObject({ kind: "payment_not_started", message: expect.stringContaining("Pagamento recusado pelo operador") });
+    const o = await prisma.order.findFirstOrThrow({ orderBy: { createdAt: "desc" }, include: { payments: true, delivery: true } });
     expect(o.status).toBe("DECLINED");
-    expect(o.payments[0]).toMatchObject({ status: "FAILED" });
-    expect((await getPaymentView(r.token))?.state).toBe("failed");
+    expect(o.payments[0]).toMatchObject({ status: "FAILED", failureCode: "DECLINED" });
+    expect((await getPaymentView(o.publicToken!))?.state).toBe("failed");
     expect(o.delivery).toBeNull();
   });
 

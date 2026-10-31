@@ -456,8 +456,9 @@ describe("8–10. confirmação e estados da E2Payments", () => {
     e2Charge = () => ({ status: 400, body: { message: "Saldo insuficiente" } });
     const { slug } = await product();
     const r = await buy(slug, { method: "e2payments:mpesa", phone: "841234567" });
-    if (r.kind !== "payment_started") throw new Error(r.kind);
-    const o = await orderOf(r.token);
+    // recusa na resposta do gateway: erro real ao comprador (com o motivo normalizado), nunca «confirme no telemóvel»
+    expect(r).toMatchObject({ kind: "payment_not_started", message: expect.stringContaining("Saldo insuficiente na carteira do cliente") });
+    const o = await prisma.order.findFirstOrThrow({ orderBy: { createdAt: "desc" }, include: { payments: true, delivery: true } });
     expect(o.status).toBe("DECLINED");
     expect(o.payments[0].status).toBe("FAILED");
     expect(o.delivery).toBeNull();

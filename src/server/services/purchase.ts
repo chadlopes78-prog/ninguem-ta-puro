@@ -22,7 +22,7 @@ export type PurchaseOutcome =
   | { kind: "unavailable" }
   | { kind: "payments_unavailable"; message: string }
   | { kind: "demo_approved"; orderCode: string; runId: string | null }
-  | { kind: "payment_started"; token: string; redirectUrl: string | null }
+  | { kind: "payment_started"; token: string; redirectUrl: string | null; testMode?: boolean; uncertain?: boolean }
   | { kind: "payment_not_started"; message: string };
 
 export const PAYMENTS_UNAVAILABLE_MESSAGE =

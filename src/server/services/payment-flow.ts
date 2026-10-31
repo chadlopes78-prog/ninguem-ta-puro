@@ -45,13 +45,15 @@ export interface PaymentOptionView {
   label: string;
   requiresPhone: boolean;
   hosted: { methodsLabel: string; isTest: boolean } | null;
+  /** Credenciais de TESTE do gateway: nenhum pedido real chega ao telemóvel (só os números de teste do fornecedor) */
+  isTest?: boolean;
 }
 
 export function listPaymentOptions(providers: PaymentProvider[]): PaymentOptionView[] {
   return providers.flatMap((p): PaymentOptionView[] =>
     p.checkoutMode === "hosted"
       ? [{ id: p.id, providerId: p.id, providerName: p.displayName, label: p.displayName, requiresPhone: false, hosted: { methodsLabel: p.hostedMethodsLabel ?? "carteira móvel", isTest: p.environment() === "test" } }]
-      : p.methods().map((m) => ({ id: `${p.id}:${m.id}`, providerId: p.id, providerName: p.displayName, label: m.label, requiresPhone: m.requiresPhone, hosted: null })),
+      : p.methods().map((m) => ({ id: `${p.id}:${m.id}`, providerId: p.id, providerName: p.displayName, label: m.label, requiresPhone: m.requiresPhone, hosted: null, isTest: p.environment() === "test" })),
   );
 }
 
@@ -84,7 +86,7 @@ export type StartPaymentOutcome =
   | { kind: "payments_unavailable"; message: string }
   | { kind: "invalid"; fieldErrors: Record<string, string> }
   | { kind: "coupon_error"; message: string }
-  | { kind: "payment_started"; token: string; redirectUrl: string | null }
+  | { kind: "payment_started"; token: string; redirectUrl: string | null; testMode?: boolean; uncertain?: boolean }
   | { kind: "payment_not_started"; message: string };
 
 export async function startRealPayment(
@@ -116,7 +118,15 @@ export async function startRealPayment(
 
   // Submissão repetida (duplo clique, reenvio): devolve a mesma encomenda, sem nova cobrança
   const existing = await prisma.order.findUnique({ where: { idempotencyKey: idem }, include: { payments: { orderBy: { createdAt: "desc" }, take: 1 } } });
-  if (existing) return { kind: "payment_started", token: existing.publicToken!, redirectUrl: existing.status === "PENDING" ? (existing.payments[0]?.redirectUrl ?? null) : null };
+  if (existing) {
+    // a mesma tentativa já foi recusada pelo gateway: devolve o mesmo erro (nunca «confirme no telemóvel»)
+    if ((existing.status === "DECLINED" || existing.status === "CANCELED") && existing.payments[0]) {
+      const p0 = existing.payments[0];
+      if (p0.failureCode === "NOT_STARTED") return { kind: "payment_not_started", message: "O pagamento não foi iniciado. Nenhum valor foi cobrado. Tente novamente." };
+      return { kind: "payment_not_started", message: await rejectionMessage(p0.id) };
+    }
+    return { kind: "payment_started", token: existing.publicToken!, redirectUrl: existing.status === "PENDING" ? (existing.payments[0]?.redirectUrl ?? null) : null, testMode: existing.isTestPayment };
+  }
   const environment = provider.environment();
 
   const totals = computeOrderTotals([{ unitPriceCents: c.offer.priceCents, quantity: 1 }], coupon.discountCents);
@@ -202,7 +212,9 @@ export async function startRealPayment(
   });
   await trackEvent({ type: EVENT_TYPES.CHECKOUT_SUBMIT, ownerId: c.ownerId, isDemo: false, checkoutId: c.id, orderId: created.orderId, meta: { provider: provider.id, method: method?.id ?? null } });
   if (charge.notStarted) return { kind: "payment_not_started", message: charge.notStarted };
-  return { kind: "payment_started", token: created.publicToken, redirectUrl: charge.redirectUrl };
+  // o gateway recusou logo o pedido (ex.: número sem carteira, saldo, PIN): nunca se pede ao comprador que confirme
+  if (charge.rejected) return { kind: "payment_not_started", message: charge.rejected };
+  return { kind: "payment_started", token: created.publicToken, redirectUrl: charge.redirectUrl, testMode: environment === "test", uncertain: charge.uncertain };
 }
 
 class CouponExhausted extends Error {}
@@ -211,8 +223,9 @@ export async function chargeWithProvider(
   provider: PaymentProvider,
   created: { orderId: string; orderCode: string; publicToken: string; paymentId: string; reference: string; ownerId: string },
   details: { amountCents: number; currency: PublicCheckout["offer"]["currency"]; method: string | null; phone: string | null; customer: { name: string; email: string }; description: string; imageUrl: string | null },
-): Promise<{ redirectUrl: string | null; notStarted?: string }> {
+): Promise<{ redirectUrl: string | null; notStarted?: string; rejected?: string; uncertain?: boolean }> {
   const base = await resolveAppBaseUrl();
+  const startedAt = Date.now();
   let result;
   try {
     result = await provider.createCharge({
@@ -226,6 +239,7 @@ export async function chargeWithProvider(
   } catch (e) {
     result = { kind: "error" as const, reason: e instanceof Error ? e.message : "erro desconhecido", retryable: true };
   }
+  await logChargeAttempt(provider, created, details.method, result, Date.now() - startedAt);
 
   switch (result.kind) {
     case "redirect":
@@ -259,14 +273,60 @@ export async function chargeWithProvider(
       await prisma.payment.update({ where: { id: created.paymentId }, data: { externalId: result.externalId } });
       // o motivo devolvido pelo gateway é classificado na confirmação (ex.: cancelado pelo cliente, saldo insuficiente)
       await applyPaymentStatus(provider.id, { externalId: result.externalId, reference: created.reference, state: "failed", amountCents: null, currency: null, feeCents: null, rawStatus: result.rawStatus ?? "failed", failureMessage: result.reason }, "charge-response", { ownerId: created.ownerId });
-      return { redirectUrl: null };
+      return { redirectUrl: null, rejected: await rejectionMessage(created.paymentId) };
     case "error":
       // Estado incerto: a encomenda fica pendente e será verificada por consulta oficial; nunca se assume sucesso.
       await prisma.payment.update({ where: { id: created.paymentId }, data: { status: "PENDING", failureReason: `Estado incerto: ${result.reason}`.slice(0, 200) } });
       await prisma.integrationLog.create({ data: { ownerId: created.ownerId, provider: provider.id, level: "error", message: `Falha ao criar pagamento para ${created.orderCode} (estado incerto).` } });
       await recordOrderEventSafe("pending", created.orderId);
-      return { redirectUrl: null };
+      return { redirectUrl: null, uncertain: true };
   }
+}
+
+/** Motivo para o comprador quando o gateway recusa logo o pedido (só motivos normalizados, nunca o texto bruto). */
+async function rejectionMessage(paymentId: string): Promise<string> {
+  const p = await prisma.payment.findUnique({ where: { id: paymentId }, select: { failureCode: true, failureReason: true } });
+  const why = p?.failureCode && BUYER_SAFE_CODES.includes(p.failureCode) && p.failureReason ? `${p.failureReason.replace(/\.\s*$/, "")}. ` : "O operador recusou o pedido de pagamento. ";
+  return `${why}Nenhum valor foi cobrado. Verifique o número e tente novamente.`;
+}
+
+/**
+ * Registo técnico de cada tentativa de cobrança (diagnóstico de «o pedido não chegou ao telemóvel»): referência,
+ * gateway, método, ambiente, resultado, identificador do gateway, motivo e tempo de resposta. Nunca o número
+ * completo, o PIN, credenciais nem dados pessoais. Fica nos registos do servidor e no histórico da integração.
+ */
+async function logChargeAttempt(
+  provider: PaymentProvider,
+  created: { orderCode: string; reference: string; ownerId: string },
+  method: string | null,
+  result: { kind: string; externalId?: string | null; reason?: string },
+  ms: number,
+) {
+  const env = provider.environment() ?? "?";
+  const outcome = { redirect: "aceite (página do gateway)", pending: "aceite — pedido enviado ao telemóvel", paid: "pago na resposta", failed: "recusado pelo gateway", not_created: "não iniciado", error: "sem resposta conclusiva" }[result.kind] ?? result.kind;
+  const line = {
+    evt: "payment.charge",
+    provider: provider.id,
+    env,
+    method,
+    order: created.orderCode,
+    reference: created.reference,
+    outcome: result.kind,
+    externalId: result.externalId ?? null,
+    reason: result.reason ? result.reason.slice(0, 200) : null,
+    ms,
+  };
+  console.info(JSON.stringify(line));
+  await prisma.integrationLog
+    .create({
+      data: {
+        ownerId: created.ownerId,
+        provider: provider.id,
+        level: result.kind === "pending" || result.kind === "redirect" || result.kind === "paid" ? "info" : "error",
+        message: `${created.orderCode} · ${method ?? "—"} · ${env === "test" ? "TESTE" : env === "live" ? "real" : env} · ${outcome}${result.externalId ? ` · id ${result.externalId}` : ""}${result.reason ? ` · ${result.reason}` : ""} · ${ms} ms`.slice(0, 500),
+      },
+    })
+    .catch(() => undefined);
 }
 
 // ───────────── Página de estado do pagamento ─────────────
@@ -308,7 +368,7 @@ async function refreshOne(orderId: string): Promise<void> {
   }
 }
 
-const BUYER_SAFE_CODES = ["CUSTOMER_CANCELLED", "INSUFFICIENT_FUNDS", "WRONG_PIN", "TIMEOUT"];
+const BUYER_SAFE_CODES = ["CUSTOMER_CANCELLED", "INSUFFICIENT_FUNDS", "WRONG_PIN", "INVALID_NUMBER", "EXPIRED", "TIMEOUT", "DECLINED", "GATEWAY_INTERNAL"];
 
 export async function getPaymentView(publicToken: string, opts: { refresh?: boolean } = {}) {
   if (!/^[A-Za-z0-9_-]{20,40}$/.test(publicToken)) return null;

@@ -205,6 +205,8 @@ interface PagarPayment {
   reference: string | null;
   safeMessage: string | null;
   failureReason: string | null;
+  /** TEST ou LIVE (resposta pública, secção 05) */
+  environment: string | null;
 }
 
 function readPayment(data: Record<string, unknown>): PagarPayment | null {
@@ -219,6 +221,7 @@ function readPayment(data: Record<string, unknown>): PagarPayment | null {
     reference: s("reference"),
     safeMessage: s("safeMessage"),
     failureReason: s("failureReason"),
+    environment: s("environment"),
   };
 }
 
@@ -303,6 +306,8 @@ export function createPagarProvider(
         try {
           const payment = readPayment(await client().post("/payments", body, idempotencyKey));
           if (!payment) return { kind: "error", reason: "Resposta da Pagar sem pagamento", retryable: true };
+          // diagnóstico: estado inicial e ambiente devolvidos pela Pagar (TEST não envia USSD a números reais)
+          console.info(`[pagar] POST /payments → ${payment.status} (${payment.environment ?? "?"}) ${payment.id}${payment.failureReason ? ` — ${payment.failureReason.slice(0, 120)}` : ""}`);
           if (payment.status === "FAILED" || payment.status === "CANCELLED") {
             return { kind: "failed", externalId: payment.id, reason: [payment.failureReason, payment.safeMessage].filter(Boolean).join(" — "), rawStatus: payment.status };
           }

@@ -103,10 +103,17 @@ test.describe.serial("pagamentos (fornecedor de teste local)", () => {
     await expect(page.getByTestId("thank-you-button")).toBeVisible();
   });
 
-  test("pagamento recusado mostra falha e opção de tentar novamente", async ({ page }) => {
-    await buy(page, "84 111 2220"); // termina em 0 → recusa imediata
-    await expect(page.getByTestId("payment-state")).toHaveAttribute("data-state", "failed");
-    await expect(page.getByRole("link", { name: "Tentar novamente" })).toBeVisible();
+  test("pagamento recusado logo pelo gateway: erro real no checkout, sem pedir o PIN", async ({ page }) => {
+    await page.goto(checkoutPath);
+    await page.getByLabel("Nome completo").fill("Comprador Moçambique");
+    await page.getByLabel("Email").fill("comprador@exemplo.co.mz");
+    await page.getByLabel(/Número M-Pesa/).fill("84 111 2220"); // termina em 0 → recusa imediata
+    await page.getByRole("button", { name: PAY_BUTTON }).click();
+    // a mensagem real (recusado pelo operador), nunca «Confirme no seu telemóvel»
+    await expect(page.getByText(/Pagamento recusado pelo operador.*Nenhum valor foi cobrado/)).toBeVisible();
+    await expect(page.getByTestId("payment-waiting")).toHaveCount(0);
+    // pode tentar de novo no mesmo checkout
+    await expect(page.getByRole("button", { name: PAY_BUTTON })).toBeEnabled();
   });
 
   test("pagamento expirado é apresentado como cancelado", async ({ page }) => {

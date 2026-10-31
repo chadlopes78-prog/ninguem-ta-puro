@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { createPortal } from "react-dom";
 import { Check, Loader2, Lock, ShieldCheck, Smartphone, Tag, TriangleAlert, X, XCircle, Zap } from "lucide-react";
 import { ICON_MAP } from "./checkout-elements";
 import type { ICONS } from "@/lib/checkout-design";
@@ -172,9 +173,9 @@ export function PurchaseForm({
   // Aviso quando o servidor/gateway demora (rede lenta): o pedido continua e não há cobrança em duplicado
   // Pagamento por telemóvel (M-Pesa/e-Mola): o comprador fica no checkout com uma janela por cima a pedir o PIN.
   // A janela consulta o estado no servidor; só o servidor decide o destino (página de pagamento → obrigado/acesso).
-  const [waiting, setWaiting] = useState<{ token: string; phone: string; label: string; state: "pending" | "failed" | "timeout"; reason?: string | null } | null>(null);
+  const [waiting, setWaiting] = useState<{ token: string; phone: string; label: string; state: "pending" | "checking" | "failed" | "timeout"; reason?: string | null; test?: boolean; sync?: boolean } | null>(null);
   useEffect(() => {
-    if (!waiting || waiting.state !== "pending") return;
+    if (!waiting || (waiting.state !== "pending" && waiting.state !== "checking")) return;
     let stop = false;
     let tries = 0;
     let timer: ReturnType<typeof setTimeout>;
@@ -310,7 +311,8 @@ export function PurchaseForm({
           else if (selectedMethod?.requiresPhone) {
             // continua no checkout: a janela pede a confirmação com o PIN no telemóvel
             newIdempotencyKey();
-            setWaiting({ token: r.token, phone: maskPhone(input.phone ?? ""), label: selectedMethod.label, state: "pending" });
+            // pending: o gateway aceitou e enviou o pedido ao telemóvel; checking: resposta inconclusiva (confirma-se o estado)
+            setWaiting({ token: r.token, phone: maskPhone(input.phone ?? ""), label: selectedMethod.label, state: r.uncertain ? "checking" : "pending", test: r.testMode ?? selectedMethod.isTest, sync: selectedMethod.providerId === "e2payments" });
           } else router.push(`/pagamento/${r.token}`);
         } else if (r.kind === "demo_approved") {
           router.push(r.runId ? `/oferta/${r.runId}` : `/checkout/${data.publicId}/sucesso?pedido=${encodeURIComponent(r.orderCode)}`);
@@ -434,6 +436,8 @@ export function PurchaseForm({
       phone={waiting?.phone ?? ""}
       statusHref={waiting ? `/pagamento/${waiting.token}` : null}
       reason={waiting?.reason ?? null}
+      sync={waiting?.sync ?? selectedMethod?.providerId === "e2payments"}
+      test={waiting?.test ?? selectedMethod?.isTest}
       onClose={() => setWaiting(null)}
     />
   );
@@ -808,6 +812,8 @@ export function PurchaseForm({
           phone={waiting?.phone ?? ""}
           statusHref={waiting ? `/pagamento/${waiting.token}` : null}
           reason={waiting?.reason ?? null}
+          sync={waiting?.sync ?? selectedMethod?.providerId === "e2payments"}
+          test={waiting?.test ?? selectedMethod?.isTest}
           onClose={() => setWaiting(null)}
         />
       )}
@@ -821,58 +827,118 @@ function maskPhone(raw: string): string {
   return d.length >= 4 ? `${d.slice(0, 2)}•••••${d.slice(-2)}` : "";
 }
 
-/** Janela por cima do checkout enquanto o comprador confirma o pagamento com o PIN no telemóvel. */
+/**
+ * Janela por cima do checkout enquanto o comprador confirma o pagamento com o PIN no telemóvel, desenhada no <body> (portal): o checkout usa container queries, e um contentor com
+ * `container-type` passa a ser a referência dos elementos `position: fixed` — dentro do formulário a janela ficava presa
+ * ao checkout (no fundo da página) em vez de centrada no ecrã. Centrada nos dois eixos com 100dvh, margens que respeitam
+ * as safe areas (Dynamic Island, barras do Android) e altura máxima com scroll interno.
+ */
 function PhoneConfirmDialog({
   p,
+  reason,
   state,
   label,
   phone,
   statusHref,
-  reason,
+  sync,
+  test,
   onClose,
 }: {
   p: Palette;
   reason?: string | null;
-  state: "sending" | "pending" | "failed" | "timeout";
+  /** sending: o pedido ainda não teve resposta do gateway · pending: o gateway aceitou e enviou o pedido ao telemóvel ·
+   *  checking: o gateway não respondeu de forma conclusiva (a confirmar o estado) */
+  state: "sending" | "pending" | "checking" | "failed" | "timeout";
   label: string;
   phone: string;
   statusHref: string | null;
+  /** Gateway que só responde depois do PIN (E2Payments): o pedido já está no telemóvel enquanto «envia» */
+  sync?: boolean;
+  /** Credenciais de TESTE do gateway */
+  test?: boolean;
   onClose: () => void;
 }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+    // impede o scroll da página por trás da janela
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
   const failed = state === "failed";
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-3 backdrop-blur-[2px] sm:items-center" role="dialog" aria-modal="true" aria-labelledby="pay-dialog-title" data-testid="payment-waiting" data-state={state} data-status-href={statusHref ?? undefined}>
-      <div className={cn("w-full max-w-sm rounded-2xl border p-6 text-center shadow-2xl", p.dark ? "border-white/10 bg-[#16181c] text-white" : "border-black/10 bg-white text-black")}>
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full" style={{ background: failed ? "#fee2e2" : `${p.primary}22` }}>
-          {failed ? <XCircle className="h-7 w-7 text-red-500" aria-hidden="true" /> : <Smartphone className="h-7 w-7" style={{ color: p.primary }} aria-hidden="true" />}
+  const awaitingPin = state === "pending" || (state === "sending" && sync);
+  const busy = state === "sending" || state === "pending" || state === "checking";
+  const title = failed
+    ? "Pagamento não concluído"
+    : state === "timeout"
+      ? "Ainda sem confirmação"
+      : state === "checking"
+        ? "A confirmar o pagamento…"
+        : awaitingPin
+          ? "Confirme o pagamento no seu telemóvel."
+          : "A enviar o pedido de pagamento…";
+  const text = failed
+    ? `${reason ? `${reason.replace(/\.$/, "")}. ` : "O pagamento foi recusado ou cancelado. "}Nenhum valor foi cobrado. Pode tentar novamente.`
+    : state === "timeout"
+      ? "Não recebemos a confirmação. Se já introduziu o PIN, veja o estado do pedido; não pague outra vez."
+      : state === "checking"
+        ? "A operadora ainda não respondeu. Se recebeu o pedido no telemóvel, introduza o PIN — estamos a verificar o estado do pagamento."
+        : awaitingPin
+          ? "Introduza o seu PIN no pedido recebido para concluir a compra."
+          : `A contactar a ${label || "operadora"} para enviar o pedido ao seu telemóvel.`;
+  const dialog = (
+    <div
+      className="fixed inset-0 z-[1000] flex h-[100dvh] w-screen items-center justify-center overflow-y-auto bg-black/55 backdrop-blur-[2px]"
+      style={{ padding: "max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left))" }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="pay-dialog-title"
+      aria-describedby="pay-dialog-text"
+      data-testid="payment-waiting"
+      data-state={state}
+      data-status-href={statusHref ?? undefined}
+    >
+      <div className="relative my-auto max-h-full w-full max-w-[380px] overflow-y-auto rounded-[22px] bg-white px-6 pb-6 pt-7 text-center text-[#0A0B0D] shadow-[0_24px_60px_-20px_rgba(15,23,42,0.45),0_2px_8px_rgba(15,23,42,0.08)]" data-testid="payment-dialog-card">
+        <div className="relative mx-auto grid h-[72px] w-[72px] place-items-center">
+          {busy && <span className="absolute inset-0 animate-spin rounded-full border-[3px] border-transparent motion-reduce:animate-none" style={{ borderTopColor: p.primary, borderRightColor: `${p.primary}55` }} aria-hidden="true" data-testid="payment-spinner" />}
+          <span className="grid h-14 w-14 place-items-center rounded-full" style={{ background: failed ? "#FEE2E2" : `${p.primary}1F` }}>
+            {failed ? <XCircle className="h-7 w-7 text-red-500" aria-hidden="true" /> : <Smartphone className="h-7 w-7" style={{ color: p.primary }} aria-hidden="true" />}
+          </span>
         </div>
-        <h2 id="pay-dialog-title" className="mt-4 text-lg font-semibold">
-          {failed ? "Pagamento não concluído" : state === "timeout" ? "Ainda sem confirmação" : `Confirme no seu telemóvel`}
+        <h2 id="pay-dialog-title" className="mt-4 text-[19px] font-bold leading-snug tracking-tight">
+          {title}
         </h2>
-        <p className={cn("mt-2 text-[14px] leading-relaxed", p.muted)} aria-live="polite">
-          {failed
-            ? `${reason ? `${reason}. ` : "O pagamento foi recusado ou cancelado. "}Nenhum valor foi cobrado. Pode tentar novamente.`
-            : state === "timeout"
-              ? "Não recebemos a confirmação. Se já introduziu o PIN, veja o estado do pedido; não pague outra vez."
-              : state === "sending"
-                ? `A enviar o pedido de pagamento ${label}…`
-                : `Vai aparecer no seu telemóvel${phone ? ` (${phone})` : ""} um pedido ${label}. Introduza o seu PIN para finalizar a compra.`}
+        <p id="pay-dialog-text" className="mt-2 text-[14.5px] leading-relaxed text-[#4B5563]" aria-live="polite">
+          {text}
         </p>
-        {(state === "sending" || state === "pending") && (
-          <p className="mt-4 flex items-center justify-center gap-2 text-[13px] font-medium">
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> {state === "sending" ? "A contactar a operadora…" : "A aguardar a confirmação…"}
+        {awaitingPin && (
+          <p className="mx-auto mt-4 w-fit rounded-full bg-[#F3F4F6] px-3.5 py-1.5 text-[12.5px] font-medium text-[#374151]" data-testid="payment-request-info">
+            Pedido {label} enviado{phone ? ` para ${phone}` : ""}
           </p>
         )}
-        {state === "pending" && <p className={cn("mt-3 text-[12px]", p.muted)}>Não feche esta página. Assim que confirmar, segue automaticamente para o seu produto.</p>}
+        {busy && (
+          <p className="mt-4 flex items-center justify-center gap-2 text-[13px] font-semibold text-[#111827]">
+            <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> {awaitingPin ? "A aguardar a confirmação…" : "A processar…"}
+          </p>
+        )}
+        {(awaitingPin || state === "checking") && <p className="mt-2 text-[12px] text-[#6B7280]">Não feche esta página. Assim que confirmar, segue automaticamente para o seu produto.</p>}
+        {test && !failed && (
+          <p className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-left text-[12px] leading-snug text-amber-900" data-testid="payment-test-mode">
+            Modo de teste do gateway: nenhum pedido real é enviado ao telemóvel e nada é cobrado. Só os números de teste do fornecedor recebem um resultado simulado.
+          </p>
+        )}
         <div className="mt-5 flex flex-col gap-2">
           {failed && (
-            <button type="button" onClick={onClose} className="h-11 rounded-xl text-[14px] font-semibold" style={{ background: p.button, color: p.onButton }} data-testid="payment-retry">
+            <button type="button" onClick={onClose} className="h-12 rounded-xl text-[15px] font-semibold" style={{ background: p.button, color: p.onButton }} data-testid="payment-retry">
               Tentar novamente
             </button>
           )}
           {/* enquanto aguarda o PIN não há ligação («segue automaticamente»); só depois do tempo de espera */}
           {statusHref && state === "timeout" && (
-            <a href={statusHref} className={cn("text-[12.5px] underline underline-offset-2", p.muted)} data-testid="payment-status-link">
+            <a href={statusHref} className="text-[12.5px] text-[#4B5563] underline underline-offset-2" data-testid="payment-status-link">
               Ver estado do pedido
             </a>
           )}
@@ -880,6 +946,7 @@ function PhoneConfirmDialog({
       </div>
     </div>
   );
+  return mounted ? createPortal(dialog, document.body) : null;
 }
 
 /** Texto branco sobre o botão (como no modelo), exceto em cores muito claras, onde fica escuro para continuar legível. */
