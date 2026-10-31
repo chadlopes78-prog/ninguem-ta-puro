@@ -14,6 +14,8 @@ async function buy(page: Page, phone: string) {
   await page.getByRole("button", { name: PAY_BUTTON }).click();
   // o comprador fica no checkout com a janela de confirmação no telemóvel
   await expect(page.getByTestId("payment-waiting")).toBeVisible();
+  // enquanto aguarda o PIN não há «Ver estado do pedido» (segue sozinha quando o pagamento é confirmado)
+  await expect(page.getByText("Ver estado do pedido")).toHaveCount(0);
   // pendente: página de estado; já confirmado (consulta oficial): a janela segue sozinha para o obrigado
   await toPaymentPage(page);
   return page.url();

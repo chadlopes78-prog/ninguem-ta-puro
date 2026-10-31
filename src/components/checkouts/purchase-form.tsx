@@ -841,7 +841,7 @@ function PhoneConfirmDialog({
 }) {
   const failed = state === "failed";
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-3 backdrop-blur-[2px] sm:items-center" role="dialog" aria-modal="true" aria-labelledby="pay-dialog-title" data-testid="payment-waiting" data-state={state}>
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-3 backdrop-blur-[2px] sm:items-center" role="dialog" aria-modal="true" aria-labelledby="pay-dialog-title" data-testid="payment-waiting" data-state={state} data-status-href={statusHref ?? undefined}>
       <div className={cn("w-full max-w-sm rounded-2xl border p-6 text-center shadow-2xl", p.dark ? "border-white/10 bg-[#16181c] text-white" : "border-black/10 bg-white text-black")}>
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full" style={{ background: failed ? "#fee2e2" : `${p.primary}22` }}>
           {failed ? <XCircle className="h-7 w-7 text-red-500" aria-hidden="true" /> : <Smartphone className="h-7 w-7" style={{ color: p.primary }} aria-hidden="true" />}
@@ -870,7 +870,8 @@ function PhoneConfirmDialog({
               Tentar novamente
             </button>
           )}
-          {statusHref && (
+          {/* enquanto aguarda o PIN não há ligação («segue automaticamente»); só depois do tempo de espera */}
+          {statusHref && state === "timeout" && (
             <a href={statusHref} className={cn("text-[12.5px] underline underline-offset-2", p.muted)} data-testid="payment-status-link">
               Ver estado do pedido
             </a>

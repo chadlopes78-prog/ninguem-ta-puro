@@ -64,13 +64,13 @@ export async function completeAndPublish(page: Page, productName: string, opts: 
 }
 
 /**
- * Pagamento por telemóvel: o checkout fica aberto com a janela "Confirme no seu telemóvel"; o link "Ver estado do
- * pedido" leva à página de estado (se o pagamento já tiver sido confirmado, a própria janela já avançou).
+ * Pagamento por telemóvel: o checkout fica aberto com a janela "Confirme no seu telemóvel" (sem ligação visível enquanto
+ * aguarda o PIN). O teste abre a página de estado do pedido (endereço em data-status-href); se o pagamento já tiver
+ * sido confirmado, a própria janela já levou o comprador para fora do checkout.
  */
 export async function toPaymentPage(page: Page, timeout = 45_000) {
-  const link = page.getByTestId("payment-status-link");
-  // a janela mostra o link, ou o pagamento já confirmado levou o comprador para fora do checkout (obrigado, oferta, página externa)
-  await page.waitForFunction(() => !!document.querySelector("[data-testid=payment-status-link]") || !location.pathname.startsWith("/checkout/"), null, { timeout });
-  if (await link.isVisible().catch(() => false)) await link.click().catch(() => undefined);
+  await page.waitForFunction(() => !!document.querySelector("[data-testid=payment-waiting][data-status-href]") || !location.pathname.startsWith("/checkout/"), null, { timeout });
+  const href = await page.getByTestId("payment-waiting").getAttribute("data-status-href", { timeout: 1000 }).catch(() => null);
+  if (href && new URL(page.url()).pathname.startsWith("/checkout/")) await page.goto(href).catch(() => undefined);
   await page.waitForURL((u) => !u.pathname.startsWith("/checkout/"), { timeout });
 }
