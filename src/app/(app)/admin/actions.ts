@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { revalidatePublicCheckouts } from "@/server/checkout-cache";
 import { unstable_rethrow } from "next/navigation";
 import { requireOwner } from "@/server/auth/session";
 import { assertId } from "@/server/actions";
@@ -32,6 +33,8 @@ export async function adminUserAction(userId: string, action: AdminAction, reaso
     return { ok: false, error: "Ocorreu um erro inesperado. Tente novamente." };
   }
   revalidatePath("/admin", "layout");
+  // conta suspensa/aprovada: os seus checkouts públicos mudam de estado
+  revalidatePublicCheckouts();
   return { ok: true, message: MESSAGES[action] };
 }
 
@@ -63,6 +66,7 @@ async function grantsAction(fn: () => Promise<string>): Promise<ActionResult> {
     const message = await fn();
     revalidatePath("/admin/integracoes");
     revalidatePath("/integracoes", "layout");
+    revalidatePublicCheckouts();
     return { ok: true, message };
   } catch (e) {
     unstable_rethrow(e);

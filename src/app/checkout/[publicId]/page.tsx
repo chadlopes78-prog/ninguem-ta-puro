@@ -12,7 +12,14 @@ import { CheckoutView } from "@/components/checkouts/checkout-view";
 import { Unavailable } from "@/components/public/unavailable";
 import { applyCouponAction, submitCheckoutAction } from "./actions";
 
-export const dynamic = "force-dynamic";
+// Cache curta (ISR): em picos de tráfego a página não é renderizada a cada visita. Não contém dados do comprador nem
+// da transação (a compra e o estado do pagamento são sempre dinâmicos e validados no servidor). As alterações do
+// vendedor invalidam a cache logo (revalidatePublicCheckouts nas ações); a prova social pode ter até 15 s de atraso.
+export const revalidate = 15;
+// nenhum checkout é gerado no build: cada um é gerado no primeiro pedido e depois servido da cache
+export function generateStaticParams() {
+  return [];
+}
 // A E2Payments só responde depois de o comprador confirmar no telemóvel (o SDK oficial espera até 180 s).
 export const maxDuration = 180;
 

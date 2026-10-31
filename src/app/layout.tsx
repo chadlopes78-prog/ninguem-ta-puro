@@ -1,8 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { cookies } from "next/headers";
 import { ToastProvider } from "@/components/ui/toast";
-import { isPanelTheme, LOCALE_COOKIE, THEME_COOKIE } from "@/lib/panel-theme";
+import { LOCALE_COOKIE, PANEL_THEMES, THEME_COOKIE } from "@/lib/panel-theme";
 
 export const metadata: Metadata = {
   title: { default: "Ninguém Tá Puro", template: "%s · Ninguém Tá Puro" },
@@ -17,13 +16,16 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = { themeColor: "#0b0c0e", width: "device-width", initialScale: 1 };
 
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  // Tema do painel (só tem efeito em páginas do painel; ver globals.css)
-  const jar = await cookies();
-  const pref = jar.get(THEME_COOKIE)?.value;
-  const locale = jar.get(LOCALE_COOKIE)?.value;
+// Tema do painel e idioma da página aplicados no browser antes da primeira pintura (sem piscar). O layout raiz não lê
+// cookies no servidor: assim as páginas públicas (checkout) podem ser servidas da cache em picos de tráfego.
+const PREFS_SCRIPT = `(function(){try{var c=document.cookie.split("; "),t,l,i,p;for(i=0;i<c.length;i++){p=c[i].split("=");if(p[0]===${JSON.stringify(THEME_COOKIE)})t=decodeURIComponent(p[1]||"");if(p[0]===${JSON.stringify(LOCALE_COOKIE)})l=decodeURIComponent(p[1]||"")}var d=document.documentElement;if(${JSON.stringify(PANEL_THEMES)}.indexOf(t)>-1)d.setAttribute("data-theme",t);if(/^pt-(MZ|PT|BR)$/.test(l||""))d.lang=l}catch(e){}})();`;
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang={locale && /^pt-(MZ|PT|BR)$/.test(locale) ? locale : "pt"} data-theme={isPanelTheme(pref) ? pref : "system"} suppressHydrationWarning>
+    <html lang="pt" data-theme="system" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: PREFS_SCRIPT }} />
+      </head>
       <body className="min-h-dvh">
         <ToastProvider>{children}</ToastProvider>
       </body>

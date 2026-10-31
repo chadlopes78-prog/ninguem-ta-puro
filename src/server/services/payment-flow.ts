@@ -297,7 +297,7 @@ async function rejectionMessage(paymentId: string): Promise<string> {
  */
 async function logChargeAttempt(
   provider: PaymentProvider,
-  created: { orderCode: string; reference: string; ownerId: string },
+  created: { orderCode: string; reference: string; ownerId: string; paymentId: string },
   method: string | null,
   result: { kind: string; externalId?: string | null; reason?: string },
   ms: number,
@@ -317,6 +317,7 @@ async function logChargeAttempt(
     ms,
   };
   console.info(JSON.stringify(line));
+  await prisma.payment.update({ where: { id: created.paymentId }, data: { chargeLatencyMs: Math.min(ms, 2_000_000_000) } }).catch(() => undefined);
   await prisma.integrationLog
     .create({
       data: {

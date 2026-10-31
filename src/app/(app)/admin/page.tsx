@@ -5,6 +5,7 @@ import { requireOwner } from "@/server/auth/session";
 import { adminOverview } from "@/server/services/admin";
 import { accountState } from "@/server/auth/policy";
 import { getSystemHealth } from "@/server/health";
+import { getPaymentHealth } from "@/server/services/payment-health";
 import { getVapidKeys } from "@/server/notifications/push";
 import { formatDate } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
@@ -17,7 +18,8 @@ export const metadata: Metadata = { title: "Administração da Plataforma" };
 
 export default async function AdminOverviewPage() {
   const actor = await requireOwner();
-  const [o, health, vapid] = await Promise.all([adminOverview(actor), getSystemHealth(), getVapidKeys().catch(() => null)]);
+  const [o, health, vapid, pay] = await Promise.all([adminOverview(actor), getSystemHealth(), getVapidKeys().catch(() => null), getPaymentHealth()]);
+  const pct = (v: number | null) => (v === null ? "—" : `${(v * 100).toFixed(1).replace(".", ",")}%`);
   const status = [
     { label: "Base de dados", ok: health.ok, detail: health.ok ? "Ligada e migrada" : "Com problemas — ver /api/health" },
     { label: "Notificações push", ok: Boolean(vapid), detail: vapid ? "Chaves VAPID disponíveis" : "Sem chave de cifra no servidor" },
@@ -39,6 +41,64 @@ export default async function AdminOverviewPage() {
         <StatCard label="Suspensas" value={o.banned} />
         <StatCard label="Ativas (30 dias)" value={o.active} hint="Contas aprovadas que iniciaram sessão nos últimos 30 dias." />
       </section>
+
+      <Card className="mt-6" data-testid="payment-health">
+        <CardHeader
+          title="Saúde dos pagamentos (última hora)"
+          description="Métricas técnicas de toda a plataforma, sem valores nem dados comerciais das contas. Atualiza ao recarregar a página."
+        />
+        <CardBody className="grid gap-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8">
+            <StatCard label="Tentativas" value={<span data-testid="ph-attempts">{pay.attempts}</span>} hint="Pagamentos iniciados na última hora." />
+            <StatCard label="Pico / minuto" value={pay.peakPerMinute} />
+            <StatCard label="Aprovação" value={<span data-testid="ph-approval">{pct(pay.approvalRate)}</span>} hint="Pagos ÷ (pagos + falhados + cancelados)." />
+            <StatCard label="Falhas" value={pct(pay.failureRate)} />
+            <StatCard label="Pendentes agora" value={pay.pending} />
+            <StatCard label="Pendentes > 10 min" value={<span className={pay.stuckPending ? "text-warning" : ""}>{pay.stuckPending}</span>} hint="À espera de aviso ou consulta do gateway (a reconciliação automática verifica-os)." />
+            <StatCard label="Avisos atrasados" value={<span className={pay.webhooksDelayed ? "text-warning" : ""}>{pay.webhooksDelayed}</span>} hint={`Recebidos e por processar há mais de 1 min · falhados: ${pay.webhooksFailed}${pay.webhookAvgProcessMs !== null ? ` · processamento médio ${pay.webhookAvgProcessMs} ms` : ""}`} />
+            <StatCard label="Memória (instância)" value={`${pay.instance.rssMb} MB`} hint={`Heap ${pay.instance.heapUsedMb} MB · ativa há ${pay.instance.uptimeMin} min. Cada instância da Vercel é independente.`} />
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <p className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-subtle">Tempo de resposta dos gateways</p>
+              {pay.latency.length ? (
+                <ul className="grid gap-1.5 text-sm" data-testid="ph-latency">
+                  {pay.latency.map((l) => (
+                    <li key={l.provider} className="flex justify-between gap-3">
+                      <span>{l.provider}</span>
+                      <span className="tabular text-muted">média {l.avgMs} ms · p95 {l.p95Ms} ms · {l.count} pedido(s)</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-subtle">Sem pagamentos na última hora.</p>
+              )}
+            </div>
+            <div>
+              <p className="mb-2 text-[12px] font-semibold uppercase tracking-wider text-subtle">Erros dos gateways</p>
+              {pay.gatewayErrors.length ? (
+                <ul className="grid gap-1.5 text-sm">
+                  {pay.gatewayErrors.map((g) => (
+                    <li key={g.provider} className="flex justify-between gap-3">
+                      <span>{g.provider}</span>
+                      <span className="tabular text-warning">{g.count}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-subtle">Nenhum erro na última hora.</p>
+              )}
+            </div>
+          </div>
+          {pay.perMinute.length > 0 && (
+            <div aria-label="Tentativas por minuto" className="flex h-16 items-end gap-[2px]">
+              {pay.perMinute.map((m) => (
+                <span key={m.minute} title={`${new Date(m.minute).toLocaleTimeString("pt-PT", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Maputo" })}: ${m.attempts}`} className="min-w-[3px] flex-1 rounded-t bg-accent/70" style={{ height: `${Math.max(6, (m.attempts / Math.max(1, pay.peakPerMinute)) * 100)}%` }} />
+              ))}
+            </div>
+          )}
+        </CardBody>
+      </Card>
 
       <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-3">
         <Card className="lg:col-span-2">

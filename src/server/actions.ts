@@ -7,6 +7,7 @@ import { getScope } from "@/server/services/settings";
 import type { Scope } from "@/server/scope";
 import { DomainError, NotFoundError } from "@/server/services/products";
 import { flattenErrors, type ActionResult } from "@/server/validation/common";
+import { revalidatePublicCheckouts } from "@/server/checkout-cache";
 
 export interface ActionCtx {
   user: AuthUser;
@@ -23,7 +24,10 @@ export interface ActionCtx {
 export async function guarded<T>(fn: (ctx: ActionCtx) => Promise<ActionResult<T>>): Promise<ActionResult<T>> {
   const { user, isDemo, settings, scope } = await getScope();
   try {
-    return await fn({ user, isDemo, settings, scope });
+    const result = await fn({ user, isDemo, settings, scope });
+    // alterações do vendedor (produto, design, gateways, configurações) refletem-se logo no checkout público em cache
+    if (result.ok) revalidatePublicCheckouts();
+    return result;
   } catch (e) {
     unstable_rethrow(e);
     if (e instanceof DomainError || e instanceof NotFoundError) return { ok: false, error: e.message };
