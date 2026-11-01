@@ -6,6 +6,7 @@ import { checkIntegration, isGatewayId, setGatewayEnabled, testGatewayConnection
 import { reconcilePendingPayments } from "@/server/services/payment-flow";
 import { deleteMetaPixel, saveMetaPixel, setMetaPixelsEnabled } from "@/server/services/meta-capi";
 import { scopeOf } from "@/server/scope";
+import { savePagarDomain } from "@/server/services/pagar-domain";
 
 // Todas as ações exigem sessão válida e conta aprovada (guarded) e atuam APENAS sobre a conta da sessão:
 // o id da conta nunca vem do browser. Nenhuma devolve valores de credenciais.
@@ -139,5 +140,18 @@ export async function requestGrantRemovalAction(grantId: string) {
     await requestGrantRemoval(user.id, assertId(grantId));
     revalidatePath("/integracoes");
     return { ok: true, message: "Pedido enviado. O administrador foi informado." };
+  });
+}
+
+/** Token de verificação do domínio da Pagar DESTA conta (público por natureza) e o hostname onde é publicado. */
+export async function savePagarDomainAction(fd: FormData) {
+  return guarded(async ({ user }) => {
+    const get = (k: string) => {
+      const v = fd.get(k);
+      return typeof v === "string" ? v.slice(0, 300) : undefined;
+    };
+    const r = await savePagarDomain(user.id, { host: get("host"), token: get("token") });
+    revalidatePath("/integracoes", "layout");
+    return r.ok ? { ok: true, message: r.message } : { ok: false, error: r.error, fieldErrors: "fieldErrors" in r ? r.fieldErrors : undefined };
   });
 }

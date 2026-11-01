@@ -17,6 +17,8 @@ import { PagarForm } from "@/components/integrations/pagar-form";
 import { resolveAppBaseUrl } from "@/server/app-url";
 import { CopyButton } from "@/components/ui/copy-button";
 import { MetaPixelForm } from "@/components/integrations/meta-pixel-form";
+import { PagarDomainForm } from "@/components/integrations/pagar-domain-form";
+import { getPagarDomain, type PagarDomainView } from "@/server/services/pagar-domain";
 import { Checks, Details, Info, IntegrationLogo, KeySetup, STATUS_TONE } from "../integration-parts";
 import {
   checkIntegrationAction,
@@ -25,6 +27,7 @@ import {
   saveE2CredentialsAction,
   saveEPayCredentialsAction,
   savePagarCredentialsAction,
+  savePagarDomainAction,
   setPagarModeAction,
   saveMetaPixelAction,
   setGatewayEnabledAction,
@@ -37,7 +40,7 @@ export const metadata: Metadata = { title: "Configurar integração" };
 
 const crumbs = (name: string) => [{ label: "Integrações", href: "/integracoes" }, { label: name }];
 
-function GatewayConfig({ g, tz, webhookUrl }: { g: GatewayView; tz: string; webhookUrl: string | null }) {
+function GatewayConfig({ g, tz, webhookUrl, domain }: { g: GatewayView; tz: string; webhookUrl: string | null; domain: PagarDomainView | null }) {
   const ready = g.configured && g.status !== "config_error";
   return (
     <>
@@ -124,6 +127,32 @@ function GatewayConfig({ g, tz, webhookUrl }: { g: GatewayView; tz: string; webh
                       <CopyButton value={webhookUrl} label="Copiar" />
                     </div>
                   </div>
+                )}
+                {domain && (
+                  <Details title="Verificação do domínio na Pagar (modo real)" testId="pagar-domain" open={Boolean(domain.host)}>
+                    <div className="flex flex-col gap-3 text-[12.5px] text-muted">
+                      <p>
+                        Para passar para LIVE, a Pagar pede um token publicado no endereço da sua app. Cada endereço só pode mostrar um token: o endereço principal
+                        {domain.platformHost ? <> (<code className="text-fg">{domain.platformHost}</code>)</> : null} pertence à conta da plataforma. Se tem a sua própria app na Pagar, use um endereço próprio
+                        associado a esta plataforma (peça-o ao administrador) ou o seu domínio com registo DNS TXT.
+                      </p>
+                      <PagarDomainForm key={`${domain.host}-${domain.token}`} action={savePagarDomainAction} initial={{ host: domain.host, token: domain.token }} />
+                      {domain.host && (
+                        <div className="flex flex-col gap-1.5 rounded-[var(--radius-md)] border border-line bg-surface-2 p-3" data-testid="pagar-domain-urls">
+                          <p className="font-medium text-fg">Ficheiro de verificação</p>
+                          <div className="flex items-center gap-2">
+                            <code className="min-w-0 flex-1 truncate">{`https://${domain.host}/.well-known/pagar-verification.txt`}</code>
+                            <CopyButton value={`https://${domain.host}/.well-known/pagar-verification.txt`} label="Copiar" />
+                          </div>
+                          <p className="font-medium text-fg">Webhook nesta app</p>
+                          <div className="flex items-center gap-2">
+                            <code className="min-w-0 flex-1 truncate">{`https://${domain.host}/api/webhooks/pagar`}</code>
+                            <CopyButton value={`https://${domain.host}/api/webhooks/pagar`} label="Copiar" />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </Details>
                 )}
               </>
             ) : g.id === "epay" ? (
@@ -361,5 +390,6 @@ export default async function IntegrationConfigPage({ params }: { params: Promis
   const g = (await listGateways(user.id)).find((x) => x.id === id);
   if (!g) notFound();
   const webhookUrl = id === "pagar" ? `${await resolveAppBaseUrl()}/api/webhooks/pagar` : null;
-  return <GatewayConfig g={g} tz={settings.timezone} webhookUrl={webhookUrl} />;
+  const domain = id === "pagar" ? await getPagarDomain(user.id) : null;
+  return <GatewayConfig g={g} tz={settings.timezone} webhookUrl={webhookUrl} domain={domain} />;
 }
